@@ -5,7 +5,7 @@ from pathlib import Path
 
 from tools.search_wallets import search_for_wallets
 from tools.analyze_wallets import analyze_wallets
-from tools.wallet_checker import check_wallet_balances
+from tools.check_wallet_balances import check_wallet_balances
 from tools.filter_wallets import filter_wallet_balances
 
 def main(input_dir, output_dir):

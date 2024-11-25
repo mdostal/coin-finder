@@ -1,2 +1,2 @@
-berkeleydb==18.1.5
-requests==2.27.1
+requests
+python-dotenv

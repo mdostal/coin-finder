@@ -1,9 +1,8 @@
 import os
 from pathlib import Path
+from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS
 
 # Define wallet-related file extensions and keywords
-WALLET_EXTENSIONS = ['.dat', '.key', '.wallet', '.json', '.backup']
-WALLET_KEYWORDS = ['wallet', 'crypto', 'bitcoin', 'ethereum', 'backup']
 
 def search_for_wallets(start_path, output_file):
     """
