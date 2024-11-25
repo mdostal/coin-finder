@@ -9,6 +9,23 @@ This project is a modular pipeline designed to **discover cryptocurrency wallet 
 
 ---
 
+## Why?
+
+If anyone is like me and happens to stash crypto coins like a squirrel stashes nuts... often forgetting where they are.... I've created a toolset to help find wallets, check them for coins, and filter the files down to reasonable ones based on what it found on the corresponding blockchain,
+
+The wallet tools I found out there just didn't match up to what I needed them to do and the ones that did often pulled in a number of 3rd party libs that I'd want to check to see if they were trojans (or they straight up had no source code and just an executable that I'm certain was malware).
+
+So, here's a thing!
+
+If you like it and want to support me making community tools, here are some options:
+
+- Star the repo
+- Tweet about it
+
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/mdostal)
+
+Feel free to reach out if you have any questions or suggestions! (Or if you'd like to see this as a single downloadable executable)
+
 ## File Structure
 
 ```plaintext
@@ -193,21 +210,50 @@ BLOCKFROST_API_KEY=your_blockfrost_api_key
 ## Extend `wallet_config.py`
 
 - Add the new cryptocurrency and its corresponding service file:
-  ```python
+```python
   WALLET_SERVICES["NewCoin"] = "newcoin"
+```
+
+**Example**:
+```python
+WALLET_SERVICES = {
+    "Binance Coin": "binance_coin",
+    "Bitcoin": "bitcoin",
+    "Cardano": "cardano",
+    "Dogecoin": "dogecoin",
+    "Ethereum": "ethereum",
+    "Litecoin": "litecoin",
+    "Monero": "monero",
+    "Ripple": "ripple",
+    "Shiba Inu": "ethereum",
+    "Tether": "ethereum",
+}
+```
+
+## Implement Service
+
+- Implement the service for the new cryptocurrency.
 
   Create the Service
 Create services/newcoin.py and implement the WalletService interface:
-python
-Copy code
+
+```python
 from . import WalletService
 
 class NewCoinService(WalletService):
     def check_balance(self, address):
         # Implement API or node integration to fetch balance
         pass
-Add Patterns (if needed)
+```
+## Add Patterns (if needed) 
 Add regex patterns for the new coin in analyze_config.py.
-python
-Copy code
+```python
 CRYPTO_PATTERNS["NewCoin"] = r"regex_pattern_for_new_coin"
+```
+**Example**:
+```python
+CRYPTO_PATTERNS = {
+    "Bitcoin": r"(1[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[q|p|z][a-zA-HJ-NP-Z0-9]{38,64})",
+    "Bitcoin Cash": r"bitcoincash:[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{42}",
+}
+```
