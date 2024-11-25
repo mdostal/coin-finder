@@ -1,6 +1,5 @@
 import json
 import re
-import argparse
 
 # Supported cryptocurrencies and their patterns
 CRYPTO_PATTERNS = {
@@ -54,6 +53,8 @@ def analyze_wallets(input_file, output_file):
     print(f"\nAnalysis complete. Results saved to {output_file}.")
 
 if __name__ == "__main__":
+    import argparse
+
     parser = argparse.ArgumentParser(description="Analyze potential wallet files for crypto addresses.")
     parser.add_argument("input_file", help="File containing paths of wallet files to analyze.")
     parser.add_argument("output_file", help="File to save the analysis results.")
