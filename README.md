@@ -122,18 +122,28 @@ Generates JSON files at each stage for traceability and easy debugging.
 ---
 
 ## Supported Cryptocurrencies
+# Supported Cryptocurrencies
 
-| Cryptocurrency    | Service File      | Address Format (Regex)                                                                                     | API/Method for Balance Check                                 |
-|--------------------|-------------------|-----------------------------------------------------------------------------------------------------------|-------------------------------------------------------------|
-| Bitcoin (BTC)      | `bitcoin.py`      | `1[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[q|p|z][a-zA-HJ-NP-Z0-9]{38,64}`                                          | Blockstream API                                             |
-| Ethereum (ETH)     | `ethereum.py`     | `0x[a-fA-F0-9]{40}`                                                                                       | Etherscan API                                               |
-| Ripple (XRP)       | `ripple.py`       | `r[1-9A-HJ-NP-Za-km-z]{25,35}`                                                                            | Ripple API                                                  |
-| Litecoin (LTC)     | `litecoin.py`     | `[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}`                                                                        | Blockcypher API                                             |
-| Dogecoin (DOGE)    | `dogecoin.py`     | `D{1}[5-9A-HJ-NP-U]{1}[1-9A-HJ-NP-Za-km-z]{32}`                                                           | SoChain API                                                 |
-| Monero (XMR)       | `monero.py`       | `[48]{1}[0-9AB][1-9A-HJ-NP-Za-km-z]{93}`                                                                  | Monero Blocks API                                           |
-| Cardano (ADA)      | `cardano.py`      | `addr[a-z0-9]{58,90}`                                                                                     | Blockfrost API                                              |
-| Binance Coin (BNB) | `binance_coin.py` | `bnb[a-z0-9]{38}`                                                                                         | Binance Explorer API                                        |
-| Shiba Inu (SHIB)   | `ethereum.py`     | `0x[a-fA-F0-9]{40}`                                                                                       | Etherscan API                                               |
+| Cryptocurrency       | Address Format (Regex)                                                                                   | API Provider For Checker               |
+|-----------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------|
+| **Bitcoin (BTC)**     | `1[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[q|p|z][a-zA-HJ-NP-Z0-9]{38,64}`                                        | Blockstream API                       |
+| **Bitcoin Cash (BCH)**| `bitcoincash:[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{42}`                                                     | Blockchair                            |
+| **Bitcoin Gold (BTG)**| `[AG][a-km-zA-HJ-NP-Z1-9]{26,33}`                                                                       | Blockchair                            |
+| **Cosmos (ATOM)**     | `cosmos1[a-z0-9]{38}`                                                                                   | Mintscan                              |
+| **Ethereum (ETH)**    | `0x[a-fA-F0-9]{40}`                                                                                     | Etherscan API                         |
+| **Ethereum Classic**  | `0x[a-fA-F0-9]{40}`                                                                                     | Blockscout                            |
+| **Dogecoin (DOGE)**   | `D{1}[5-9A-HJ-NP-U]{1}[1-9A-HJ-NP-Za-km-z]{32}`                                                         | SoChain API                           |
+| **Shiba Inu (SHIB)**  | `0x[a-fA-F0-9]{40}`                                                                                     | Etherscan API                         |
+| **Litecoin (LTC)**    | `[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}`                                                                      | Blockcypher API                       |
+| **Ripple (XRP)**      | `r[1-9A-HJ-NP-Za-km-z]{25,35}`                                                                          | XRPL.org                              |
+| **IOTA (MIOTA)**      | `[A-Z9]{81}`                                                                                           | IOTA Tangle Explorer                  |
+| **Tether (USDT)**     | `0x[a-fA-F0-9]{40}` (Ethereum) or `1[a-km-zA-HJ-NP-Z1-9]{25,34}` (Bitcoin Omni Layer)                   | Etherscan or Omni Explorer            |
+| **Helium (HNT)**      | `13[a-zA-Z0-9]{45,48}`                                                                                 | Helium Explorer                       |
+| **Cardano (ADA)**     | `addr[a-z0-9]{58,90}`                                                                                  | Blockfrost API                        |
+| **Zcash (ZEC)**       | `t[1-9A-HJ-NP-Za-km-z]{34}`                                                                            | Zcash Explorer                        |
+| **OKCash (OK)**       | `[0-9A-Za-z]{34}`                                                                                      | OKCash Blockchain Explorer            |
+| **Binance Coin (BNB)**| `bnb[a-z0-9]{38}`                                                                                      | Binance Explorer                      |
+| **Monero (XMR)**      | `[48]{1}[0-9AB][1-9A-HJ-NP-Za-km-z]{93}`        
 
 ---
 
