@@ -167,9 +167,9 @@ Generates JSON files at each stage for traceability and easy debugging.
   ```
   ---
   
-  # Environment Setup
+## Environment Setup
 
-## Required Environment Variables
+### Required Environment Variables
 
 ### **`.env` File**:
 ```python
@@ -189,7 +189,7 @@ BLOCKFROST_API_KEY=your_blockfrost_api_key
 
 ---
 
-# Failsafes
+## Failsafes
 
 1. **Invalid Coins**:
    - If unsupported coins are passed via `--coins`, the tool reports them and exits gracefully.
@@ -205,9 +205,9 @@ BLOCKFROST_API_KEY=your_blockfrost_api_key
 
 ---
 
-# Adding New Coins
+## Adding New Coins
 
-## Extend `wallet_config.py`
+### Extend `wallet_config.py`
 
 - Add the new cryptocurrency and its corresponding service file:
 ```python
@@ -230,7 +230,7 @@ WALLET_SERVICES = {
 }
 ```
 
-## Implement Service
+### Implement Service
 
 - Implement the service for the new cryptocurrency.
 
@@ -245,7 +245,7 @@ class NewCoinService(WalletService):
         # Implement API or node integration to fetch balance
         pass
 ```
-## Add Patterns (if needed) 
+### Add Patterns (if needed) 
 Add regex patterns for the new coin in analyze_config.py.
 ```python
 CRYPTO_PATTERNS["NewCoin"] = r"regex_pattern_for_new_coin"
