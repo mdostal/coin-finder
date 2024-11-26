@@ -1,36 +1,39 @@
 import os
 from pathlib import Path
-from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS
-
-# Define wallet-related file extensions and keywords
+from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS, MAX_FILE_SIZE, MIN_FILE_SIZE
 
 def search_for_wallets(start_path, output_file):
-    """
-    Search for potential cryptocurrency wallet files in the given directory and subdirectories.
-
-    :param start_path: Directory to start searching from.
-    :param output_file: File to save the list of potential wallet file paths.
-    """
     potential_wallets = []
 
-    # Walk through the directory tree
     for root, dirs, files in os.walk(start_path):
         for file in files:
-            # Check file extension
             file_path = Path(root) / file
-            if any(file_path.suffix.lower() == ext for ext in WALLET_EXTENSIONS):
-                potential_wallets.append(str(file_path))
-            # Check file name keywords
-            elif any(keyword in file.lower() for keyword in WALLET_KEYWORDS):
-                potential_wallets.append(str(file_path))
+            try:
+                file_size = file_path.stat().st_size
 
-    # Save results to the output file
+                # Skip files outside the size range
+                if file_size > MAX_FILE_SIZE:
+                    print(f"Skipping large file: {file_path} ({file_size / (1024 * 1024):.2f} MB)")
+                    continue
+                if file_size < MIN_FILE_SIZE:
+                    print(f"Skipping empty or very small file: {file_path}")
+                    continue
+
+                # Check if the file matches extensions or keywords
+                if any(file_path.suffix.lower() == ext for ext in WALLET_EXTENSIONS) or \
+                   any(keyword in file.lower() for keyword in WALLET_KEYWORDS):
+                    potential_wallets.append(str(file_path))
+            except Exception as e:
+                print(f"Error accessing file {file_path}: {e}")
+
+    # Write results to the output file
     with open(output_file, "w") as f:
         for wallet in potential_wallets:
             f.write(wallet + "\n")
 
     print(f"Search complete. Found {len(potential_wallets)} potential wallet files.")
     print(f"Results saved to {output_file}.")
+    return potential_wallets
 
 if __name__ == "__main__":
     import argparse

@@ -1,4 +1,5 @@
 import requests
+import os
 from . import WalletService
 
 class ShibaInuService(WalletService):
