@@ -2,8 +2,8 @@
 WALLET_SERVICES = {
     "Binance Coin": "binance_coin",
     "Bitcoin": "bitcoin",
-    "Bitcoin Cash": "btc_cash",
-    "Bitcoin Gold": "btc_gold",
+    "Bitcoin Cash": "bitcoin_cash",
+    "Bitcoin Gold": "bitcoin_gold",
     "Cardano": "cardano",
     "Cosmos": "cosmos",
     "Diamond Coin": "dmd",

@@ -5,7 +5,7 @@ CRYPTO_PATTERNS = {
     "Bitcoin Gold": r"[AG][a-km-zA-HJ-NP-Z1-9]{26,33}",
     "Cardano": r"addr[a-z0-9]{58,90}",
     "Cosmos": r"cosmos1[a-z0-9]{38}",
-    "Diamond Coin": r"[D][a-km-zA-HJ-NP-Z1-9]{26,33}",
+    "Diamond Coin": r"[dD][a-km-zA-HJ-NP-Z1-9]{26,33}",
     "Dogecoin": r"D{1}[5-9A-HJ-NP-U]{1}[1-9A-HJ-NP-Za-km-z]{32}",
     "Ethereum": r"0x[a-fA-F0-9]{40}",
     "Ethereum Classic": r"0x[a-fA-F0-9]{40}",

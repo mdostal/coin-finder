@@ -4,12 +4,12 @@ from . import WalletService
 class DmdService(WalletService):
     def check_balance(self, address):
         try:
-            # Example API endpoint for DMD blockchain explorer
-            url = f"https://explorer.dmdcoin.com/api/addr/{address}/balance"
+            # New API endpoint for Chainz Explorer
+            url = f"https://chainz.cryptoid.info/dmd/api.dws?q=getbalance&a={address}"
             response = requests.get(url)
             if response.status_code != 200:
                 return None
-            # Balance is returned in DMD
+            # Parse the balance directly (response is in DMD units)
             return float(response.text)
         except Exception as e:
             print(f"Error checking Diamond Coin (DMD) balance: {e}")

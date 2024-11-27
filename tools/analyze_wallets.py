@@ -1,13 +1,7 @@
 import json
 import re
 
-# Supported cryptocurrencies and their patterns
-CRYPTO_PATTERNS = {
-    "Bitcoin": r"(1[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[q|p|z][a-zA-HJ-NP-Z0-9]{38,64})",
-    "Ethereum": r"0x[a-fA-F0-9]{40}",
-    "Litecoin": r"[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}",
-    "Dogecoin": r"D{1}[5-9A-HJ-NP-U]{1}[1-9A-HJ-NP-Za-km-z]{32}",
-}
+from config.analysis import CRYPTO_PATTERNS
 
 def analyze_wallet_file(file_path):
     """

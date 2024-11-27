@@ -7,16 +7,22 @@ from config.wallet import WALLET_SERVICES
 def load_service(crypto_name):
     """
     Dynamically load a wallet service for the given cryptocurrency.
-    :param crypto_name: The name of the cryptocurrency.
-    :return: An instance of the wallet service.
+    :param crypto_name: The name of the cryptocurrency (e.g., "Bitcoin Gold").
+    :return: An instance of the wallet service class.
     """
     try:
+        # Map crypto name to the corresponding module and class
         module_name = WALLET_SERVICES.get(crypto_name)
         if not module_name:
             raise ValueError(f"No service defined for cryptocurrency: {crypto_name}")
+
         module_path = f"services.{module_name}"
+        # Convert to PascalCase for the class name
+        class_name = "".join(word.capitalize() for word in module_name.split("_")) + "Service"
+
+        # Dynamically import the module and load the class
         module = importlib.import_module(module_path)
-        service_class = getattr(module, f"{module_name.capitalize()}Service")
+        service_class = getattr(module, class_name)
         return service_class()
     except Exception as e:
         print(f"Error loading service for {crypto_name}: {e}")

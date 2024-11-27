@@ -17,7 +17,7 @@ class TetherService(WalletService):
             if response.status_code != 200:
                 return None
             data = response.json()
-            return int(data.get("result", 0)) / 1e6  # USDT has 6 decimals
+            return int(data.get("result", 0)) / 1e6 if data else None  # USDT has 6 decimals
         except Exception as e:
             print(f"Error checking Tether balance: {e}")
             return None
