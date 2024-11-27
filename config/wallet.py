@@ -7,6 +7,7 @@ WALLET_SERVICES = {
     "Cardano": "cardano",
     "Cosmos": "cosmos",
     "Diamond Coin": "dmd",
+    "Digibyte": "digibyte",
     "Dogecoin": "dogecoin",
     "Ethereum": "ethereum",
     "Ethereum Classic": "ethereum_classic",
