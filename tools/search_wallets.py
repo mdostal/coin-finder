@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS, MAX_FILE_SIZE, MIN_FILE_SIZE
+from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS, MAX_FILE_SIZE, MIN_FILE_SIZE, COIN_NAMES
 
 def search_for_wallets(start_path, output_file):
     potential_wallets = []
@@ -21,6 +21,7 @@ def search_for_wallets(start_path, output_file):
 
                 # Check if the file matches extensions or keywords
                 if any(file_path.suffix.lower() == ext for ext in WALLET_EXTENSIONS) or \
+                   any(coin_name in file.lower() for coin_name in COIN_NAMES) or \
                    any(keyword in file.lower() for keyword in WALLET_KEYWORDS):
                     potential_wallets.append(str(file_path))
             except Exception as e:
