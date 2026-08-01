@@ -1,0 +1,117 @@
+id: cw-10-react-frontend-scaffold
+epic: crypto-wallet-expansion-20260731
+title: React frontend application with routing and plugin navigation
+status: pending
+complexity: medium
+methodology: classic
+depends_on: [cw-09-fastapi-backend-scaffold]
+
+description: |
+  Create React application with TypeScript, react-router for navigation, and Zustand
+  for state management. Implement plugin navigation system that dynamically renders
+  nav items from backend plugin registry. Add WebSocket client for real-time updates.
+  Set up API client with axios for backend communication.
+
+acceptance_criteria:
+  - "Given backend running, when frontend loads, then plugin nav items fetched and rendered"
+  - "Given user clicks Wallet Scanner nav, when routed, then /wallets view displayed"
+  - "Given WebSocket connected, when balance update received, then UI refreshes without reload"
+  - "Given API request fails, when retry logic triggers, then exponential backoff applied"
+  - "Given production build, when deployed, then static assets served by FastAPI"
+
+steps:
+  - id: research
+    description: Review React + TypeScript setup, test Zustand patterns, plan component structure
+    agent: researcher
+  - id: implement
+    description: Create React app with routing, plugin nav, WebSocket client, API layer
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write component tests for nav rendering, routing, WebSocket reconnection, API error handling
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review component structure, state management patterns, accessibility
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit React frontend scaffold
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: TypeScript
+    frameworks: ["React", "react-router-dom", "Zustand", "axios"]
+  key_files:
+    - path: api/main.py
+      purpose: Backend API the frontend will consume
+
+files_to_modify:
+  - file: frontend/package.json
+    change: Create React app with TypeScript, add dependencies (react-router-dom, zustand, axios, recharts, reactflow)
+  - file: frontend/src/App.tsx
+    change: Main app component with router and plugin navigation
+  - file: frontend/src/api/client.ts
+    change: Axios client with base URL, error handling, retry logic
+  - file: frontend/src/api/websocket.ts
+    change: WebSocket client with reconnection logic
+  - file: frontend/src/store/index.ts
+    change: Zustand store for global state (plugins, wallets, scan status)
+  - file: frontend/src/components/Navigation.tsx
+    change: Dynamic navigation component rendering plugin nav items
+
+code_examples:
+  - title: React router with plugin navigation
+    snippet: |
+      import { BrowserRouter, Routes, Route } from 'react-router-dom';
+      import { useEffect } from 'react';
+      import { useStore } from './store';
+      import Navigation from './components/Navigation';
+
+      function App() {
+        const { plugins, loadPlugins } = useStore();
+
+        useEffect(() => {
+          loadPlugins();
+        }, []);
+
+        return (
+          <BrowserRouter>
+            <Navigation items={plugins.flatMap(p => p.navItems)} />
+            <Routes>
+              {/* Plugin routes dynamically registered */}
+            </Routes>
+          </BrowserRouter>
+        );
+      }
+
+design_decisions:
+  - decision: TypeScript over JavaScript
+    rationale: Type safety reduces runtime errors, better IDE support, self-documenting APIs
+  - decision: Zustand over Redux/Context API
+    rationale: Simpler API, less boilerplate, sufficient for medium-complexity state
+  - decision: axios over fetch
+    rationale: Better error handling, request/response interceptors, timeout support
+  - decision: Build output to frontend/build/, served by FastAPI
+    rationale: Single deployment artifact, no CORS in production
+
+risks:
+  - severity: low
+    description: WebSocket disconnects not handled gracefully
+    mitigation: Reconnection logic with exponential backoff, user notification on disconnect
+  - severity: low
+    description: Large bundle size from Recharts + ReactFlow
+    mitigation: Code splitting, lazy loading of graph visualization components
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Tech Stack**:
+      - **Frontend**: React + TypeScript
+      - **Visualization**: Recharts (charts), ReactFlow (transaction graphs)
+      - **State Management**: Zustand (lightweight Redux alternative)
+
+parallel_allowed: false

@@ -1,0 +1,85 @@
+id: cw-02-extend-wallet-service-api
+epic: crypto-wallet-expansion-20260731
+title: Extend WalletService base class with transaction history methods
+status: pending
+complexity: low
+methodology: classic
+depends_on: []
+
+description: |
+  Add get_transactions() and get_transaction_detail() methods to WalletService base
+  class. Update docstrings and add NotImplementedError stubs. This establishes the
+  contract that all service implementations will follow.
+
+acceptance_criteria:
+  - "Given WalletService base class, when imported, then get_transactions and get_transaction_detail methods exist"
+  - "Given a subclass without implementation, when get_transactions called, then NotImplementedError raised with helpful message"
+  - "Given method signatures, when reviewed, then parameters match API requirements (address, limit, offset, tx_hash)"
+
+steps:
+  - id: research
+    description: Review existing WalletService pattern and check_balance implementation
+    agent: researcher
+  - id: implement
+    description: Add abstract methods to WalletService with type hints and docstrings
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests verifying NotImplementedError raised and signatures correct
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review API design for consistency with existing check_balance pattern
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit WalletService extension to feature branch
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+  key_files:
+    - path: services/__init__.py
+      purpose: Contains WalletService base class to extend
+
+files_to_modify:
+  - file: services/__init__.py
+    change: Add get_transactions() and get_transaction_detail() abstract methods
+
+code_examples:
+  - title: Existing check_balance pattern
+    file: services/__init__.py
+    snippet: |
+      def check_balance(self, address):
+          """
+          Check the balance for a given address.
+          :param address: The wallet address to query.
+          :return: The balance as a float, or None if an error occurs.
+          """
+          raise NotImplementedError("Subclasses must implement this method.")
+
+design_decisions:
+  - decision: Add pagination parameters (limit, offset) to get_transactions
+    rationale: Transaction lists can be very long, pagination is essential for performance
+  - decision: Return None on error rather than raising exceptions
+    rationale: Consistent with existing check_balance error handling pattern
+
+risks:
+  - severity: low
+    description: Breaking change for any external services implementing WalletService
+    mitigation: Methods raise NotImplementedError by default, backward compatible
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Extend `WalletService` base class**:
+      def get_transactions(self, address, limit=100, offset=0):
+          """Fetch transaction history for address."""
+      def get_transaction_detail(self, tx_hash):
+          """Fetch details of a specific transaction."""
+
+parallel_allowed: true
+parallel_rationale: read-only

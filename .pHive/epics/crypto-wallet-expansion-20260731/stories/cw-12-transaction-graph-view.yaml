@@ -1,0 +1,121 @@
+id: cw-12-transaction-graph-view
+epic: crypto-wallet-expansion-20260731
+title: Interactive transaction graph visualization with ReactFlow
+status: pending
+complexity: high
+methodology: classic
+depends_on: [cw-10-react-frontend-scaffold, cw-04-graph-traversal-core]
+
+description: |
+  Implement transaction graph view using ReactFlow to visualize wallet relationships.
+  Fetch graph data from /api/wallet_finder/graph/{address} endpoint. Render nodes
+  (wallets) and edges (transactions) with labels showing amounts and timestamps.
+  Add zoom/pan controls, node click to expand graph, and export to PNG/SVG.
+
+acceptance_criteria:
+  - "Given wallet address, when graph loaded, then seed wallet centered with connected wallets radiating out"
+  - "Given node clicked, when expanded, then additional hops fetched and rendered"
+  - "Given edge hovered, when tooltip shown, then transaction amount and timestamp displayed"
+  - "Given large graph (500+ nodes), when rendered, then performance remains smooth (<5s initial load)"
+  - "Given export button clicked, when invoked, then graph saved as PNG"
+
+steps:
+  - id: research
+    description: Review ReactFlow docs, test layout algorithms (dagre, force-directed), plan performance optimizations
+    agent: researcher
+  - id: implement
+    description: Create TransactionGraph component with ReactFlow, layout algorithm, click-to-expand logic
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests for graph rendering, expansion logic, export functionality, performance with large graphs
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review layout aesthetics, interaction UX, memory usage on large graphs
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit transaction graph view
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: TypeScript
+    frameworks: ["React", "ReactFlow"]
+  key_files:
+    - path: tools/trace_wallet_relationships.py
+      purpose: Backend graph traversal feeding this visualization
+    - path: api/main.py
+      purpose: GET /api/wallet_finder/graph/{address} endpoint
+
+files_to_modify:
+  - file: frontend/src/views/TransactionGraph.tsx
+    change: Create graph view with ReactFlow, layout, controls
+  - file: frontend/src/components/WalletNode.tsx
+    change: Custom node component showing wallet address and balance
+  - file: frontend/src/components/TransactionEdge.tsx
+    change: Custom edge component showing transaction amount
+  - file: frontend/src/utils/graphLayout.ts
+    change: Layout algorithm (dagre or force-directed) for positioning nodes
+  - file: frontend/package.json
+    change: Add reactflow, dagre dependencies
+
+code_examples:
+  - title: ReactFlow basic setup
+    snippet: |
+      import ReactFlow, { Node, Edge } from 'reactflow';
+      import 'reactflow/dist/style.css';
+
+      function TransactionGraph({ seedAddress }: { seedAddress: string }) {
+        const [nodes, setNodes] = useState<Node[]>([]);
+        const [edges, setEdges] = useState<Edge[]>([]);
+
+        useEffect(() => {
+          fetch(`/api/wallet_finder/graph/${seedAddress}`)
+            .then(r => r.json())
+            .then(data => {
+              setNodes(data.nodes);
+              setEdges(data.edges);
+            });
+        }, [seedAddress]);
+
+        return <ReactFlow nodes={nodes} edges={edges} />;
+      }
+
+design_decisions:
+  - decision: ReactFlow over D3.js
+    rationale: Built for React, handles pan/zoom out of box, easier node interaction
+  - decision: Dagre layout over force-directed for initial positioning
+    rationale: More predictable hierarchical layout, better for transaction flows
+  - decision: Server-side graph computation, client renders result
+    rationale: Heavy computation (BFS, layout) offloaded to backend, faster client load
+  - decision: Lazy expansion on node click over loading full graph upfront
+    rationale: Avoids overwhelming UI, progressive disclosure of complexity
+
+risks:
+  - severity: high
+    description: Graphs with 1000+ nodes cause browser freezes
+    mitigation: Server-side clustering (aggregate low-value nodes), canvas rendering, WebGL acceleration
+  - severity: medium
+    description: Layout algorithm slow on complex graphs
+    mitigation: Compute layout server-side, send positioned nodes to client
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Frontend Complexity**:
+      **Risk**: Transaction graphs with 500+ nodes become unresponsive.
+      **Mitigation**: Server-side graph layout computation, Canvas rendering, Progressive loading
+
+parallel_allowed: true
+parallel_rationale: bounded-slice
+files_to_modify:
+  - file: frontend/src/views/TransactionGraph.tsx
+    change: Create graph view
+  - file: frontend/src/components/WalletNode.tsx
+    change: Custom wallet node
+  - file: frontend/src/components/TransactionEdge.tsx
+    change: Custom transaction edge

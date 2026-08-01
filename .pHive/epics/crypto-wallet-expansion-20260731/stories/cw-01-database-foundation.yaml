@@ -1,0 +1,100 @@
+id: cw-01-database-foundation
+epic: crypto-wallet-expansion-20260731
+title: Database foundation layer with SQLite schema
+status: pending
+complexity: medium
+methodology: classic
+depends_on: []
+
+description: |
+  Implement SQLite database layer to replace JSON file storage. Create schema for
+  wallets, transactions, and wallet_links tables with proper indexes. Add connection
+  management and migration support for future schema evolution.
+
+acceptance_criteria:
+  - "Given a database connection, when schema is initialized, then tables wallets, transactions, and wallet_links exist with correct columns"
+  - "Given a wallet address, when inserted, then it can be queried by address or coin_type"
+  - "Given transaction data, when inserted, then it can be queried by tx_hash, address, or date range"
+  - "Given wallet links, when inserted, then relationships can be queried bidirectionally"
+  - "Given existing JSON outputs, when migration runs, then data is preserved in new schema"
+
+steps:
+  - id: research
+    description: Explore database patterns in existing codebase, review SQLAlchemy best practices
+    agent: researcher
+  - id: implement
+    description: Create db module with SQLAlchemy models, connection manager, and migration script
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests for CRUD operations, index performance, and JSON migration
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review schema design, index choices, and migration safety
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit database layer to feature branch
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+    new_dependencies: ["sqlalchemy", "alembic"]
+  key_files:
+    - path: services/__init__.py
+      purpose: Base WalletService class - reference for service pattern
+    - path: tools/check_wallet_balances.py
+      purpose: Current JSON output format - migration source
+
+files_to_modify:
+  - file: requirements.txt
+    change: Add sqlalchemy>=2.0 and alembic for migrations
+  - file: db/__init__.py
+    change: Create new db module with connection manager
+  - file: db/models.py
+    change: Define Wallet, Transaction, WalletLink SQLAlchemy models
+  - file: db/migrations/001_initial_schema.py
+    change: Alembic migration for initial schema creation
+  - file: tools/migrate_json_to_db.py
+    change: One-time migration script from JSON to SQLite
+
+code_examples:
+  - title: SQLAlchemy model pattern
+    snippet: |
+      from sqlalchemy import Column, String, Float, DateTime
+      from sqlalchemy.ext.declarative import declarative_base
+
+      Base = declarative_base()
+
+      class Wallet(Base):
+          __tablename__ = 'wallets'
+          address = Column(String, primary_key=True)
+          coin_type = Column(String, nullable=False)
+          balance = Column(Float)
+
+design_decisions:
+  - decision: Use SQLite over PostgreSQL for MVP
+    rationale: Single-user deployment, no external dependencies, easier setup
+  - decision: Alembic for migrations over raw SQL
+    rationale: Version-controlled schema evolution, rollback support
+  - decision: Composite primary key (tx_hash, coin_type) for transactions
+    rationale: Same tx_hash can exist across different chains
+
+risks:
+  - severity: medium
+    description: SQLite write concurrency limitations if dashboard adds background jobs
+    mitigation: Document upgrade path to PostgreSQL, use WAL mode for better concurrency
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/research-brief.md
+    relevant_excerpt: |
+      **Data Model**:
+      Wallet - address, coin_type, first_seen, last_active
+      Transaction - tx_hash, from_address, to_address, amount, timestamp
+      WalletLink - wallet_a, wallet_b, relationship_type, transaction_count
+
+parallel_allowed: false

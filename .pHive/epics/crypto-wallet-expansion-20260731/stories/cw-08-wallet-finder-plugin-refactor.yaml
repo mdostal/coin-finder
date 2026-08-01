@@ -1,0 +1,115 @@
+id: cw-08-wallet-finder-plugin-refactor
+epic: crypto-wallet-expansion-20260731
+title: Refactor existing pipeline into WalletFinderPlugin
+status: pending
+complexity: high
+methodology: classic
+depends_on: [cw-07-plugin-base-interface, cw-04-graph-traversal-core, cw-06-enhanced-metadata-capture]
+
+description: |
+  Convert existing search/analyze/check pipeline into WalletFinderPlugin implementing
+  BasePlugin interface. Expose search, analyze, balance check, and graph traversal
+  as plugin API routes. Maintain backward compatibility with CLI tools as thin wrappers
+  around plugin methods.
+
+acceptance_criteria:
+  - "Given WalletFinderPlugin loaded, when GET /api/wallet_finder/wallets called, then discovered wallets returned"
+  - "Given POST /api/wallet_finder/scan with path, when executed, then search/analyze/check pipeline runs"
+  - "Given GET /api/wallet_finder/graph/{address}, when called, then relationship graph JSON returned"
+  - "Given existing CLI tools, when executed, then still functional (backward compat)"
+  - "Given plugin disabled in config, when server starts, then wallet routes not registered"
+
+steps:
+  - id: research
+    description: Map existing pipeline stages to plugin API design, identify shared state requirements
+    agent: researcher
+  - id: implement
+    description: Create plugins/wallet_finder/ with plugin.py, migrate pipeline logic into plugin methods
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write integration tests for plugin routes, verify CLI wrapper compatibility
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review backward compatibility, API design consistency, code duplication reduction
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit WalletFinderPlugin refactor
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+  key_files:
+    - path: tools/search_wallets.py
+      purpose: Search logic to migrate into plugin
+    - path: tools/analyze_wallets.py
+      purpose: Analyze logic to migrate into plugin
+    - path: tools/check_wallet_balances.py
+      purpose: Balance checking to migrate into plugin
+    - path: tools/trace_wallet_relationships.py
+      purpose: Graph traversal to expose via plugin API
+    - path: plugins/base.py
+      purpose: BasePlugin interface to implement
+
+files_to_modify:
+  - file: plugins/wallet_finder/__init__.py
+    change: Create wallet_finder plugin package
+  - file: plugins/wallet_finder/plugin.py
+    change: Implement WalletFinderPlugin with get_routes returning scan, wallets, graph endpoints
+  - file: plugins/wallet_finder/api.py
+    change: FastAPI route handlers for search, analyze, balance, graph operations
+  - file: tools/search_wallets.py
+    change: Refactor to call plugin.scan_wallets() method, maintain CLI interface
+  - file: config/plugins.yaml
+    change: Add wallet_finder plugin configuration
+
+code_examples:
+  - title: Plugin route registration
+    snippet: |
+      from plugins.base import BasePlugin
+      from fastapi import APIRouter
+
+      class WalletFinderPlugin(BasePlugin):
+          name = "wallet_finder"
+          version = "2.0.0"
+
+          def get_routes(self):
+              router = APIRouter(prefix="/api/wallet_finder")
+              router.add_api_route("/wallets", self.list_wallets, methods=["GET"])
+              router.add_api_route("/scan", self.start_scan, methods=["POST"])
+              router.add_api_route("/graph/{address}", self.get_graph, methods=["GET"])
+              return [router]
+
+design_decisions:
+  - decision: CLI tools become thin wrappers calling plugin methods
+    rationale: Maintains backward compatibility, reduces duplication, single source of truth
+  - decision: Plugin owns database session management
+    rationale: Encapsulation - plugin responsible for data persistence lifecycle
+  - decision: Async API routes for long-running operations (scan, graph traversal)
+    rationale: Prevents request timeouts, enables progress reporting
+
+risks:
+  - severity: medium
+    description: Refactor may introduce regressions in existing CLI functionality
+    mitigation: Comprehensive integration tests, parallel deployment (old + new), gradual migration
+  - severity: low
+    description: Breaking abstraction boundaries between tools and plugin
+    mitigation: Clear interface contracts, code review for dependency direction violations
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Wallet Finder Plugin** (`plugins/wallet_finder/plugin.py`):
+      def get_routes(self):
+          return [
+              ("GET", "/api/wallets", self.list_wallets),
+              ("POST", "/api/wallets/scan", self.start_scan),
+              ("GET", "/api/wallets/{address}/graph", self.get_relationship_graph),
+          ]
+
+parallel_allowed: false

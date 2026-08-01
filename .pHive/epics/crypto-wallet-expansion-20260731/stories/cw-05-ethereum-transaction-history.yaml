@@ -1,0 +1,101 @@
+id: cw-05-ethereum-transaction-history
+epic: crypto-wallet-expansion-20260731
+title: Implement Ethereum transaction history via Etherscan API
+status: pending
+complexity: medium
+methodology: classic
+depends_on: [cw-03-bitcoin-transaction-history]
+
+description: |
+  Implement get_transactions() and get_transaction_detail() for EthereumService using
+  Etherscan API. Handle ERC-20 token transfers alongside ETH transfers. Respect API
+  key rate limits (5 req/sec free tier). Normalize response format to match Bitcoin
+  implementation for consistency.
+
+acceptance_criteria:
+  - "Given an Ethereum address, when get_transactions called, then both ETH and ERC-20 transfers returned"
+  - "Given ETHERSCAN_API_KEY in .env, when API called, then authentication succeeds"
+  - "Given rate limit (5 req/sec), when multiple requests made, then pacing prevents 429 errors"
+  - "Given internal transactions (contract calls), when included, then flagged separately from external TXs"
+  - "Given gas fees, when transaction parsed, then fee stored in Transaction.fee field"
+
+steps:
+  - id: research
+    description: Review Etherscan API docs, test token transfer endpoints, compare to Blockstream response format
+    agent: researcher
+  - id: implement
+    description: Add get_transactions and get_transaction_detail to EthereumService with Etherscan integration
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests for ETH vs ERC-20 parsing, rate limiting, API key validation, gas fee calculation
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review data normalization, API key security, rate limit strategy
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit Ethereum transaction history implementation
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+    apis: ["Etherscan API"]
+  key_files:
+    - path: services/ethereum.py
+      purpose: Current EthereumService with check_balance - extend with TX history
+    - path: services/bitcoin.py
+      purpose: Reference implementation for transaction history pattern
+    - path: .env.sample
+      purpose: Add ETHERSCAN_API_KEY placeholder
+
+files_to_modify:
+  - file: services/ethereum.py
+    change: Implement get_transactions() using Etherscan /api?module=account&action=txlist
+  - file: services/ethereum.py
+    change: Add _parse_etherscan_tx() helper to normalize response format
+  - file: .env.sample
+    change: Add ETHERSCAN_API_KEY=your_key_here
+
+code_examples:
+  - title: Etherscan API pattern
+    snippet: |
+      import os
+      from dotenv import load_dotenv
+      load_dotenv()
+
+      api_key = os.getenv("ETHERSCAN_API_KEY")
+      url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&apikey={api_key}"
+      response = requests.get(url)
+      if response.json()["status"] != "1":
+          return None
+
+design_decisions:
+  - decision: Combine ETH and ERC-20 TXs in single get_transactions() response
+    rationale: User expects all value transfers, both native and tokens, in unified view
+  - decision: Store token symbol in Transaction.metadata_json field
+    rationale: Token transfers need symbol (USDT, SHIB, etc.) but base schema is coin-agnostic
+  - decision: Require ETHERSCAN_API_KEY for transaction history but not balance checking
+    rationale: Balance can use public endpoint, TX history rate-limited on free tier
+
+risks:
+  - severity: medium
+    description: Free tier limited to 5 req/sec, can hit limits quickly on multi-wallet scans
+    mitigation: Implement token bucket rate limiter, cache responses, offer paid tier docs
+  - severity: low
+    description: Internal transactions require separate API call (/api?module=account&action=txlistinternal)
+    mitigation: Document as Phase 2 feature, focus on external TXs for MVP
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      2. Ethereum - Etherscan `/api?module=account&action=txlist`
+      **Required API Keys**:
+      ETHERSCAN_API_KEY=existing
+
+parallel_allowed: true
+parallel_rationale: variation

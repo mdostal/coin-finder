@@ -1,0 +1,98 @@
+id: cw-03-bitcoin-transaction-history
+epic: crypto-wallet-expansion-20260731
+title: Implement Bitcoin transaction history via Blockstream API
+status: pending
+complexity: medium
+methodology: classic
+depends_on: [cw-02-extend-wallet-service-api, cw-01-database-foundation]
+
+description: |
+  Implement get_transactions() and get_transaction_detail() for BitcoinService using
+  Blockstream API. Parse responses into standardized Transaction model objects and
+  persist to database. Handle pagination, rate limiting, and error cases.
+
+acceptance_criteria:
+  - "Given a Bitcoin address with transactions, when get_transactions called, then list of Transaction objects returned"
+  - "Given a Bitcoin tx_hash, when get_transaction_detail called, then Transaction object with from/to/amount/timestamp returned"
+  - "Given API rate limit hit, when retried with backoff, then request eventually succeeds"
+  - "Given transaction data, when persisted, then queryable from database by address or tx_hash"
+  - "Given confirmed vs unconfirmed TX, when parsed, then confirmation status correctly stored"
+
+steps:
+  - id: research
+    description: Review Blockstream API docs, existing BitcoinService implementation, test with sample addresses
+    agent: researcher
+  - id: implement
+    description: Add get_transactions and get_transaction_detail to BitcoinService with Blockstream integration
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests with mocked API responses, test pagination, error handling, DB persistence
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review API error handling, rate limit backoff logic, data normalization
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit Bitcoin transaction history implementation
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+    apis: ["Blockstream API"]
+  key_files:
+    - path: services/bitcoin.py
+      purpose: Current BitcoinService with check_balance - extend with TX history
+    - path: db/models.py
+      purpose: Transaction model for persistence (from cw-01)
+
+files_to_modify:
+  - file: services/bitcoin.py
+    change: Implement get_transactions() and get_transaction_detail() using Blockstream /address/{addr}/txs endpoint
+  - file: services/bitcoin.py
+    change: Add helper methods for parsing Blockstream response format and rate limit handling
+
+code_examples:
+  - title: Existing BitcoinService pattern
+    file: services/bitcoin.py
+    snippet: |
+      import requests
+      from . import WalletService
+
+      class BitcoinService(WalletService):
+          def check_balance(self, address):
+              url = f"https://blockstream.info/api/address/{address}"
+              response = requests.get(url)
+              if response.status_code != 200:
+                  return None
+
+design_decisions:
+  - decision: Store all transactions in DB on first fetch, then incremental updates
+    rationale: Transactions are immutable once confirmed, avoid redundant API calls
+  - decision: Use /address/{addr}/txs endpoint over /address/{addr} for full TX list
+    rationale: Detailed TX data needed for graph traversal, not just summary stats
+  - decision: Exponential backoff with max 5 retries on rate limit (429)
+    rationale: Blockstream public API has unstated rate limits, aggressive backoff prevents bans
+
+risks:
+  - severity: medium
+    description: Blockstream API lacks official rate limit documentation
+    mitigation: Conservative request pacing (1 req/sec), exponential backoff, fallback to Bitcoin Core RPC in docs
+  - severity: low
+    description: Large wallets (1000+ TXs) may timeout on first fetch
+    mitigation: Pagination with last_seen_txid parameter, background job for initial sync
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Implementation Priority**:
+      1. Bitcoin - Blockstream `/address/{addr}/txs`
+      **Caching Strategy**:
+      - Transactions are immutable once confirmed → cache indefinitely
+      - Only fetch TXs newer than `last_updated` timestamp on subsequent syncs
+
+parallel_allowed: false
