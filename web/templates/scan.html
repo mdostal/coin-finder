@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}coin-finder -- scan {{ job_id }}{% endblock %}
 
 {% macro table(rows) %}
@@ -12,79 +13,89 @@
     </tbody>
   </table>
   {% else %}
-  <p><em>none</em></p>
+  <p class="empty">none</p>
   {% endif %}
 {% endmacro %}
 
 {% block content %}
 <h2>Scan results</h2>
-<p>Status: <strong id="status">{{ job.status }}</strong></p>
+<p>{{ m.status_pill(job.status) }}</p>
 
 {% if job.status == "running" %}
-<p>Scanning -- this page will refresh automatically.</p>
+<div class="card"><p>Scanning -- this page will refresh automatically.</p></div>
 {% elif job.status == "error" %}
-<p class="error">{{ job.error }}</p>
+<div class="banner error">{{ job.error }}</div>
 {% elif results %}
-  <h3>Balances</h3>
-  {{ table(results.balances) }}
+  <div class="card">
+    <h3 style="margin-top:0">Balances</h3>
+    {{ table(results.balances) }}
 
-  {% if results.inconclusive %}
-  <h3 class="warning">Inconclusive balances (recheck later)</h3>
-  {{ table(results.inconclusive) }}
-  {% endif %}
+    {% if results.inconclusive %}
+    <h3>Inconclusive balances (recheck later)</h3>
+    {{ table(results.inconclusive) }}
+    {% endif %}
 
-  <h3>Filtered (non-zero / interesting) wallets</h3>
-  {{ table(results.filtered) }}
+    <h3>Filtered (non-zero / interesting) wallets</h3>
+    {{ table(results.filtered) }}
 
-  <h3>File analysis</h3>
-  {{ table(results.analysis) }}
+    <h3>File analysis</h3>
+    {{ table(results.analysis) }}
 
-  {% if results.relationships_report %}
-  <h3>Relationship graph</h3>
-  <pre>{{ results.relationships_report }}</pre>
-  {% endif %}
+    {% if results.relationships_report %}
+    <h3>Relationship graph</h3>
+    <pre>{{ results.relationships_report }}</pre>
+    {% endif %}
 
-  {% if results.hidden_volumes_report %}
-  <h3>Hidden/encrypted volume detection</h3>
-  <pre>{{ results.hidden_volumes_report }}</pre>
-  {% endif %}
+    {% if results.hidden_volumes_report %}
+    <h3>Hidden/encrypted volume detection</h3>
+    <pre>{{ results.hidden_volumes_report }}</pre>
+    {% endif %}
+  </div>
 
-  <h3>More actions</h3>
-  <p>Run one of the deeper, on-demand tools against something found above.</p>
+  <div class="card">
+    <h3 style="margin-top:0">More actions</h3>
+    <p class="subtle">Run one of the deeper, on-demand tools against something found above.</p>
 
-  <form method="post" action="{{ url_for('item_scan_wallet_dat') }}">
-    <label>Full wallet.dat scan -- path: <input type="text" name="wallet_path" size="50"></label>
-    <button type="submit">Run</button>
-  </form>
+    <form class="inline-form" method="post" action="{{ url_for('item_scan_wallet_dat') }}">
+      <label>Full wallet.dat scan -- path</label>
+      <input type="text" name="wallet_path">
+      <button type="submit">Run</button>
+    </form>
 
-  <form method="post" action="{{ url_for('item_crawl') }}">
-    <label>Transaction-graph crawl -- addresses (one per line):</label><br>
-    <textarea name="addresses" rows="3" cols="50"></textarea><br>
-    <button type="submit">Run</button>
-  </form>
+    <form class="inline-form" method="post" action="{{ url_for('item_crawl') }}">
+      <label>Transaction-graph crawl -- addresses (one per line)</label>
+      <textarea name="addresses" rows="3"></textarea>
+      <button type="submit">Run</button>
+    </form>
 
-  <form method="post" action="{{ url_for('item_fork_coins') }}">
-    <label>Fork coin check -- addresses (one per line):</label><br>
-    <textarea name="addresses" rows="3" cols="50"></textarea><br>
-    <button type="submit">Run</button>
-  </form>
+    <form class="inline-form" method="post" action="{{ url_for('item_fork_coins') }}">
+      <label>Fork coin check -- addresses (one per line)</label>
+      <textarea name="addresses" rows="3"></textarea>
+      <button type="submit">Run</button>
+    </form>
 
-  <form method="post" action="{{ url_for('item_find_seed_phrases') }}">
-    <label>Find seed phrases -- directory or file: <input type="text" name="target_path" size="50"></label>
-    <button type="submit">Run</button>
-  </form>
+    <form class="inline-form" method="post" action="{{ url_for('item_find_seed_phrases') }}">
+      <label>Find seed phrases -- directory or file</label>
+      <input type="text" name="target_path">
+      <button type="submit">Run</button>
+    </form>
 
-  <form method="post" action="{{ url_for('item_match_seed_phrases') }}">
-    <label>Match seed phrases -- existing candidates file: <input type="text" name="phrases_file" size="50"></label>
-    <button type="submit">Run</button>
-  </form>
+    <form class="inline-form" method="post" action="{{ url_for('item_match_seed_phrases') }}">
+      <label>Match seed phrases -- existing candidates file</label>
+      <input type="text" name="phrases_file">
+      <button type="submit">Run</button>
+    </form>
 
-  <p><a href="{{ url_for('item_unlock_form') }}">Unlock a wallet (BTCRecover / hashcat)</a></p>
+    <form class="inline-form" method="post" action="{{ url_for('item_stage') }}">
+      <label>Stage a file for backup/recovery (copy only, original untouched) -- path</label>
+      <input type="text" name="file_path">
+      <button type="submit">Stage</button>
+    </form>
 
-  <form method="post" action="{{ url_for('item_stage') }}">
-    <label>Stage a file for backup/recovery (copy only, original untouched) -- path: <input type="text" name="file_path" size="50"></label>
-    <button type="submit">Stage</button>
-  </form>
+    <p class="subtle" style="margin-top:1rem;margin-bottom:0">
+      <a href="{{ url_for('item_unlock_form') }}">Unlock a wallet (BTCRecover / hashcat) &rarr;</a>
+    </p>
+  </div>
 {% endif %}
 
 <script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}"></script>
