@@ -1,7 +1,9 @@
 id: lwu-03-unlock-workflows
 epic: local-web-ui
 title: Web-safe unlock flows for BTCRecover and hashcat (offline-gated)
-status: complete
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.14.0"
 complexity: medium
 methodology: tdd
 depends_on: [lwu-01-scan-and-results]

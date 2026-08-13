@@ -1,7 +1,9 @@
 id: lwu-01-scan-and-results
 epic: local-web-ui
 title: Flask skeleton, scan job runner, results page
-status: complete
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.14.0"
 complexity: large
 methodology: tdd
 depends_on: []

@@ -1,7 +1,9 @@
 id: lwu-04-staging-drive-and-hardening
 epic: local-web-ui
 title: Staging/copy area, Google Drive entry point, localhost-only hardening
-status: complete
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.14.0"
 complexity: medium
 methodology: tdd
 depends_on: [lwu-01-scan-and-results]

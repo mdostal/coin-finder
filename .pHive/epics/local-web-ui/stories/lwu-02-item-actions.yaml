@@ -1,7 +1,9 @@
 id: lwu-02-item-actions
 epic: local-web-ui
 title: Per-item on-demand tool actions (scan_wallet_dat, crawl, fork coins, seed phrases)
-status: complete
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.14.0"
 complexity: medium
 methodology: tdd
 depends_on: [lwu-01-scan-and-results]
