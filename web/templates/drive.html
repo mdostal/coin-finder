@@ -9,17 +9,21 @@ README, just started from here. First use requires the one-time Google Cloud
 OAuth setup described there (a <code>credentials.json</code> in this
 project's root); the first run will open a browser window for consent.</p>
 
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<p class="subtle">Multi-terabyte Drive that can't be downloaded locally?
+See <a href="https://github.com/mdostal/coin-finder#mounting-google-drive-for-multi-terabyte-drives">mounting Google Drive with rclone</a>
+instead -- once mounted, point the regular <a href="{{ url_for('index') }}">scan</a> form at the mount point like any local directory.</p>
 
-<form method="post" action="{{ url_for('drive_scan') }}">
-  <p>
-    <label>Local output directory (downloaded files land here):</label><br>
-    <input type="text" name="output_dir" size="60" required>
-  </p>
-  <p>
-    <label>Optional Drive API query (leave blank for everything not trashed):</label><br>
-    <input type="text" name="query" size="60">
-  </p>
-  <button type="submit">Scan Drive</button>
-</form>
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="{{ url_for('drive_scan') }}">
+    <label>Local output directory (downloaded files land here)</label>
+    <input type="text" name="output_dir" required>
+
+    <label>Optional Drive API query (leave blank for everything not trashed)</label>
+    <input type="text" name="query">
+
+    <button type="submit">Scan Drive</button>
+  </form>
+</div>
 {% endblock %}
