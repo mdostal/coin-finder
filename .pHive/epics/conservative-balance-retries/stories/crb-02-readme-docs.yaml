@@ -1,7 +1,7 @@
 id: crb-02-readme-docs
 epic: conservative-balance-retries
 title: Document retry behavior and the inconclusive-results file
-status: pending
+status: completed
 complexity: low
 methodology: tdd
 depends_on: [crb-01-retry-and-inconclusive-tracking]
