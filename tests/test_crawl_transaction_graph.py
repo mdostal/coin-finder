@@ -10,6 +10,7 @@ from tools.crawl_transaction_graph import (
     dormancy_years,
     find_co_spend_addresses,
     find_output_addresses,
+    load_seed_addresses,
     render_cluster_report,
 )
 
@@ -233,3 +234,28 @@ def test_cli_writes_json_and_markdown_report(mock_fetch, mock_service_cls, tmp_p
     assert output_file.exists()
     assert report_file.exists()
     assert json.loads(output_file.read_text())[SEED]["confidence"] == "seed"
+
+
+def test_load_seed_addresses_returns_single_literal_address_unchanged():
+    assert load_seed_addresses(SEED) == [SEED]
+
+
+def test_load_seed_addresses_reads_multiple_addresses_from_a_file(tmp_path):
+    seeds_file = tmp_path / "seeds.txt"
+    seeds_file.write_text(f"# found on disk\n{SEED}\n\n# currently held\n{COSPEND}\n")
+
+    result = load_seed_addresses(str(seeds_file))
+
+    assert result == [SEED, COSPEND]
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_accepts_multiple_seeds_mixing_disk_and_held_addresses(mock_fetch, mock_service_cls):
+    mock_fetch.return_value = []
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    result = crawl_wallet_cluster(load_seed_addresses(SEED) + [COSPEND], max_generations=1)
+
+    assert result[SEED]["confidence"] == "seed"
+    assert result[COSPEND]["confidence"] == "seed"

@@ -1,0 +1,72 @@
+id: msr-01-multi-seed-and-reference
+epic: multi-seed-and-recovery-reference
+title: Multi-seed CLI + wallet/service recoverability reference
+status: completed
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  tools/crawl_transaction_graph.py: new load_seed_addresses(arg) -- file or
+  single literal address auto-detected; CLI's first positional argument
+  renamed seed_address_or_file and passed through this function before
+  crawl_wallet_cluster() (which already accepted a list). No change to the
+  crawl algorithm itself.
+
+  docs/wallet_recovery_reference.md: new curated reference -- self-custody
+  wallet software this project helps recover (table: software, status,
+  recovery path) and well-known defunct custodial services (Mt. Gox,
+  MyBitcoin, Bitcoinica, early mining pools) for the user to cross-check
+  against their own memory, plus how this project's dormancy/clustering
+  output helps distinguish self-custody from custodial. README links to it
+  from a new "Is It Actually Recoverable?" section.
+
+acceptance_criteria:
+  - "Given a single literal address string, when load_seed_addresses runs, then it returns that address as a one-item list unchanged"
+  - "Given a file path containing multiple addresses (with blank lines and # comments), when load_seed_addresses runs, then it returns exactly the non-empty, non-comment address lines, in order"
+  - "Given a seed list combining a disk-found address and a currently-held address, when crawl_wallet_cluster runs, then both appear in the result with confidence='seed'"
+  - "Given docs/wallet_recovery_reference.md, when read, then it explicitly states it is a reference to cross-check, not an automated classifier, before presenting the wallet-software and defunct-service tables"
+
+steps:
+  - id: test-spec
+    description: Write failing tests in tests/test_crawl_transaction_graph.py for load_seed_addresses (single-literal and file-based) and the multi-seed crawl_wallet_cluster path.
+    agent: tester
+  - id: implement
+    description: Implement load_seed_addresses and wire it into the CLI; write docs/wallet_recovery_reference.md and link it from README.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that the reference doc's scope-limit statement is prominent (not buried) and that the CLI change is backward-compatible for single-address use.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit all changes.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/crawl_transaction_graph.py
+      purpose: crawl_wallet_cluster() already accepted a list of seeds at the function level; only the CLI needed to change.
+
+files_to_modify:
+  - file: tools/crawl_transaction_graph.py
+    change: add load_seed_addresses, update CLI to use it
+  - file: tests/test_crawl_transaction_graph.py
+    change: extend with load_seed_addresses and multi-seed tests
+  - file: docs/wallet_recovery_reference.md
+    change: new file
+  - file: README.md
+    change: link the new reference doc, update the pipeline diagram description if needed
+
+cross_cutting:
+  - concern: documentation
+    action: "New docs/wallet_recovery_reference.md, linked from a new README section."
+
+references:
+  - path: .pHive/epics/multi-seed-and-recovery-reference/docs/design-discussion.md
+    relevant_excerpt: |
+      "Reliable automated detection of 'this address belonged to exchange X'
+      isn't achievable from public blockchain data alone... The honest,
+      defensible scope is a reference document, not a classifier."

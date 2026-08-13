@@ -1,0 +1,34 @@
+name: multi-seed-and-recovery-reference
+title: Multi-Seed Crawler + Recoverability Reference
+description: >
+  Lets crawl_transaction_graph.py's CLI take multiple seed addresses (mixing
+  addresses found on disk with addresses the user currently holds/knows
+  about), and adds a curated reference document on wallet-software/service
+  recoverability so the user can judge realistic recovery odds -- explicitly
+  scoped as a reference to cross-check, not an automated classifier, since
+  that isn't reliably achievable from blockchain data alone.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, documentation]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    documentation: "Half of this epic is a curated reference document, not code -- scoped honestly rather than building an unreliable automated classifier."
+  confidence: high
+  gate_decisions:
+    note: Same no-live-teammates adaptation as prior epics. Two small, related asks bundled into one epic.
+
+stories:
+  - id: msr-01-multi-seed-and-reference
+    title: Multi-seed CLI + wallet/service recoverability reference
+    complexity: low
+    depends_on: []

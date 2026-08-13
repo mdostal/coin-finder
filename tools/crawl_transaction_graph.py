@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 from pathlib import Path
@@ -195,22 +196,47 @@ def render_cluster_report(results, balance_threshold=1.0):
     return "\n".join(lines)
 
 
+def load_seed_addresses(arg):
+    """
+    Accept either a single literal address, or the path to a file of
+    addresses (one per line; blank lines and lines starting with '#'
+    ignored) -- lets a run mix addresses found on disk with addresses the
+    user currently holds/knows about into one combined seed set. Auto-
+    detected: if arg resolves to an existing file, read it as a list;
+    otherwise treat arg itself as a single address.
+    """
+    if os.path.isfile(arg):
+        with open(arg, "r") as f:
+            return [
+                line.strip()
+                for line in f
+                if line.strip() and not line.strip().startswith("#")
+            ]
+    return [arg]
+
+
 if __name__ == "__main__":
     import argparse
     import json
 
     parser = argparse.ArgumentParser(
-        description="Crawl the Bitcoin transaction graph from a known address to discover likely same-owner addresses."
+        description="Crawl the Bitcoin transaction graph from one or more known addresses to discover likely same-owner addresses."
     )
-    parser.add_argument("seed_address", help="Starting Bitcoin address.")
+    parser.add_argument(
+        "seed_address_or_file",
+        help="A single starting Bitcoin address, or a path to a file of addresses (one per line) -- "
+        "mix addresses found on disk with addresses you currently hold/know about.",
+    )
     parser.add_argument("output_file", help="Output JSON file for the cluster results.")
     parser.add_argument("--generations", type=int, default=2, help="Max BFS generations (default 2).")
     parser.add_argument("--max-addresses", type=int, default=200, help="Max addresses to discover (default 200).")
     parser.add_argument("--threshold", type=float, default=1.0, help="Balance (BTC) to flag as significant (default 1.0).")
     args = parser.parse_args()
 
+    seed_addresses = load_seed_addresses(args.seed_address_or_file)
+
     results = crawl_wallet_cluster(
-        [args.seed_address],
+        seed_addresses,
         max_generations=args.generations,
         max_addresses=args.max_addresses,
         balance_threshold=args.threshold,
