@@ -1,7 +1,9 @@
 id: sdb-01-derivation-and-matching
 epic: seed-derivation-balance-check
 title: Bounded multi-scheme HD derivation + balance-check matcher
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.7.0"
 complexity: medium
 methodology: tdd
 depends_on: []
