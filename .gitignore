@@ -205,6 +205,8 @@ cython_debug/
 !.pHive/epics/exodus-hashcat-integration/**
 !.pHive/epics/google-drive-adapter/
 !.pHive/epics/google-drive-adapter/**
+!.pHive/epics/local-web-ui/
+!.pHive/epics/local-web-ui/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

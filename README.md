@@ -55,6 +55,11 @@ project/
 │   ├── check_fork_coins.py   # Standalone: checks found Bitcoin addresses on fork coins (Bitcoin Cash, Bitcoin Gold)
 │   ├── unlock_exodus_wallet.py # Standalone: offline-gated wrapper around hashcat for Exodus wallet password testing
 │   ├── scan_google_drive.py  # Standalone: slow-crawls Google Drive for wallet-like files, downloads to local disk
+├── web/                       # Local web UI (Flask) tying every tool above into one app
+│   ├── app.py                 # Routes, host-binding guard, scan job wiring
+│   ├── jobs.py                 # In-memory background job registry
+│   ├── templates/              # Jinja2 templates (no frontend build step)
+│   ├── static/                 # poll.js -- polls job status, no framework
 ├── scripts/
 │   ├── install_btcrecover.sh # Clones/updates BTCRecover into vendor/btcrecover/ (not committed)
 │   ├── install_exodus_tools.sh # Installs hashcat + fetches exodus2hashcat.py into vendor/hashcat-tools/ (not committed)
@@ -473,6 +478,80 @@ other tool in this project can scan them exactly like a local drive.
 
 ---
 
+## Local Web UI (`web/app.py`)
+
+A local Flask app that ties the tools above into one browser-based flow,
+instead of running each CLI tool by hand in the right order. This is the
+recommended way to use the project day to day; every tool documented above
+still works standalone for scripting/automation.
+
+- **Run it:**
+  ```bash
+  python web/app.py
+  # open http://127.0.0.1:5000
+  ```
+- **Binds to `127.0.0.1` only, always.** `create_app()` refuses to construct
+  an app bound to anything else -- this app handles local wallet files and
+  (in a later story) real unlock candidates, and must never be reachable
+  beyond this machine.
+- **What's here so far:** pick a directory on the form at `/`, submit it, and
+  it runs the same default pipeline as `run_pipeline.py` (search -> analyze
+  -> check balances -> filter -> relationship graph) plus
+  `detect_hidden_volumes.py`, as one background job. The results page polls
+  job status and renders balances (including anything still inconclusive
+  after retries), the filtered non-zero wallets, per-file analysis, the
+  relationship graph report, and hidden-volume flags -- all in one page.
+- **On-demand actions** (a "More actions" section at the bottom of the
+  results page): run the standalone tools that intentionally sit outside the
+  default pipeline against anything found -- a full `scan_wallet_dat.py`
+  enumeration for a `.dat` file, a `crawl_transaction_graph.py` co-spend
+  cluster for one or more addresses, a `check_fork_coins.py` check, or
+  `find_seed_phrases.py`/`match_seed_phrases.py` against a directory/file.
+  Same secrecy rules as the CLI tools apply here too: seed-phrase text is
+  never included in a job result unless that specific phrase actually
+  produced a balance (`match_seed_phrases.py`'s existing rule) -- and
+  `find_seed_phrases.py`'s web results go further than the CLI, never
+  including phrase text at all, only counts and file locations, since a web
+  job result lives in server memory rendered into a browser tab rather than
+  a local output file only you can read.
+- **Unlock a wallet** (`/item/unlock`) -- web-safe version of
+  `unlock_wallet.py`/`unlock_exodus_wallet.py`. Shows the machine's current
+  network status live; the offline gate is re-checked server-side on every
+  submission (not just at page load, and not just a disabled button) and
+  refuses with HTTP 409 -- no subprocess is invoked at all -- unless the
+  machine reads OFFLINE. Candidate passwords/phrases are written to a local
+  temp file server-side before the tool runs (never placed in a URL/query
+  string), and that file is deleted the moment the job finishes, success or
+  not.
+
+  **The result (whether a password was found, and what it was) is shown
+  exactly once**, on a dedicated result page, and is then permanently
+  deleted from the server's memory -- reloading or revisiting that page
+  returns 404, not the secret again. The job-status polling path used
+  everywhere else in this app deliberately never carries this result, so a
+  found password can't leak through a background poll before you've
+  actually looked at the page.
+- **Stage a file** -- copies (never moves) a found file into a local staging
+  directory (`ui_output/staged/` by default) so you can gather recovery
+  candidates in one place without touching the original drive. Refuses to
+  silently overwrite an existing same-named staged file.
+- **Scan Google Drive** (`/drive`) -- entry point for
+  `tools/scan_google_drive.py`'s OAuth crawl, using the exact same
+  `get_drive_service`/`scan_drive_for_wallets` functions as the CLI tool (no
+  reimplementation). First use needs the one-time Google Cloud OAuth setup
+  documented under "Google Drive Adapter" above. Downloaded files land in a
+  local directory you choose, then show up in a normal scan of that
+  directory just like any other local drive.
+
+This closes out the epic's planned scope: every one of the 13 standalone
+tools plus the default pipeline is now reachable from this one app, with
+every safety property built up over the course of this project (offline
+gating, file-only secrets, never-persisted unlock results, localhost-only
+binding) carried through the HTTP layer intact. An Electron wrapper around
+this app is a separate, later effort outside this project's own scope.
+
+---
+
 ## Pipeline Overview
 
 ```mermaid
@@ -507,6 +586,8 @@ flowchart TD
         P[scan_google_drive.py]
     end
 
+    Q[web/app.py -- Local Web UI]
+
     C -.public addresses found.-> I
     J -->|candidate seed phrases| K
     K -.no match.-> L
@@ -517,12 +598,16 @@ flowchart TD
     D -.found wallet file, need password.-> L
     M -->|found addresses| N
     I -->|found addresses| N
+    Q -.calls every stage above directly, in-process.-> A
+    Q -.calls every stage above directly, in-process.-> P
 ```
 
 The default pipeline (`run_pipeline.py`) runs stages A-E automatically.
 Everything under "Standalone tools" is invoked deliberately, on its own,
 against whatever the earlier stages (or your own manual digging) turned up --
-they are not run automatically.
+they are not run automatically. `web/app.py` (see "Local Web UI" above) is a
+UI consumer of every stage and tool shown here -- it calls the same
+importable functions in-process, not a reimplementation of any of them.
 
 ### Search
 Identifies potential wallet files in a specified directory.

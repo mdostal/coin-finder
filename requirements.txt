@@ -1,5 +1,6 @@
 requests
 python-dotenv
+flask
 mnemonic
 bip_utils
 google-api-python-client

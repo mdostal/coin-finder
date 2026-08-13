@@ -4,7 +4,7 @@ discovered: "2026-08-12"
 source: "README.md + codebase scan (no CLAUDE.md present)"
 
 project_type: framework
-has_ui: false
+has_ui: true
 
 ship_target:
   kind: github-release
@@ -24,7 +24,7 @@ claude_md_summary: |
 
 tech_stack:
   languages: [python]
-  frameworks: []
+  frameworks: [flask]
   build_tools: []
   package_managers: [pip]
   versions:
