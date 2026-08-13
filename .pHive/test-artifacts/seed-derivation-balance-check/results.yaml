@@ -1,0 +1,19 @@
+epic: seed-derivation-balance-check
+substrate: pytest
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 71
+tests_passed: 71
+tests_failed: 0
+coverage_by_story:
+  sdb-01-derivation-and-matching:
+    acceptance_criteria: 8
+    covered_by_tests: 9
+    gaps: []
+    note: "Derivation verified against publicly documented BIP44/49/84 test-vector addresses for the standard public BIP39 test mnemonic, confirmed live. CLI stdout-safety test runs real derivation + real (offline for BTC/LTC test-vector addresses, known-empty) balance lookups."
+regression_check:
+  previous_suite: 62 tests from prior epics
+  result: pass
+bugs_filed: 0
+verdict: PASS

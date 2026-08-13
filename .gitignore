@@ -187,3 +187,5 @@ cython_debug/
 !.pHive/epics/dormancy-check-and-path-fix/**
 !.pHive/epics/seed-phrase-finder/
 !.pHive/epics/seed-phrase-finder/**
+!.pHive/epics/seed-derivation-balance-check/
+!.pHive/epics/seed-derivation-balance-check/**
