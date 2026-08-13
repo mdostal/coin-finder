@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-13
+
+### Added
+
+- **Google Drive adapter.** New standalone tool `tools/scan_google_drive.py`
+  slow-crawls Google Drive for wallet-like files (reuses `search_wallets.py`'s
+  existing name/size heuristic) and downloads matches directly to local disk
+  via the user's own OAuth credentials, so every other tool in this project
+  can scan them like a local drive. Requires one-time Google Cloud OAuth
+  setup (documented in README) -- this project cannot create those
+  credentials on the user's behalf.
+
+  **Built after a real, live safety correction found during development:** a
+  metadata-only Drive search (safe) found real candidate files and a Google
+  Doc titled "Circles wallet." Reading that doc's content through this
+  session's *connected* Drive tools pulled a real, live 24-word phrase into
+  the AI assistant's own context/transcript -- the same class of
+  online-secret-exposure `unlock_wallet.py` and `unlock_exodus_wallet.py`
+  are careful to avoid, via a different door. This tool's architecture is
+  the fix: file content only ever flows through a standalone OAuth process,
+  Drive-server to local disk directly, never through any AI-assistant
+  context. Native Google Docs/Sheets/Slides are explicitly not
+  auto-downloaded by this tool -- review those directly in Drive yourself.
+
 ## [0.12.0] - 2026-08-13
 
 ### Added
