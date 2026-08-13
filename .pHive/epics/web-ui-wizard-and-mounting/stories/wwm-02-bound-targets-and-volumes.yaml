@@ -1,7 +1,7 @@
 id: wwm-02-bound-targets-and-volumes
 epic: web-ui-wizard-and-mounting
 title: Bound/saved scan targets + mounted-volume detection
-status: pending
+status: complete
 complexity: medium
 methodology: tdd
 depends_on: []

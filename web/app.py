@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 
 import run_pipeline
+from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addresses, render_cluster_report
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
@@ -263,6 +264,27 @@ def create_app(host="127.0.0.1"):
 
         job_id = run_job(_run_drive_scan_job, output_dir, query)
         return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/targets")
+    def targets_page():
+        return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), error=None)
+
+    @app.route("/targets/add", methods=["POST"])
+    def targets_add():
+        label = (request.form.get("label") or "").strip()
+        path = (request.form.get("path") or "").strip()
+        kind = (request.form.get("kind") or "local").strip()
+        if not label or not path:
+            return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), error="Enter both a label and a path."), 400
+
+        add_target(label, path, kind)
+        return redirect(url_for("targets_page"))
+
+    @app.route("/targets/remove", methods=["POST"])
+    def targets_remove():
+        label = (request.form.get("label") or "").strip()
+        remove_target(label)
+        return redirect(url_for("targets_page"))
 
     return app
 

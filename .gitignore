@@ -7,6 +7,11 @@
 /credentials.json
 /token.json
 
+# web/app.py's own scan output + local runtime state -- never commit
+/ui_output/
+/web/bound_targets.json
+/web/mounts_state.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
