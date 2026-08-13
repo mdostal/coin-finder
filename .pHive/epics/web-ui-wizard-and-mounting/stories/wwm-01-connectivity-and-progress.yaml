@@ -1,0 +1,102 @@
+id: wwm-01-connectivity-and-progress
+epic: web-ui-wizard-and-mounting
+title: Site-wide connectivity status + job progress reporting
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  - GET /api/status -- JSON endpoint reusing tools.unlock_wallet's
+    check_network_status() (not reimplemented) plus a static description of
+    what OFFLINE/ONLINE/UNKNOWN mean for each feature in this app (unlock
+    flows require OFFLINE; everything else works either way). Polled every
+    ~10s by a persistent widget added to base.html's header, visible on
+    every page -- not just the unlock page.
+  - web/jobs.py: run_job() gains an optional on the job dict --
+    `progress: {"current": int, "total": int, "message": str} | None`, plus
+    a new `report_progress(job_id, current, total, message="")` function
+    jobs can call mid-execution. Backward compatible: jobs that never call
+    it simply have `progress: None` throughout, identical to today.
+  - tools/check_wallet_balances.py's check_wallet_balances() and
+    tools/scan_wallet_dat.py's check_addresses_balances() gain an optional
+    `progress_callback=None` parameter, called once per address checked
+    (default no-op -- every existing CLI/test call site is unaffected).
+    web/app.py's _run_scan_job and the scan-wallet-dat item action pass
+    web/jobs.py's report_progress bound to the current job_id.
+  - scan.html / item_result.html: render a real progress bar when
+    job.progress is present ("checked 340 / 1016 addresses"), falling back
+    to the existing indeterminate "working" state when absent.
+
+acceptance_criteria:
+  - "Given the machine is offline, when GET /api/status is requested, then it returns network_status: OFFLINE and per-feature availability notes"
+  - "Given a job that never calls report_progress, when its status is polled, then progress is None and the page shows the existing indeterminate state"
+  - "Given check_wallet_balances is called with a progress_callback, when it processes N addresses, then the callback is invoked once per address with correct current/total"
+  - "Given check_wallet_balances is called with no progress_callback (existing call sites), when it runs, then behavior is byte-identical to before this story"
+  - "Given a job with progress set, when its status page renders, then it shows current/total, not just running/done/error"
+
+steps:
+  - id: research
+    description: (Already completed live in docs/research-brief.md -- confirmed web/jobs.py has no progress concept today, and the two target balance-check loops already iterate one-at-a-time.)
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for web/jobs.py's report_progress/progress field, and for check_wallet_balances/check_addresses_balances's new progress_callback parameter (asserting existing no-callback behavior is unchanged).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement GET /api/status, web/jobs.py's progress support, the two tools' progress_callback parameters, and template progress-bar rendering.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm every existing call site of check_wallet_balances/check_addresses_balances (CLI tools, other tests) still passes with the new optional parameter defaulted.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit, update README with the connectivity-status behavior.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/jobs.py
+      purpose: Job registry this story extends with an optional progress field -- backward compatible by construction.
+    - path: tools/unlock_wallet.py
+      purpose: check_network_status() reused directly for the new /api/status endpoint, not reimplemented.
+
+files_to_modify:
+  - file: web/app.py
+    change: add GET /api/status
+  - file: web/jobs.py
+    change: add progress field + report_progress()
+  - file: tools/check_wallet_balances.py
+    change: add optional progress_callback parameter to check_wallet_balances
+  - file: tools/scan_wallet_dat.py
+    change: add optional progress_callback parameter to check_addresses_balances
+  - file: web/templates/base.html
+    change: persistent connectivity status widget
+  - file: web/templates/scan.html
+    change: progress bar rendering
+  - file: web/templates/item_result.html
+    change: progress bar rendering
+  - file: tests/test_web_app.py
+    change: add /api/status tests
+  - file: tests/test_check_wallet_balances.py
+    change: add progress_callback tests
+  - file: tests/test_scan_wallet_dat.py
+    change: add progress_callback tests
+
+design_decisions:
+  - decision: progress_callback defaults to None/no-op on every tool function it's added to.
+    rationale: Every existing CLI invocation and test call site must remain byte-identical -- this is an additive, not breaking, signature change.
+  - decision: Connectivity status is polled from a single reused check_network_status(), not duplicated logic.
+    rationale: Two different online/offline checks drifting out of sync would be a real, confusing correctness bug in exactly the safety-critical property this project has been careful about all session.
+
+risks:
+  - severity: low
+    description: Polling /api/status every ~10s adds a small constant background load.
+    mitigation: DNS-probe based check with a 2s timeout per probe, same cost as the existing unlock-page check; negligible for a local single-user app.
+
+references:
+  - path: .pHive/epics/web-ui-wizard-and-mounting/docs/design-discussion.md
+    relevant_excerpt: "adding a progress callback is additive, not a restructure"

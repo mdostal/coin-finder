@@ -1,0 +1,113 @@
+id: wwm-03-rclone-mounting
+epic: web-ui-wizard-and-mounting
+title: rclone-based Google Drive/GCS mounting
+status: pending
+complexity: large
+methodology: tdd
+depends_on: [wwm-02-bound-targets-and-volumes]
+
+description: |
+  scripts/install_rclone.sh: `brew install rclone` + `brew install --cask
+  macfuse`, printing a loud, explicit callout that macFUSE requires manual
+  approval in System Settings -> Privacy & Security (and typically a
+  reboot) -- verified live during epic research that this step cannot be
+  scripted past.
+
+  web/mounts.py: wraps `rclone` as a long-running background process (not a
+  web/jobs.py job -- a mount is a persistent daemon, not a one-shot task
+  with a result):
+  - list_remotes(): `rclone listremotes` -- configured remotes (Drive/GCS),
+    parsed output.
+  - mount(remote_name, mount_point): starts `rclone mount <remote>:
+    <mount_point> --read-only --vfs-cache-mode=minimal` as a background
+    subprocess (read-only -- this app only ever scans, never writes to
+    Drive/GCS). Tracked in a small local state file
+    (web/mounts_state.json, gitignored): {remote_name: {pid, mount_point,
+    started_at}}.
+  - unmount(remote_name): `umount <mount_point>` (macOS), removes the state
+    entry.
+  - is_mounted(remote_name): checks the tracked process is actually alive
+    AND the mount point responds (not just "does the path exist" -- a
+    crashed FUSE mount can leave a path that exists but reads as
+    permanently empty, a real documented FUSE failure mode).
+
+  New page GET /mounts: lists configured remotes (from list_remotes()) and
+  their mount status, mount/unmount buttons, and on a successful mount, an
+  "Add to bound targets" button wired directly into wwm-02's
+  add_target(path, kind="gdrive-mount"|"gcs-mount").
+
+acceptance_criteria:
+  - "Given a mocked rclone listremotes output, when list_remotes runs, then it returns the parsed remote names"
+  - "Given a mocked subprocess, when mount() is called, then it starts rclone with --read-only and records the process in the state file"
+  - "Given a tracked mount whose process has died, when is_mounted() runs, then it returns False, not just checking path existence"
+  - "Given a successful mount, when 'Add to bound targets' is used, then it calls wwm-02's add_target with kind matching the remote type"
+  - "Given install_rclone.sh runs, when it completes, then it prints the macFUSE manual-approval callout -- this is asserted by a test that runs the script with a mocked/stubbed brew and greps its output"
+
+steps:
+  - id: research
+    description: (Already completed live -- rclone verified brew-installable; macFUSE's manual-approval requirement confirmed via brew cask info, not assumed.)
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests in tests/test_mounts.py, mocking subprocess calls -- no real rclone/macFUSE interaction in the test suite (consistent with how hashcat/BTCRecover live interaction was handled earlier this session -- tested against mocks/known-safe fixtures, not live cloud accounts).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement scripts/install_rclone.sh, web/mounts.py, and the /mounts routes/template. Wire "Add to bound targets" into wwm-02's store.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm mount() always includes --read-only, and that unmount()/state-file logic can never leave a stale bound-target pointing at a dead mount without is_mounted() catching it on the /mounts page.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit, add /mounts to nav, README section on mounting Google Drive/GCS for multi-terabyte drives (linked from drive.html per local-web-ui's existing forward-reference).
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/bound_targets.py
+      purpose: add_target() reused directly for "Add to bound targets" -- no duplicate storage.
+    - path: scripts/install_btcrecover.sh
+      purpose: Exact install-script pattern (external tool, vendored/installed at setup time, not committed) this story follows for rclone/macfuse.
+
+files_to_modify:
+  - file: scripts/install_rclone.sh
+    change: new file
+  - file: web/mounts.py
+    change: new file
+  - file: web/app.py
+    change: add GET /mounts, POST /mounts/mount, POST /mounts/unmount, POST /mounts/bind
+  - file: web/templates/mounts.html
+    change: new file
+  - file: web/templates/base.html
+    change: add Mounts to nav
+  - file: web/templates/drive.html
+    change: link to the mounting README section
+  - file: tests/test_mounts.py
+    change: new file
+  - file: .gitignore
+    change: add web/mounts_state.json (local runtime state)
+  - file: README.md
+    change: "Mounting Google Drive for Multi-Terabyte Drives" section
+
+design_decisions:
+  - decision: Mounts are read-only, always.
+    rationale: This app only ever needs to scan Drive/GCS content, never write to it -- a read-only mount makes "accidentally modify the user's real cloud storage" structurally impossible rather than a convention to remember.
+  - decision: Mounts are tracked as persistent background processes, not web/jobs.py jobs.
+    rationale: A job models "start, run, finish with a result" -- a mount is "start, stay running indefinitely until explicitly stopped." Forcing it into the job model would need a fake never-completing job; a small dedicated state file is a better fit.
+  - decision: is_mounted() checks real process/mount health, not just path existence.
+    rationale: A crashed FUSE mount is a known failure mode that leaves a path that *looks* fine but silently reads as empty -- a scan against a dead mount would misreport "found nothing" as if the Drive were genuinely empty. This must be caught before a scan starts, not discovered after a wasted multi-day crawl.
+
+risks:
+  - severity: high
+    description: A scan running against a mount that dies partway through could silently produce an incomplete/misleading result (looks like "scanned everything, found nothing" rather than "scan was cut short").
+    mitigation: is_mounted() health check surfaced prominently on /mounts before starting a scan; documented as a known risk for multi-day crawls in the README's mounting section -- recommend checking /mounts periodically during a long crawl, not a false guarantee of resilience this story can't actually provide.
+  - severity: medium
+    description: macFUSE's manual OS approval step is a real point where a non-technical user could get stuck with no clear next action.
+    mitigation: install_rclone.sh's explicit callout + the /mounts page's is_mounted() check giving a clear "not yet approved" signal rather than a silent failure.
+
+references:
+  - path: .pHive/epics/web-ui-wizard-and-mounting/docs/design-discussion.md
+    relevant_excerpt: "This one step cannot be automated... the wizard must clearly explain and detect this step rather than silently assume it succeeded"

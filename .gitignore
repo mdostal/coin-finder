@@ -211,6 +211,8 @@ cython_debug/
 !.pHive/epics/wif-key-extraction-and-recovery-report/**
 !.pHive/epics/bsv-and-feathercoin-support/
 !.pHive/epics/bsv-and-feathercoin-support/**
+!.pHive/epics/web-ui-wizard-and-mounting/
+!.pHive/epics/web-ui-wizard-and-mounting/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
