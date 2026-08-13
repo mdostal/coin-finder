@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-13
+
+### Added
+
+- **Multi-seed transaction-graph crawls.** `crawl_transaction_graph.py`'s CLI
+  now accepts either a single address or a file of addresses (one per line),
+  so a single run can mix addresses found on disk with addresses you
+  currently hold/know about into one combined graph.
+- **Wallet & service recoverability reference**
+  (`docs/wallet_recovery_reference.md`, linked from the README). Explicitly
+  scoped as a reference to cross-check against your own memory, not an
+  automated classifier -- reliable "this address belonged to exchange X"
+  detection isn't achievable from public blockchain data alone. Covers
+  self-custody wallet software this project helps recover (Bitcoin Core,
+  Electrum, Armory, more via BTCRecover) and well-known defunct custodial
+  services, plus how this project's own dormancy/clustering output can help
+  tell the two apart.
+
 ## [0.9.0] - 2026-08-13
 
 ### Added
