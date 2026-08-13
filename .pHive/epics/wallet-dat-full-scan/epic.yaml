@@ -1,0 +1,41 @@
+name: wallet-dat-full-scan
+title: Full wallet.dat Key Enumeration + Balance Scan
+description: >
+  Parses the actual Berkeley DB btree structure of a Bitcoin Core wallet.dat
+  to enumerate every stored address (not just the subset a text regex
+  happens to match), deriving addresses from public keys only -- private
+  key bytes are never read from disk during the scan, structurally, not
+  just by convention. Motivated by a live diagnostic finding: the real
+  backup-wallet-1/wallet.dat is unencrypted and contains 1009 private-key
+  records, of which only 7 had ever been checked (the ones regex-matchable
+  as label text).
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, security-critical, binary-format-parsing]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    security-critical: "Directly parses a file containing 1009 raw private keys; safety property enforced structurally (value bytes never read), not just by convention."
+    binary-format-parsing: "First epic parsing a raw Berkeley DB btree structure -- validated live against the real wallet file (2938 records, zero parse errors) before any production code was written."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as prior epics. Triggered by a live
+      diagnostic (checking whether backup-wallet-1/wallet.dat was encrypted)
+      rather than a pre-planned feature -- documented in
+      docs/design-discussion.md Section 1.
+
+stories:
+  - id: wds-01-btree-scanner
+    title: Safe BDB key enumeration + address derivation + balance scan
+    complexity: high
+    depends_on: []

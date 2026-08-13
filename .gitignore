@@ -191,6 +191,8 @@ cython_debug/
 !.pHive/epics/seed-derivation-balance-check/**
 !.pHive/epics/btcrecover-integration/
 !.pHive/epics/btcrecover-integration/**
+!.pHive/epics/wallet-dat-full-scan/
+!.pHive/epics/wallet-dat-full-scan/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
