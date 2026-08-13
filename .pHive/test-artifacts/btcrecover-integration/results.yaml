@@ -1,0 +1,20 @@
+epic: btcrecover-integration
+substrate: pytest (plus a real BTCRecover subprocess run against its own public test fixture)
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 78
+tests_passed: 78
+tests_failed: 0
+coverage_by_story:
+  bri-01-install-and-wrapper:
+    acceptance_criteria: 6
+    covered_by_tests: 7
+    gaps: []
+    note: "Real end-to-end test against BTCRecover's own bundled public test wallet (bitcoincore-wallet.dat) and its publicly documented test password (btcr-test-password, from BTCRecover's own open-source test code) -- no real funds, safe. Ran scripts/install_btcrecover.sh locally to install vendor/btcrecover before testing."
+regression_check:
+  previous_suite: 71 tests from prior epics
+  result: pass
+safety_note: "This epic's own testing never runs against the user's real wallet.dat -- only BTCRecover's public test fixture. The real recovery run against backup-wallet-1/wallet.dat is the user's to run themselves, offline, per BTCRecover's own SKILL.md separation principle."
+bugs_filed: 0
+verdict: PASS

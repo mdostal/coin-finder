@@ -1,0 +1,40 @@
+name: btcrecover-integration
+title: BTCRecover Integration (Wallet Password Unlock)
+description: >
+  Installs and wraps the actively-maintained BTCRecover fork
+  (3rdIteration/btcrecover) for testing candidate passwords against a real
+  wallet file. Enforces BTCRecover's own documented safety model (from its
+  bundled SKILL.md): the real recovery run must happen with network
+  disabled. The agent builds and tests against BTCRecover's own public test
+  fixture only; the user runs the real recovery themselves, offline.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, security-critical, external-tool-integration]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase; wraps an external tool via subprocess."
+    cli-tool: "project_type: framework, has_ui: false."
+    security-critical: "Real wallet password recovery -- offline-only execution enforced by a hard safety gate, discovered via BTCRecover's own upstream SKILL.md."
+    external-tool-integration: "First epic integrating a separate, actively-maintained third-party tool (3rdIteration/btcrecover) rather than a Python library dependency."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as prior epics. This epic required
+      real external research (verifying gurnec/btcrecover is unmaintained
+      Python 2-only, finding the 3rdIteration fork, reading its bundled
+      SKILL.md) before any implementation decision could be made safely --
+      documented in docs/design-discussion.md Section 2.
+
+stories:
+  - id: bri-01-install-and-wrapper
+    title: Install script + offline-gated wrapper tool
+    complexity: medium
+    depends_on: []

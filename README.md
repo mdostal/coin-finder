@@ -50,6 +50,9 @@ project/
 │   ├── crawl_transaction_graph.py # Standalone: discovers likely same-owner Bitcoin addresses via public tx graph
 │   ├── find_seed_phrases.py  # Standalone: scans text files for checksum-valid BIP39 seed phrases
 │   ├── match_seed_phrases.py # Standalone: derives addresses from seed phrases (bounded schemes) and checks balances
+│   ├── unlock_wallet.py      # Standalone: offline-gated wrapper around BTCRecover for wallet password testing
+├── scripts/
+│   ├── install_btcrecover.sh # Clones/updates BTCRecover into vendor/btcrecover/ (not committed)
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
 ├── requirements.txt          # Python dependencies
 ├── run_pipeline.py           # Orchestrates the entire pipeline
@@ -275,7 +278,85 @@ against real accounts.
 
 ---
 
+### 9. Wallet Unlock via BTCRecover (`unlock_wallet.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Wraps
+[BTCRecover](https://github.com/3rdIteration/btcrecover) (the actively
+maintained Python 3 fork -- the original `gurnec/btcrecover` is Python 2-only
+and does not run today) to test candidate passwords against a real wallet
+file (Bitcoin Core, Armory, Electrum, and many others -- see BTCRecover's own
+README for the full supported list).
+
+- **Install**: `bash scripts/install_btcrecover.sh` -- clones/updates
+  BTCRecover into `vendor/btcrecover/` (not committed to this repo; it's a
+  separate GPLv2 project) and installs its dependencies.
+- **⚠️ Critical: the real recovery run must happen offline.** BTCRecover ships
+  its own `SKILL.md` (`vendor/btcrecover/SKILL.md`) written specifically for
+  AI coding agents, which documents the *separation principle*: a single
+  online machine/session must never hold both the wallet file and the
+  password candidates in a way that could unlock funds while still connected
+  to the network. `unlock_wallet.py` enforces this with a hard safety gate --
+  it checks network connectivity and **refuses to run** unless the machine is
+  verified offline, or you explicitly pass `--allow-online` (only appropriate
+  for known-safe test/example data, never a real wallet). **Read
+  `vendor/btcrecover/SKILL.md` before running this against a real wallet.**
+- **Usage** (candidates come from a file only -- never pass a password as a
+  command-line argument):
+  ```bash
+  # 1. Install (online is fine)
+  bash scripts/install_btcrecover.sh
+
+  # 2. Disconnect network (Wi-Fi off, Ethernet unplugged, no hotspot)
+
+  # 3. Run the real recovery (offline)
+  python tools/unlock_wallet.py <wallet_path> <candidates_file>
+  ```
+- On success, BTCRecover's complete output is shown to you as-is (including
+  its donation/tip-address block) -- this tool never intercepts, condenses,
+  or paraphrases it.
+
+---
+
 ## Pipeline Overview
+
+```mermaid
+flowchart TD
+    accTitle: coin-finder tool pipeline
+    accDescr: Default pipeline stages plus standalone tools that feed into or branch off it
+
+    A[search_wallets.py] --> B[analyze_wallets.py]
+    B --> C[check_wallet_balances.py]
+    C --> D[filter_wallets.py]
+    C --> E[build_wallet_graph.py]
+    D --> F[filtered_wallets.json]
+    E --> G[wallet_relationships.json/.md]
+
+    subgraph Default pipeline [run_pipeline.py]
+        A
+        B
+        C
+        D
+        E
+    end
+
+    subgraph Standalone tools
+        H[detect_hidden_volumes.py]
+        I[crawl_transaction_graph.py]
+        J[find_seed_phrases.py]
+        K[match_seed_phrases.py]
+        L[unlock_wallet.py]
+    end
+
+    C -.public addresses found.-> I
+    J -->|candidate seed phrases| K
+    K -.no match.-> L
+    D -.found wallet file, need password.-> L
+```
+
+The default pipeline (`run_pipeline.py`) runs stages A-E automatically.
+Everything under "Standalone tools" is invoked deliberately, on its own,
+against whatever the earlier stages (or your own manual digging) turned up --
+they are not run automatically.
 
 ### Search
 Identifies potential wallet files in a specified directory.

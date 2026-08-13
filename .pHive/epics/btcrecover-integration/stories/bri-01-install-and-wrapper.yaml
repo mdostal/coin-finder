@@ -1,0 +1,105 @@
+id: bri-01-install-and-wrapper
+epic: btcrecover-integration
+title: Install script + offline-gated wrapper tool
+status: completed
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  scripts/install_btcrecover.sh: clones (or updates) 3rdIteration/btcrecover
+  into vendor/btcrecover/ (gitignored, not committed) and installs its pip
+  requirements.
+
+  tools/unlock_wallet.py:
+  - `check_network_status(timeout=2) -> "OFFLINE"|"ONLINE"|"UNKNOWN"`: stdlib
+    socket-only TCP probes against 8.8.8.8:53, 1.1.1.1:53, 9.9.9.9:53 --
+    mirrors BTCRecover's own utilities/net_check.py approach.
+  - `find_btcrecover_script() -> str | None`: locates
+    vendor/btcrecover/btcrecover.py relative to the repo root; None if absent.
+  - `run_unlock(wallet_path, candidates_file, btcrecover_script=None,
+    allow_online=False) -> subprocess.CompletedProcess`: HARD SAFETY GATE --
+    if check_network_status() != "OFFLINE" and not allow_online, raises
+    RuntimeError with a clear explanation and does NOT invoke any subprocess.
+    Otherwise runs `python3 <btcrecover_script> --wallet <wallet_path>
+    --passwordlist <candidates_file>` and returns the completed process.
+  - CLI: `python tools/unlock_wallet.py <wallet_path> <candidates_file>
+    [--allow-online] [--btcrecover-script PATH]`. Candidates come from a file
+    only -- never a CLI argument (same rule as the seed-phrase tools). On
+    success, BTCRecover's own stdout is relayed to the terminal verbatim (not
+    condensed, not paraphrased) -- per BTCRecover's own SKILL.md Step 7
+    guidance, since stripping the donation/tip block is a documented common
+    failure mode.
+
+acceptance_criteria:
+  - "Given the machine is online, when run_unlock is called without allow_online, then it raises RuntimeError and no subprocess is invoked"
+  - "Given allow_online=True, when run_unlock is called regardless of network status, then it proceeds to invoke the subprocess"
+  - "Given check_network_status is mocked to return OFFLINE, when run_unlock is called without allow_online, then it proceeds to invoke the subprocess"
+  - "Given BTCRecover's own bundled public test wallet (bitcoincore-wallet.dat) and a candidates file containing the publicly documented test password ('btcr-test-password', among wrong guesses), when run_unlock runs end-to-end with allow_online=True, then the subprocess reports the password was found"
+  - "Given the CLI is invoked with a candidates file (never a password as a CLI argument), when its process list is inspected during the run, then no password/candidate text appears in the command-line arguments"
+  - "Given find_btcrecover_script cannot locate vendor/btcrecover/btcrecover.py, when the CLI runs, then it errors with a clear message directing the user to scripts/install_btcrecover.sh, rather than a raw file-not-found traceback"
+
+steps:
+  - id: research
+    description: (Already completed during epic-level research -- documented in docs/design-discussion.md.) Re-confirm vendor/btcrecover/btcrecover.py's --wallet/--passwordlist flag shape against the cloned repo's --help output before writing tests.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_unlock_wallet.py: mocked-network-status
+      tests for the safety gate (no real network dependency), and one
+      real end-to-end test against BTCRecover's own public test fixture
+      (safe, publicly documented, no real funds -- same class of fixture as
+      the BIP39 test vector used in earlier epics). Requires vendor/btcrecover
+      to be installed; skip gracefully (not fail) if it isn't present in this
+      environment, with a clear skip reason.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement check_network_status, find_btcrecover_script, run_unlock, and the CLI to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically that the offline safety gate cannot be bypassed accidentally (only an explicit --allow-online flag / allow_online=True argument works), and that no code path passes password/candidate content as a subprocess argument or CLI argument.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit scripts/install_btcrecover.sh, tools/unlock_wallet.py, tests/test_unlock_wallet.py, and .gitignore. Run scripts/install_btcrecover.sh locally to install vendor/btcrecover, then run the full test suite including the real end-to-end fixture test.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: .pHive/epics/btcrecover-integration/docs/design-discussion.md
+      purpose: Documents the external research (Python 2 vs 3rdIteration fork, the bundled SKILL.md safety model, the public test fixture) that this story's design depends on.
+
+files_to_modify:
+  - file: scripts/install_btcrecover.sh
+    change: new file -- clones/updates 3rdIteration/btcrecover into vendor/, installs its deps
+  - file: tools/unlock_wallet.py
+    change: new file -- check_network_status, find_btcrecover_script, run_unlock, CLI
+  - file: tests/test_unlock_wallet.py
+    change: new file -- safety-gate tests + real end-to-end test against BTCRecover's public fixture
+  - file: .gitignore
+    change: add vendor/ (external tool, not committed)
+
+design_decisions:
+  - decision: Hard-block the real recovery run when the machine is online, requiring an explicit --allow-online override.
+    rationale: Directly implements BTCRecover's own upstream SKILL.md separation principle -- a single online session must never combine wallet file + password candidates in a way that could unlock funds while online.
+  - decision: vendor/btcrecover/ is fetched at setup time, not committed to this repo's git history.
+    rationale: It's a large, separately-maintained GPLv2 project; matches how the project already excludes /output/** and /input/** from version control.
+
+risks:
+  - severity: critical
+    description: Running a real password-guessing attempt against a real wallet while online is the exact failure mode the upstream SKILL.md exists to prevent.
+    mitigation: Hard --allow-online gate (default blocked); this epic's own testing never runs against the user's real wallet, only BTCRecover's public test fixture.
+  - severity: medium
+    description: vendor/btcrecover/ tracks upstream HEAD rather than a pinned version: behavior could shift if upstream changes.
+    mitigation: Accepted for v1 per the user's explicit ask for a live install step; a version pin is a reasonable low-effort follow-up if drift becomes a problem.
+
+references:
+  - path: .pHive/epics/btcrecover-integration/docs/design-discussion.md
+    relevant_excerpt: |
+      "The real recovery run must happen with network disabled; only
+      install/validation may happen online... I build and test the tool;
+      the user runs the actual real-wallet recovery themselves, offline."
