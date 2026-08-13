@@ -1,0 +1,21 @@
+epic: dormancy-check-and-path-fix
+substrate: pytest
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 55
+tests_passed: 55
+tests_failed: 0
+coverage_by_story:
+  dcpf-01-path-fix-and-dormancy:
+    acceptance_criteria: 6
+    covered_by_tests: 6
+    gaps: []
+regression_check:
+  previous_suite: 47 tests from epics wallet-relationship-graph, conservative-balance-retries, deep-crawl-hidden-volumes, transaction-graph-crawler
+  result: pass
+real_world_validation:
+  target: 1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB (real found address, re-run)
+  result: "Dormancy output sensible: seed address 4.7 years since last activity, cluster members ranging 4.7-8.5 years."
+bugs_filed: 0
+verdict: PASS

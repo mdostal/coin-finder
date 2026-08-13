@@ -1,11 +1,16 @@
+import sys
 import time
+from pathlib import Path
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from services.bitcoin import BitcoinService
 
 MAX_FETCH_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
+SECONDS_PER_YEAR = 365.25 * 24 * 3600
 
 
 def fetch_address_transactions(address, max_retries=MAX_FETCH_RETRIES, backoff_seconds=RETRY_BACKOFF_SECONDS):
@@ -71,19 +76,47 @@ def find_output_addresses(tx, known_address, max_outputs=20):
     }
 
 
-def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, balance_threshold=1.0):
+def compute_last_activity_timestamp(transactions):
+    """
+    Return the most recent confirmed block_time among transactions, or None
+    if there are no confirmed transactions.
+    """
+    confirmed_times = [
+        tx["status"]["block_time"]
+        for tx in transactions
+        if tx.get("status", {}).get("confirmed") and tx["status"].get("block_time") is not None
+    ]
+    return max(confirmed_times) if confirmed_times else None
+
+
+def dormancy_years(last_activity_timestamp, now=None):
+    """
+    Years elapsed since last_activity_timestamp, or None when last activity is
+    unknown. `now` is injectable for testability; defaults to the real time.
+    """
+    if last_activity_timestamp is None:
+        return None
+    if now is None:
+        now = time.time()
+    return (now - last_activity_timestamp) / SECONDS_PER_YEAR
+
+
+def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, balance_threshold=1.0, now=None):
     """
     BFS outward from seed_addresses using co-spend clustering (always followed)
     and bounded output-following (capped, lower confidence). Stops admitting
     new addresses once max_addresses total have been discovered (the current
-    generation still finishes). Checks balance for every discovered address via
-    the existing BitcoinService.
+    generation still finishes). Checks balance and last-activity/dormancy for
+    every discovered address via the existing BitcoinService.
 
     :return: {address: {"confidence": "seed"|"co-spend"|"output",
-                         "generation": int, "balance": float | None}}
+                         "generation": int, "balance": float | None,
+                         "last_activity_timestamp": int | None,
+                         "dormant_years": float | None}}
     """
     discovered = {addr: {"confidence": "seed", "generation": 0} for addr in seed_addresses}
     frontier = set(seed_addresses)
+    tx_cache = {}
 
     for generation in range(1, max_generations + 1):
         if not frontier:
@@ -91,7 +124,9 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
 
         next_frontier = set()
         for address in frontier:
-            for tx in fetch_address_transactions(address):
+            txs = fetch_address_transactions(address)
+            tx_cache[address] = txs
+            for tx in txs:
                 for co_spend in find_co_spend_addresses(tx, address):
                     if co_spend not in discovered and len(discovered) >= max_addresses:
                         continue
@@ -111,6 +146,13 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
     service = BitcoinService()
     for address, info in discovered.items():
         info["balance"] = service.check_balance(address)
+
+        txs = tx_cache.get(address)
+        if txs is None:
+            txs = fetch_address_transactions(address)
+        last_activity = compute_last_activity_timestamp(txs)
+        info["last_activity_timestamp"] = last_activity
+        info["dormant_years"] = dormancy_years(last_activity, now=now)
 
     return discovered
 
@@ -135,9 +177,18 @@ def render_cluster_report(results, balance_threshold=1.0):
         balance = info.get("balance")
         balance_str = f"{balance:.8f} BTC" if balance is not None else "unknown (inconclusive)"
         tag = "SIGNIFICANT -- " if balance is not None and balance >= balance_threshold else ""
+
+        dormant_years = info.get("dormant_years")
+        if dormant_years is not None:
+            activity_str = f", last activity {dormant_years:.1f} years ago"
+            if dormant_years >= 5:
+                activity_str += " (dormant 5+ years -- verify this matches what you expected)"
+        else:
+            activity_str = ", last activity unknown"
+
         lines.append(
             f"- {tag}`{address}` -- confidence: {info['confidence']}, "
-            f"generation: {info['generation']}, balance: {balance_str}"
+            f"generation: {info['generation']}, balance: {balance_str}{activity_str}"
         )
 
     lines.append("")
