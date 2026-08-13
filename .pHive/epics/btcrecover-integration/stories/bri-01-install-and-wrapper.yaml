@@ -1,7 +1,9 @@
 id: bri-01-install-and-wrapper
 epic: btcrecover-integration
 title: Install script + offline-gated wrapper tool
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.8.0"
 complexity: medium
 methodology: tdd
 depends_on: []
