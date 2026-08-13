@@ -3,6 +3,10 @@
 .DS_Store
 **/**.DS_Store
 
+# Google Drive adapter: OAuth client secret + cached token -- never commit
+/credentials.json
+/token.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -199,6 +203,8 @@ cython_debug/
 !.pHive/epics/fork-coin-checker/**
 !.pHive/epics/exodus-hashcat-integration/
 !.pHive/epics/exodus-hashcat-integration/**
+!.pHive/epics/google-drive-adapter/
+!.pHive/epics/google-drive-adapter/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
