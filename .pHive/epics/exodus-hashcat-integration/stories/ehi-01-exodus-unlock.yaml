@@ -1,7 +1,9 @@
 id: ehi-01-exodus-unlock
 epic: exodus-hashcat-integration
 title: Install hashcat + exodus2hashcat.py, offline-gated unlock wrapper
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.12.0"
 complexity: medium
 methodology: tdd
 depends_on: []
