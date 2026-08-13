@@ -5,7 +5,9 @@ import sys
 from unittest.mock import MagicMock, patch
 
 from tools.crawl_transaction_graph import (
+    compute_last_activity_timestamp,
     crawl_wallet_cluster,
+    dormancy_years,
     find_co_spend_addresses,
     find_output_addresses,
     render_cluster_report,
@@ -16,14 +18,17 @@ COSPEND = "1CoSpend0000000000000000000000"
 THIRD_PARTY = "1ThirdParty000000000000000000"
 
 
-def make_tx(vin_addresses, vout_addresses):
-    return {
+def make_tx(vin_addresses, vout_addresses, block_time=None, confirmed=True):
+    tx = {
         "txid": "fake",
         "vin": [
             {"prevout": {"scriptpubkey_address": addr}} for addr in vin_addresses
         ],
         "vout": [{"scriptpubkey_address": addr} for addr in vout_addresses],
     }
+    if block_time is not None:
+        tx["status"] = {"confirmed": confirmed, "block_time": block_time}
+    return tx
 
 
 def test_co_spend_addresses_found_when_known_address_is_an_input():
@@ -135,6 +140,65 @@ def test_report_sorted_by_balance_descending_and_significant_tagged():
     assert cospend_pos < seed_pos < third_party_pos
     assert f"SIGNIFICANT" in report
     assert report.count("SIGNIFICANT") == 1  # only the 5.0 BTC entry
+
+
+def test_compute_last_activity_returns_max_block_time_among_confirmed_txs():
+    txs = [
+        make_tx([SEED], [], block_time=1000),
+        make_tx([SEED], [], block_time=5000),
+        make_tx([SEED], [], block_time=2000),
+    ]
+
+    assert compute_last_activity_timestamp(txs) == 5000
+
+
+def test_compute_last_activity_ignores_unconfirmed_txs():
+    txs = [
+        make_tx([SEED], [], block_time=9999, confirmed=False),
+        make_tx([SEED], [], block_time=1000, confirmed=True),
+    ]
+
+    assert compute_last_activity_timestamp(txs) == 1000
+
+
+def test_compute_last_activity_returns_none_when_no_confirmed_txs():
+    txs = [make_tx([SEED], [], block_time=9999, confirmed=False)]
+
+    assert compute_last_activity_timestamp(txs) is None
+
+
+def test_compute_last_activity_returns_none_for_empty_tx_list():
+    assert compute_last_activity_timestamp([]) is None
+
+
+def test_dormancy_years_computes_elapsed_time():
+    one_year_seconds = 365.25 * 24 * 3600
+    last_activity = 1000
+    now = 1000 + (5 * one_year_seconds)
+
+    result = dormancy_years(last_activity, now=now)
+
+    assert 4.99 < result < 5.01
+
+
+def test_dormancy_years_returns_none_when_last_activity_unknown():
+    assert dormancy_years(None, now=1000) is None
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_populates_last_activity_and_dormancy_for_seed(mock_fetch, mock_service_cls):
+    mock_fetch.side_effect = lambda addr: {
+        SEED: [make_tx([SEED], [], block_time=1000)],
+    }.get(addr, [])
+    mock_service_cls.return_value.check_balance.return_value = 0.3
+
+    one_year_seconds = 365.25 * 24 * 3600
+    now = 1000 + (6 * one_year_seconds)
+    result = crawl_wallet_cluster([SEED], max_generations=1, now=now)
+
+    assert result[SEED]["last_activity_timestamp"] == 1000
+    assert result[SEED]["dormant_years"] > 5
 
 
 def test_report_never_asserts_certainty_for_output_confidence():

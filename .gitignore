@@ -183,3 +183,5 @@ cython_debug/
 !.pHive/epics/deep-crawl-hidden-volumes/**
 !.pHive/epics/transaction-graph-crawler/
 !.pHive/epics/transaction-graph-crawler/**
+!.pHive/epics/dormancy-check-and-path-fix/
+!.pHive/epics/dormancy-check-and-path-fix/**

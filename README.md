@@ -187,6 +187,10 @@ same person using **public blockchain data only** (no private keys involved).
     would sweep in hundreds of unrelated people's addresses, not yours.
   - The crawl is bounded (`--generations`, default 2; `--max-addresses`, default
     200) so it can't run away on a busy address.
+  - Every address's report line also shows its **last activity** (years since its
+    most recent confirmed transaction), with an explicit call-out on anything
+    dormant 5+ years -- not a claim about what happened, just the real blockchain
+    record so you can check it against what you remember.
 - **Usage**:
   ```bash
   python tools/crawl_transaction_graph.py <seed_address> <output_file> [--generations N] [--max-addresses N] [--threshold BTC]
