@@ -1,7 +1,9 @@
 id: wrg-02-pipeline-integration
 epic: wallet-relationship-graph
 title: Wire relationship graph into run_pipeline.py as stage 5
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.1.0"
 complexity: low
 methodology: tdd
 depends_on: [wrg-01-relationship-graph-core]

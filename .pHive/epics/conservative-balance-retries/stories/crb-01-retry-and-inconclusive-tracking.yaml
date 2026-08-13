@@ -1,7 +1,9 @@
 id: crb-01-retry-and-inconclusive-tracking
 epic: conservative-balance-retries
 title: Retry balance checks and track inconclusive results
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.2.0"
 complexity: medium
 methodology: tdd
 depends_on: []
