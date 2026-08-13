@@ -10,6 +10,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 
 import run_pipeline
 from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
+from web.mounts import is_mounted, list_mounts, list_remotes, mount, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addresses, render_cluster_report
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
@@ -284,6 +285,46 @@ def create_app(host="127.0.0.1"):
     def targets_remove():
         label = (request.form.get("label") or "").strip()
         remove_target(label)
+        return redirect(url_for("targets_page"))
+
+    @app.route("/mounts")
+    def mounts_page():
+        return render_template("mounts.html", remotes=list_remotes(), mounts=list_mounts(), error=None)
+
+    @app.route("/mounts/mount", methods=["POST"])
+    def mounts_mount():
+        remote_name = (request.form.get("remote_name") or "").strip()
+        mount_point = (request.form.get("mount_point") or "").strip()
+        if not remote_name or not mount_point:
+            return render_template("mounts.html", remotes=list_remotes(), mounts=list_mounts(), error="Enter both a remote and a mount point."), 400
+
+        mount(remote_name, mount_point)
+        return redirect(url_for("mounts_page"))
+
+    @app.route("/mounts/unmount", methods=["POST"])
+    def mounts_unmount():
+        remote_name = (request.form.get("remote_name") or "").strip()
+        unmount(remote_name)
+        return redirect(url_for("mounts_page"))
+
+    @app.route("/mounts/bind", methods=["POST"])
+    def mounts_bind():
+        remote_name = (request.form.get("remote_name") or "").strip()
+        mount_point = (request.form.get("mount_point") or "").strip()
+        kind = (request.form.get("kind") or "gdrive-mount").strip()
+
+        if not is_mounted(remote_name):
+            return (
+                render_template(
+                    "mounts.html",
+                    remotes=list_remotes(),
+                    mounts=list_mounts(),
+                    error=f"{remote_name} is not actually mounted right now -- refusing to bind it as a scan target. Mount it first.",
+                ),
+                409,
+            )
+
+        add_target(remote_name, mount_point, kind)
         return redirect(url_for("targets_page"))
 
     return app

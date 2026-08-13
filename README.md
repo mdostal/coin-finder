@@ -629,12 +629,44 @@ still works standalone for scripting/automation.
   local directory you choose, then show up in a normal scan of that
   directory just like any other local drive.
 
-This closes out the epic's planned scope: every one of the 13 standalone
-tools plus the default pipeline is now reachable from this one app, with
-every safety property built up over the course of this project (offline
+This closed out the `local-web-ui` epic's planned scope: every one of the 13
+standalone tools plus the default pipeline is reachable from this one app,
+with every safety property built up over the course of this project (offline
 gating, file-only secrets, never-persisted unlock results, localhost-only
 binding) carried through the HTTP layer intact. An Electron wrapper around
 this app is a separate, later effort outside this project's own scope.
+
+- **Saved scan targets** (`/targets`) -- bind a drive/directory once (a
+  label + path), reuse it with one click instead of retyping a path every
+  time. Also detects already-mounted volumes (macOS `/Volumes`, boot volume
+  excluded) so a physical drive you just plugged in shows up ready to scan.
+  Removing a bound target only ever forgets the saved reference -- it never
+  touches the underlying files.
+- **Mounting Google Drive for Multi-Terabyte Drives** (`/mounts`) -- for a
+  Drive (or a GCS bucket) too large to fully download first,
+  [rclone](https://rclone.org/) can mount it as a local-looking directory
+  instead; the existing scan tools then just work against it like any other
+  drive, no separate cloud-aware scanning code needed. Setup:
+  1. `scripts/install_rclone.sh` -- installs rclone plus macFUSE (required
+     for `rclone mount` on macOS). **macFUSE requires manual approval in
+     System Settings -> Privacy & Security** (and often a restart) -- this
+     one step cannot be scripted, the installer prints exactly what to do.
+  2. `rclone config` -- sets up a remote (interactive: opens a browser for
+     Google Drive OAuth, or asks for a GCS service-account key).
+  3. On the `/mounts` page, pick the configured remote and a local mount
+     point, click Mount. Mounts are **always read-only** -- this app only
+     ever scans, never writes to your Drive/GCS.
+  4. Once mounted, "Add to targets" binds it into `/targets` for one-click
+     scanning -- refuses (409) if the mount isn't actually healthy, since a
+     crashed FUSE mount can leave a path that looks fine but silently reads
+     as empty (a known FUSE failure mode, not this project's own bug) --
+     checked via a real process/mount-point health check, not just "does
+     the path exist."
+  5. **For a genuinely multi-day crawl**, periodically check `/mounts` --
+     if a mount dies partway through, a scan running against it can't tell
+     the difference between "drive is empty" and "drive stopped responding
+     partway through." This is a real, known limitation, not a false
+     guarantee of resilience.
 
 ---
 

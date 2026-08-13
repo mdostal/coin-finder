@@ -1,7 +1,7 @@
 id: wwm-03-rclone-mounting
 epic: web-ui-wizard-and-mounting
 title: rclone-based Google Drive/GCS mounting
-status: pending
+status: complete
 complexity: large
 methodology: tdd
 depends_on: [wwm-02-bound-targets-and-volumes]

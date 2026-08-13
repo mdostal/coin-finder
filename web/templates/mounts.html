@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}coin-finder -- mounts{% endblock %}
+{% block content %}
+<h2>Mounts</h2>
+<p>Attach a multi-terabyte Google Drive or GCS bucket as a local-looking
+directory (via <a href="https://rclone.org/">rclone</a>) instead of
+downloading it first -- once mounted, scan it exactly like any local
+drive. Mounts are always read-only.</p>
+
+<p class="subtle">First time? Run <code>scripts/install_rclone.sh</code>,
+then <code>rclone config</code> to set up a remote -- see the README's
+"Mounting Google Drive for Multi-Terabyte Drives" section.</p>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0">Active mounts</h3>
+  {% if mounts %}
+  <table>
+    <thead><tr><th>Remote</th><th>Mount point</th><th>Health</th><th></th></tr></thead>
+    <tbody>
+      {% for mnt in mounts %}
+      <tr>
+        <td>{{ mnt.remote_name }}</td>
+        <td>{{ mnt.mount_point }}</td>
+        <td>{{ m.status_pill("done" if mnt.is_mounted else "error") }}</td>
+        <td>
+          {% if mnt.is_mounted %}
+          <form method="post" action="{{ url_for('mounts_bind') }}" style="display:inline">
+            <input type="hidden" name="remote_name" value="{{ mnt.remote_name }}">
+            <input type="hidden" name="mount_point" value="{{ mnt.mount_point }}">
+            <input type="hidden" name="kind" value="gdrive-mount">
+            <button type="submit">Add to targets</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('mounts_unmount') }}" style="display:inline">
+            <input type="hidden" name="remote_name" value="{{ mnt.remote_name }}">
+            <button type="submit">Unmount</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No active mounts.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Configured remotes</h3>
+  {% if remotes %}
+  <form class="inline-form" method="post" action="{{ url_for('mounts_mount') }}">
+    <label>Remote</label>
+    <select name="remote_name">
+      {% for r in remotes %}
+      <option value="{{ r }}">{{ r }}</option>
+      {% endfor %}
+    </select>
+    <label>Mount point (a local directory, created if it doesn't exist)</label>
+    <input type="text" name="mount_point" placeholder="/Users/you/gdrive-mount" required>
+    <button type="submit">Mount</button>
+  </form>
+  {% else %}
+  <p class="empty">No rclone remotes configured yet. Run <code>rclone config</code> after installing rclone.</p>
+  {% endif %}
+</div>
+{% endblock %}
