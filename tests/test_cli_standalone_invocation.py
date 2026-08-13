@@ -10,6 +10,7 @@ TOOLS_IMPORTING_CONFIG_OR_SERVICES = [
     "tools/check_wallet_balances.py",
     "tools/build_wallet_graph.py",
     "tools/crawl_transaction_graph.py",
+    "tools/scan_google_drive.py",
 ]
 
 

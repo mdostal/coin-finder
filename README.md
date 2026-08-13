@@ -54,6 +54,7 @@ project/
 │   ├── scan_wallet_dat.py    # Standalone: enumerates every address in a wallet.dat (not just text-matchable ones)
 │   ├── check_fork_coins.py   # Standalone: checks found Bitcoin addresses on fork coins (Bitcoin Cash, Bitcoin Gold)
 │   ├── unlock_exodus_wallet.py # Standalone: offline-gated wrapper around hashcat for Exodus wallet password testing
+│   ├── scan_google_drive.py  # Standalone: slow-crawls Google Drive for wallet-like files, downloads to local disk
 ├── scripts/
 │   ├── install_btcrecover.sh # Clones/updates BTCRecover into vendor/btcrecover/ (not committed)
 │   ├── install_exodus_tools.sh # Installs hashcat + fetches exodus2hashcat.py into vendor/hashcat-tools/ (not committed)
@@ -430,6 +431,48 @@ candidate passwords against an Exodus wallet's `seed.seco` file.
 
 ---
 
+### 13. Google Drive Adapter (`scan_google_drive.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Slow-crawls
+your Google Drive for wallet-like files (same name/size heuristic as
+`search_wallets.py`) and downloads matches directly to local disk, so every
+other tool in this project can scan them exactly like a local drive.
+
+- **Why a separate OAuth setup, not just "search Drive":** file content
+  needs to flow directly from Google's servers to your local disk, the same
+  way every other tool in this project handles data -- never through an AI
+  assistant's own context along the way, which is exactly the kind of
+  online-secret-exposure this project's other tools are careful to avoid
+  (see `unlock_wallet.py` and `unlock_exodus_wallet.py`'s offline
+  requirements). A metadata-only search (filenames/sizes) is fine either
+  way; actual file *content* is not.
+- **Setup** (one-time, in your own Google account):
+  1. Go to the [Google Cloud Console](https://console.cloud.google.com/),
+     create a project (or use an existing one).
+  2. Enable the **Google Drive API** for that project.
+  3. Create an **OAuth client ID** credential of type **Desktop app**.
+  4. Download the credential JSON and save it as `credentials.json` in this
+     project's root (gitignored -- never commit it).
+  5. First run opens a browser for one-time consent; a `token.json` is
+     cached afterward (also gitignored) so you don't need to re-consent
+     every run.
+- **What it does NOT do**: read the content of native Google Docs/Sheets/
+  Slides (e.g. a note titled "wallet" with a seed phrase typed into it) --
+  those aren't downloadable files in the same sense. Review documents like
+  that directly in Drive yourself; this is a stated gap, not a silent one.
+- **Usage**:
+  ```bash
+  python tools/scan_google_drive.py <output_dir> [--query "..."]
+  ```
+**Example**:
+  ```bash
+  python tools/scan_google_drive.py ./output/drive_downloads
+  # then run the other tools against what it found, e.g.:
+  python tools/find_seed_phrases.py ./output/drive_downloads ./output/drive_seed_phrases.json
+  ```
+
+---
+
 ## Pipeline Overview
 
 ```mermaid
@@ -461,6 +504,7 @@ flowchart TD
         M[scan_wallet_dat.py]
         N[check_fork_coins.py]
         O[unlock_exodus_wallet.py]
+        P[scan_google_drive.py]
     end
 
     C -.public addresses found.-> I
@@ -468,6 +512,8 @@ flowchart TD
     K -.no match.-> L
     M -.every address in a wallet.dat.-> C
     M -.ckey records found, need password.-> L
+    P -->|downloaded files| A
+    P -->|downloaded files| J
     D -.found wallet file, need password.-> L
     M -->|found addresses| N
     I -->|found addresses| N
