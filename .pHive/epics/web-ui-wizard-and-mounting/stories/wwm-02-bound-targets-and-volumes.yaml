@@ -1,0 +1,90 @@
+id: wwm-02-bound-targets-and-volumes
+epic: web-ui-wizard-and-mounting
+title: Bound/saved scan targets + mounted-volume detection
+status: complete
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  web/bound_targets.py: a small JSON-file-backed store
+  (web/bound_targets.json, gitignored -- local runtime state):
+  - add_target(label, path, kind) / list_targets() / remove_target(label) --
+    kind is one of "local", "volume", "gdrive-mount", "gcs-mount"
+    (informational only; every kind is scanned identically once it's a
+    filesystem path).
+  - list_mounted_volumes(): macOS-specific, enumerates /Volumes/* excluding
+    the boot volume (Macintosh HD-style root), returning
+    [{name, path, is_bound}] -- is_bound cross-references the bound-targets
+    store so an already-added volume isn't offered twice.
+
+  New page GET /targets: lists bound targets and detected-but-unbound
+  volumes side by side. Each row has a "Scan" button that POSTs straight to
+  the existing /scan route (no new scanning logic) and, for unbound
+  volumes, an "Add" button (POST /targets/add) that calls add_target and
+  re-renders. POST /targets/remove removes a bound target (does not touch
+  the underlying files/volume -- only the saved reference).
+
+acceptance_criteria:
+  - "Given a fresh bound_targets.json (or none), when add_target is called, then the file is created and the target is listed"
+  - "Given a bound target, when remove_target is called, then it's gone from list_targets() and the underlying path is untouched"
+  - "Given a mocked /Volumes listing, when list_mounted_volumes runs, then the boot volume is excluded and already-bound volumes are marked is_bound=true"
+  - "Given the /targets page, when a bound target's Scan button is used, then it POSTs to the existing /scan route with that target's path"
+
+steps:
+  - id: research
+    description: (Already completed live in docs/research-brief.md.)
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests in tests/test_bound_targets.py (file-backed store, tmp_path-based) and tests/test_web_app_targets.py (route tests, mocked list_mounted_volumes for macOS-independence).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement web/bound_targets.py and the /targets routes/template.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm remove_target never touches the filesystem path itself, only the saved JSON reference -- this must be impossible to misread as a delete-the-drive action.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit, add /targets to the nav in base.html, update README.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/app.py
+      purpose: /targets routes reuse the existing /scan route rather than duplicating scan-trigger logic.
+
+files_to_modify:
+  - file: web/bound_targets.py
+    change: new file
+  - file: web/app.py
+    change: add GET /targets, POST /targets/add, POST /targets/remove
+  - file: web/templates/targets.html
+    change: new file
+  - file: web/templates/base.html
+    change: add Targets to nav
+  - file: tests/test_bound_targets.py
+    change: new file
+  - file: tests/test_web_app_targets.py
+    change: new file
+  - file: .gitignore
+    change: add web/bound_targets.json (local runtime state)
+
+design_decisions:
+  - decision: kind is informational only -- scanning logic never branches on it.
+    rationale: search_wallets.py/find_seed_phrases.py already work identically against any local-looking directory (local disk, physical volume, or a later FUSE mount) -- kind exists for the UI to explain what a target is, not to change how it's scanned.
+  - decision: remove_target only removes the saved reference, never the underlying path/files.
+    rationale: A "remove" action that could be misread as "delete this drive's data" would be a serious safety regression in a project built entirely around not losing real money -- this must be structurally impossible, not just documented.
+
+risks:
+  - severity: low
+    description: /Volumes enumeration is macOS-specific.
+    mitigation: Stated, not silent -- list_mounted_volumes() returns an empty list with a clear "volume detection is macOS-only" note on other platforms rather than erroring.
+
+references:
+  - path: .pHive/epics/web-ui-wizard-and-mounting/docs/design-discussion.md
+    relevant_excerpt: "A small local JSON file... kind is informational only, every kind is scanned identically"

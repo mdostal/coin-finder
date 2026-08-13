@@ -172,23 +172,31 @@ def scan_wallet_for_addresses(wallet_path):
     }
 
 
-def check_addresses_balances(addresses, limit=None):
+def check_addresses_balances(addresses, limit=None, progress_callback=None):
     """
     Check balance for addresses (list of {"address", "source"} dicts),
     reusing the existing retry helper. Never truncates silently -- reports
     whether a limit was applied.
 
+    :param progress_callback: Optional callable(current, total, message)
+        invoked once per address checked. Defaults to a no-op -- every
+        existing call site (CLI, tests) is unaffected by this parameter's
+        presence.
     :return: {"results": [addr dicts + "balance"], "limited": bool,
               "total_available": int}
     """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
     total_available = len(addresses)
     to_check = addresses[:limit] if limit else addresses
     service = load_service_for_coin("Bitcoin")
 
     results = []
-    for entry in to_check:
+    for i, entry in enumerate(to_check, start=1):
         balance = _check_balance_with_retries(service, entry["address"]) if service else None
         results.append({**entry, "balance": balance})
+        progress_callback(i, len(to_check), entry["address"])
 
     return {
         "results": results,

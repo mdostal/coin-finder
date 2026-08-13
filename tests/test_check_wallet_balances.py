@@ -113,3 +113,37 @@ def test_inconclusive_output_path_is_overridable(mock_load_service, mock_sleep, 
 
     assert custom_inconclusive.exists()
     assert not (tmp_path / "inconclusive_balances.json").exists()
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_progress_callback_invoked_once_per_address(mock_load_service, mock_sleep, tmp_path):
+    mock_load_service.return_value = make_service([0.0, 1.5])
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc", "1def"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    calls = []
+    check_wallet_balances(
+        str(input_file),
+        str(output_file),
+        coins_to_check=["Bitcoin"],
+        progress_callback=lambda current, total, message="": calls.append((current, total)),
+    )
+
+    assert calls == [(1, 2), (2, 2)]
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_no_progress_callback_is_unaffected(mock_load_service, mock_sleep, tmp_path):
+    mock_load_service.return_value = make_service([0.0])
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    result = check_wallet_balances(str(input_file), str(output_file), coins_to_check=["Bitcoin"])
+
+    assert result["walletA.dat"]["Bitcoin"]["1abc"] == 0.0

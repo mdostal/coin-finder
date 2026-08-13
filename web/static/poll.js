@@ -10,12 +10,37 @@
     return;
   }
 
+  function renderProgress(job) {
+    var container = document.getElementById("job-progress");
+    if (!container || !job.progress) return;
+    var pct = job.progress.total ? Math.round((job.progress.current / job.progress.total) * 100) : 0;
+
+    container.textContent = "";
+
+    var bar = document.createElement("div");
+    bar.className = "progress-bar";
+    var fill = document.createElement("div");
+    fill.className = "progress-bar-fill";
+    fill.style.width = pct + "%";
+    bar.appendChild(fill);
+
+    var label = document.createElement("div");
+    label.className = "progress-label";
+    var text = job.progress.current + " / " + job.progress.total;
+    if (job.progress.message) text += " — " + job.progress.message;
+    label.textContent = text;
+
+    container.appendChild(bar);
+    container.appendChild(label);
+  }
+
   function poll() {
     fetch("/api/jobs/" + jobId)
       .then(function (response) {
         return response.json();
       })
       .then(function (job) {
+        renderProgress(job);
         if (job.status === "running") {
           setTimeout(poll, 2000);
         } else if (doneUrl) {

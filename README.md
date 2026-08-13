@@ -566,6 +566,16 @@ still works standalone for scripting/automation.
   # (--port to use something else -- 5000 isn't the default because macOS's
   # AirPlay Receiver occupies it by default on most Macs)
   ```
+- **Connectivity status, everywhere.** A small indicator in the top nav
+  (polling `GET /api/status` every ~10s) shows OFFLINE/ONLINE/UNKNOWN on
+  every page, not just the unlock page -- hover it for what each mode means
+  for scan/unlock/Drive features specifically. Reuses the exact same
+  `check_network_status()` the offline gate itself uses, so the indicator
+  can never drift from what the gate actually enforces.
+- **Real progress on long scans.** Balance-check-heavy jobs (the default
+  scan, a full `wallet.dat` sweep) report live progress
+  (`checked N / M addresses`) instead of just "running" -- useful context
+  for a multi-hour or multi-day crawl against a large drive.
 - **Binds to `127.0.0.1` only, always.** `create_app()` refuses to construct
   an app bound to anything else -- this app handles local wallet files and
   (in a later story) real unlock candidates, and must never be reachable
@@ -619,12 +629,55 @@ still works standalone for scripting/automation.
   local directory you choose, then show up in a normal scan of that
   directory just like any other local drive.
 
-This closes out the epic's planned scope: every one of the 13 standalone
-tools plus the default pipeline is now reachable from this one app, with
-every safety property built up over the course of this project (offline
+This closed out the `local-web-ui` epic's planned scope: every one of the 13
+standalone tools plus the default pipeline is reachable from this one app,
+with every safety property built up over the course of this project (offline
 gating, file-only secrets, never-persisted unlock results, localhost-only
 binding) carried through the HTTP layer intact. An Electron wrapper around
 this app is a separate, later effort outside this project's own scope.
+
+- **Saved scan targets** (`/targets`) -- bind a drive/directory once (a
+  label + path), reuse it with one click instead of retyping a path every
+  time. Also detects already-mounted volumes (macOS `/Volumes`, boot volume
+  excluded) so a physical drive you just plugged in shows up ready to scan.
+  Removing a bound target only ever forgets the saved reference -- it never
+  touches the underlying files.
+- **Mounting Google Drive for Multi-Terabyte Drives** (`/mounts`) -- for a
+  Drive (or a GCS bucket) too large to fully download first,
+  [rclone](https://rclone.org/) can mount it as a local-looking directory
+  instead; the existing scan tools then just work against it like any other
+  drive, no separate cloud-aware scanning code needed. Setup:
+  1. `scripts/install_rclone.sh` -- installs rclone plus macFUSE (required
+     for `rclone mount` on macOS). **macFUSE requires manual approval in
+     System Settings -> Privacy & Security** (and often a restart) -- this
+     one step cannot be scripted, the installer prints exactly what to do.
+  2. `rclone config` -- sets up a remote (interactive: opens a browser for
+     Google Drive OAuth, or asks for a GCS service-account key).
+  3. On the `/mounts` page, pick the configured remote and a local mount
+     point, click Mount. Mounts are **always read-only** -- this app only
+     ever scans, never writes to your Drive/GCS.
+  4. Once mounted, "Add to targets" binds it into `/targets` for one-click
+     scanning -- refuses (409) if the mount isn't actually healthy, since a
+     crashed FUSE mount can leave a path that looks fine but silently reads
+     as empty (a known FUSE failure mode, not this project's own bug) --
+     checked via a real process/mount-point health check, not just "does
+     the path exist."
+  5. **For a genuinely multi-day crawl**, periodically check `/mounts` --
+     if a mount dies partway through, a scan running against it can't tell
+     the difference between "drive is empty" and "drive stopped responding
+     partway through." This is a real, known limitation, not a false
+     guarantee of resilience.
+- **Setup wizard** (`/wizard`) -- "what do you want to scan?" and it routes
+  you the rest of the way: a local folder hands straight to the regular
+  scan form, a plugged-in physical drive shows you what's detected, Google
+  Drive/GCS walks through the mounting steps above in plain language. The
+  wizard never reimplements scanning/mounting/binding itself -- it only
+  explains and sequences the pages above, and it never claims a step
+  succeeded (e.g. "Drive mounted!") without that page's own real health
+  check confirming it.
+- **The home page is now a small dashboard** -- your saved targets with
+  one-click scan, a nudge if a plugged-in drive isn't saved yet, and quick
+  links to the wizard, unlock, Drive, and mounts pages.
 
 ---
 

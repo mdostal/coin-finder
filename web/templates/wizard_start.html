@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- setup wizard{% endblock %}
+{% block content %}
+<h2>Setup wizard</h2>
+<p>What do you want to scan? Pick one and this will walk you through it.</p>
+
+<div class="card">
+  <form method="post" action="{{ url_for('wizard_choose') }}">
+    <label style="margin-top:0">
+      <input type="radio" name="target_type" value="local" checked style="width:auto;display:inline;margin-right:0.5rem">
+      A folder I already know the path to
+    </label>
+    <p class="subtle" style="margin-left:1.5rem">Takes you straight to the regular scan form.</p>
+
+    <label>
+      <input type="radio" name="target_type" value="volume" style="width:auto;display:inline;margin-right:0.5rem">
+      A physical drive that's already plugged in
+    </label>
+    <p class="subtle" style="margin-left:1.5rem">Shows every drive macOS currently sees mounted, so you don't have to hunt for the path yourself.</p>
+
+    <label>
+      <input type="radio" name="target_type" value="gdrive" style="width:auto;display:inline;margin-right:0.5rem">
+      My Google Drive (including ones too big to download)
+    </label>
+    <p class="subtle" style="margin-left:1.5rem">Walks through attaching Drive so it can be scanned without downloading it all first.</p>
+
+    <label>
+      <input type="radio" name="target_type" value="gcs" style="width:auto;display:inline;margin-right:0.5rem">
+      A Google Cloud Storage (GCS) bucket
+    </label>
+    <p class="subtle" style="margin-left:1.5rem">Same idea as Drive, for a GCS bucket.</p>
+
+    <button type="submit" style="margin-top:1rem">Continue</button>
+  </form>
+</div>
+{% endblock %}

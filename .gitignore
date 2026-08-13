@@ -7,6 +7,11 @@
 /credentials.json
 /token.json
 
+# web/app.py's own scan output + local runtime state -- never commit
+/ui_output/
+/web/bound_targets.json
+/web/mounts_state.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -211,6 +216,8 @@ cython_debug/
 !.pHive/epics/wif-key-extraction-and-recovery-report/**
 !.pHive/epics/bsv-and-feathercoin-support/
 !.pHive/epics/bsv-and-feathercoin-support/**
+!.pHive/epics/web-ui-wizard-and-mounting/
+!.pHive/epics/web-ui-wizard-and-mounting/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

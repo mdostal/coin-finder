@@ -58,7 +58,7 @@ def _check_balance_with_retries(service, address, max_retries=MAX_BALANCE_RETRIE
     return None
 
 
-def check_wallet_balances(input_file, output_file, coins_to_check=None, inconclusive_output=None):
+def check_wallet_balances(input_file, output_file, coins_to_check=None, inconclusive_output=None, progress_callback=None):
     """
     Check balances of wallet addresses for specified cryptocurrencies. Retries
     each address before giving up, and writes addresses that are still
@@ -69,7 +69,13 @@ def check_wallet_balances(input_file, output_file, coins_to_check=None, inconclu
     :param coins_to_check: List of cryptocurrencies to check. Defaults to all supported coins.
     :param inconclusive_output: Path to save addresses still inconclusive after
         retries. Defaults to "inconclusive_balances.json" next to output_file.
+    :param progress_callback: Optional callable(current, total, message) invoked
+        once per address checked. Defaults to a no-op -- every existing call
+        site (CLI, tests) is unaffected by this parameter's presence.
     """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
     # Use all configured coins if no specific list is provided
     if not coins_to_check:
         coins_to_check = list(WALLET_SERVICES.keys())
@@ -82,6 +88,14 @@ def check_wallet_balances(input_file, output_file, coins_to_check=None, inconclu
 
     results = {}
     inconclusive = {}
+
+    total_addresses = sum(
+        len(addresses)
+        for crypto_wallets in wallet_data.values()
+        for crypto_name, addresses in crypto_wallets.items()
+        if crypto_name in coins_to_check
+    )
+    checked_count = 0
 
     for file_path, crypto_wallets in wallet_data.items():
         results[file_path] = {}
@@ -102,6 +116,8 @@ def check_wallet_balances(input_file, output_file, coins_to_check=None, inconclu
                 balance = _check_balance_with_retries(service, address)
                 results[file_path][crypto_name][address] = balance
                 print(f"    {address}: {balance}")
+                checked_count += 1
+                progress_callback(checked_count, total_addresses, f"{crypto_name}: {address}")
 
                 if balance is None:
                     inconclusive.setdefault(file_path, {}).setdefault(crypto_name, []).append(address)

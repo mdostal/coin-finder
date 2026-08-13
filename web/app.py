@@ -9,6 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 
 import run_pipeline
+from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
+from web.mounts import is_mounted, list_mounts, list_remotes, mount, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addresses, render_cluster_report
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
@@ -18,7 +20,7 @@ from tools.scan_google_drive import get_drive_service, scan_drive_for_wallets
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
-from web.jobs import consume_job_result, get_job, run_job
+from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "ui_output"
@@ -43,9 +45,28 @@ def create_app(host="127.0.0.1"):
 
     app = Flask(__name__)
 
+    @app.route("/api/status")
+    def api_status():
+        status = check_network_status()
+        return jsonify(
+            {
+                "network_status": status,
+                "features": {
+                    "unlock": "requires OFFLINE -- refuses to run otherwise" if status != "OFFLINE" else "available",
+                    "scan": "available (uses public blockchain/coin APIs -- needs network)" if status != "OFFLINE" else "unavailable while offline (balance checks need network)",
+                    "drive_scan": "available (needs network for Google's API)" if status != "OFFLINE" else "unavailable while offline",
+                },
+            }
+        )
+
     @app.route("/")
     def index():
-        return render_template("index.html", error=request.args.get("error"))
+        return render_template(
+            "index.html",
+            error=request.args.get("error"),
+            targets=list_targets(),
+            volumes=list_mounted_volumes(),
+        )
 
     @app.route("/api/browse")
     def browse():
@@ -73,7 +94,8 @@ def create_app(host="127.0.0.1"):
         if not input_dir or not Path(input_dir).is_dir():
             return render_template("index.html", error=f"Not a directory: {input_dir}"), 400
 
-        job_id = run_job(_run_scan_job, input_dir)
+        job_id = create_job()
+        start_job(job_id, _run_scan_job, input_dir, job_id)
         return redirect(url_for("scan_status", job_id=job_id))
 
     @app.route("/scan/<job_id>")
@@ -102,7 +124,8 @@ def create_app(host="127.0.0.1"):
         if not wallet_path or not Path(wallet_path).is_file():
             return render_template("index.html", error=f"Not a file: {wallet_path}"), 400
 
-        job_id = run_job(_run_scan_wallet_dat_job, wallet_path)
+        job_id = create_job()
+        start_job(job_id, _run_scan_wallet_dat_job, wallet_path, job_id)
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item/crawl", methods=["POST"])
@@ -248,7 +271,92 @@ def create_app(host="127.0.0.1"):
         job_id = run_job(_run_drive_scan_job, output_dir, query)
         return redirect(url_for("item_result", job_id=job_id))
 
+    @app.route("/targets")
+    def targets_page():
+        return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), error=None)
+
+    @app.route("/targets/add", methods=["POST"])
+    def targets_add():
+        label = (request.form.get("label") or "").strip()
+        path = (request.form.get("path") or "").strip()
+        kind = (request.form.get("kind") or "local").strip()
+        if not label or not path:
+            return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), error="Enter both a label and a path."), 400
+
+        add_target(label, path, kind)
+        return redirect(url_for("targets_page"))
+
+    @app.route("/targets/remove", methods=["POST"])
+    def targets_remove():
+        label = (request.form.get("label") or "").strip()
+        remove_target(label)
+        return redirect(url_for("targets_page"))
+
+    @app.route("/mounts")
+    def mounts_page():
+        return render_template("mounts.html", remotes=list_remotes(), mounts=list_mounts(), error=None)
+
+    @app.route("/mounts/mount", methods=["POST"])
+    def mounts_mount():
+        remote_name = (request.form.get("remote_name") or "").strip()
+        mount_point = (request.form.get("mount_point") or "").strip()
+        if not remote_name or not mount_point:
+            return render_template("mounts.html", remotes=list_remotes(), mounts=list_mounts(), error="Enter both a remote and a mount point."), 400
+
+        mount(remote_name, mount_point)
+        return redirect(url_for("mounts_page"))
+
+    @app.route("/mounts/unmount", methods=["POST"])
+    def mounts_unmount():
+        remote_name = (request.form.get("remote_name") or "").strip()
+        unmount(remote_name)
+        return redirect(url_for("mounts_page"))
+
+    @app.route("/mounts/bind", methods=["POST"])
+    def mounts_bind():
+        remote_name = (request.form.get("remote_name") or "").strip()
+        mount_point = (request.form.get("mount_point") or "").strip()
+        kind = (request.form.get("kind") or "gdrive-mount").strip()
+
+        if not is_mounted(remote_name):
+            return (
+                render_template(
+                    "mounts.html",
+                    remotes=list_remotes(),
+                    mounts=list_mounts(),
+                    error=f"{remote_name} is not actually mounted right now -- refusing to bind it as a scan target. Mount it first.",
+                ),
+                409,
+            )
+
+        add_target(remote_name, mount_point, kind)
+        return redirect(url_for("targets_page"))
+
+    @app.route("/wizard")
+    def wizard_start():
+        return render_template("wizard_start.html")
+
+    @app.route("/wizard/choose", methods=["POST"])
+    def wizard_choose():
+        target_type = (request.form.get("target_type") or "").strip()
+        if target_type == "local":
+            return redirect(url_for("index"))
+        if target_type == "volume":
+            return redirect(url_for("targets_page"))
+        if target_type in ("gdrive", "gcs"):
+            return redirect(url_for("wizard_cloud", kind=target_type))
+        return redirect(url_for("wizard_start"))
+
+    @app.route("/wizard/cloud")
+    def wizard_cloud():
+        kind = request.args.get("kind", "gdrive")
+        return render_template("wizard_cloud.html", kind=kind, rclone_installed=_is_rclone_installed(), remotes=list_remotes())
+
     return app
+
+
+def _is_rclone_installed():
+    return shutil.which("rclone") is not None
 
 
 def _split_lines(raw):
@@ -258,9 +366,12 @@ def _split_lines(raw):
     return [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
 
 
-def _run_scan_wallet_dat_job(wallet_path):
+def _run_scan_wallet_dat_job(wallet_path, job_id):
     scan = scan_wallet_for_addresses(wallet_path)
-    checked = check_addresses_balances(scan["addresses"])
+    checked = check_addresses_balances(
+        scan["addresses"],
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
     significant = [r for r in checked["results"] if r.get("balance")]
 
     lines = [
@@ -368,7 +479,7 @@ def _run_drive_scan_job(output_dir, query):
     return {"report": "\n".join(lines), "manifest": manifest, "output_dir": output_dir}
 
 
-def _run_scan_job(input_dir):
+def _run_scan_job(input_dir, job_id):
     """
     Runs the existing default pipeline (search -> analyze -> check_balances
     -> filter -> graph) plus the hidden-volume detector, exactly the same
@@ -376,7 +487,11 @@ def _run_scan_job(input_dir):
     reimplementation.
     """
     output_dir = str(DEFAULT_OUTPUT_ROOT / Path(input_dir).name)
-    run_pipeline.main(input_dir, output_dir)
+    run_pipeline.main(
+        input_dir,
+        output_dir,
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
 
     hidden_volumes = scan_for_hidden_volumes(input_dir)
 
