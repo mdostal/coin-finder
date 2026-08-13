@@ -1,0 +1,92 @@
+id: dcv-02-walker-cli-and-report
+epic: deep-crawl-hidden-volumes
+title: Directory walker, CLI, and report with manual-mount guidance
+status: completed
+complexity: medium
+methodology: tdd
+depends_on: [dcv-01-container-detection-core]
+
+description: |
+  Add to tools/detect_hidden_volumes.py:
+
+  - `scan_for_hidden_volumes(start_path) -> list[dict]`: os.walk-based traversal
+    (mirrors tools/search_wallets.py's traversal style), calling
+    looks_like_encrypted_container() per file, collecting non-None results into a
+    list. No upper file-size skip -- that is the entire point of this epic (see
+    design-discussion.md Section 3, point 2).
+  - `render_hidden_volumes_report(candidates: list[dict]) -> str`: plain-text
+    summary listing each candidate (path, size, entropy), framed as "worth
+    checking" (never "this IS encrypted"), followed by a fixed guidance block
+    explaining how to attempt a manual VeraCrypt/TrueCrypt mount
+    (`veracrypt --text --mount <file>`) and an explicit statement that this tool
+    does not attempt to unlock or crack anything itself.
+  - CLI (`if __name__ == "__main__"`): `python tools/detect_hidden_volumes.py
+    <start_path> <output_file>` -- writes the JSON candidate list to
+    `<output_file>` and the report to a sibling `.md` file (same two-output
+    pattern as tools/build_wallet_graph.py from epic wallet-relationship-graph).
+
+  Deliberately NOT wired into run_pipeline.py -- standalone tool the user runs
+  when they suspect a drive has containers, not part of the default fast
+  wallet-search path (design-discussion.md Section 3, point 5).
+
+acceptance_criteria:
+  - "Given a directory containing one high-entropy sector-sized file with no known signature and one normal small text file, when scan_for_hidden_volumes runs, then the returned list contains exactly the container-like file's result"
+  - "Given a directory containing no candidate files, when scan_for_hidden_volumes runs, then it returns an empty list"
+  - "Given a non-empty candidates list, when render_hidden_volumes_report runs, then the output includes each candidate's path and lists them under a 'worth checking' framing, not an assertion of certainty"
+  - "Given any candidates list (empty or not), when render_hidden_volumes_report runs, then the output includes the manual-mount guidance block and an explicit statement that this tool does not attempt to unlock/crack anything"
+  - "Given the CLI is invoked as `python tools/detect_hidden_volumes.py <start_path> <output_file>`, when it completes, then <output_file> (JSON) and its sibling .md report both exist"
+
+steps:
+  - id: test-spec
+    description: |
+      Write failing tests extending tests/test_detect_hidden_volumes.py for
+      scan_for_hidden_volumes() (using tmp_path with a couple of small real
+      files -- one crafted to pass looks_like_encrypted_container, one normal
+      text file) and render_hidden_volumes_report() (using hand-built candidate
+      lists, no file I/O needed for this one).
+    agent: tester
+  - id: implement
+    description: Implement scan_for_hidden_volumes(), render_hidden_volumes_report(), and the CLI wrapper to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that the walker never filters by size (no MAX_FILE_SIZE-style skip reintroduced), and that the report's guidance block explicitly disclaims auto-unlock capability every time it's rendered.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/detect_hidden_volumes.py and tests/test_detect_hidden_volumes.py updates to the feat/deep-crawl-hidden-volumes branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/search_wallets.py
+      purpose: Traversal style precedent (os.walk) -- this walker mirrors it but without the MAX_FILE_SIZE skip.
+    - path: tools/build_wallet_graph.py
+      purpose: Two-output (JSON + .md report) CLI pattern precedent from epic 1.
+
+files_to_modify:
+  - file: tools/detect_hidden_volumes.py
+    change: add scan_for_hidden_volumes, render_hidden_volumes_report, CLI wrapper
+  - file: tests/test_detect_hidden_volumes.py
+    change: extend with walker and report tests
+
+design_decisions:
+  - decision: Standalone tool, not wired into run_pipeline.py.
+    rationale: Different performance profile and purpose than the default wallet-search path; user runs it deliberately against a suspect drive. design-discussion.md Section 3, point 5.
+
+risks:
+  - severity: medium
+    description: Sampling every file in a huge directory tree (even stat-only for most, sampled reads for size/sector-multiple survivors) is still meaningful I/O on a multi-TB drive.
+    mitigation: Accepted for v1 per north-star "thoroughness over speed"; min_size_bytes floor (stat-only check) filters out the bulk of files before any read happens.
+
+references:
+  - path: .pHive/epics/deep-crawl-hidden-volumes/stories/dcv-01-container-detection-core.yaml
+    relevant_excerpt: |
+      looks_like_encrypted_container(file_path, ...) -> dict | None -- the
+      per-file function this story's walker calls.
+  - path: .pHive/epics/deep-crawl-hidden-volumes/docs/design-discussion.md
+    relevant_excerpt: |
+      Section 3, points 2-5: walker, report framing, CLI two-output pattern,
+      and the deliberate no-pipeline-integration decision.

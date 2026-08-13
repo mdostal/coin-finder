@@ -46,6 +46,7 @@ project/
 │   ├── check_wallet_balances.py  # Checks balances for wallet addresses
 │   ├── filter_wallets.py     # Filters out zero-balance wallets
 │   ├── build_wallet_graph.py # Correlates wallets/coins across files into a relationship report
+│   ├── detect_hidden_volumes.py # Standalone: flags likely encrypted-container files (detect/flag only)
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
 ├── requirements.txt          # Python dependencies
 ├── run_pipeline.py           # Orchestrates the entire pipeline
@@ -123,6 +124,42 @@ python tool/analyze_wallets.py ./output/wallet_search_output.txt ./output/wallet
 **Example**:
   ```bash
   python tools/build_wallet_graph.py ./output/checks/wallet_balances.json ./output/checks/wallet_relationships.json
+  ```
+
+---
+
+### 5. Hidden/Encrypted Volume Detector (`detect_hidden_volumes.py`)
+
+**Standalone tool -- not part of the default pipeline run** (`run_pipeline.py`
+does not call it). Run it deliberately against a mounted drive/directory you
+suspect may contain an old encrypted container (e.g. VeraCrypt/TrueCrypt).
+
+- **Purpose**: Flags files that look like encrypted-container volumes, so you can
+  check drives/backups for hidden wallets you might otherwise miss.
+- **How it works**: Encrypted containers are designed to look like random data --
+  no recognizable file header, and byte content indistinguishable from noise. This
+  tool flags a file only when it matches **all** of:
+  - larger than a configurable size floor (default 1 MB) -- cheap, read-free check;
+  - file size is an exact multiple of 512 bytes (the disk-sector size VeraCrypt/TrueCrypt containers are sized in);
+  - no recognized file-type signature (PNG, ZIP, PDF, etc.) in its header;
+  - high Shannon entropy (near-random byte distribution) sampled from the file's head, middle, and tail -- **never the whole file**, so this stays fast even against multi-GB/multi-TB files.
+
+  **This is a heuristic, not a certainty.** Some legitimately compressed or
+  already-encrypted files can also read as high-entropy and get flagged. Treat
+  every result as "worth a manual look," not a confirmed finding.
+
+  **Scope boundary:** this tool only detects and flags candidates, and prints
+  guidance for attempting a manual mount. **It never attempts to guess,
+  brute-force, or crack a password itself.** If you believe a flagged file is a
+  real VeraCrypt/TrueCrypt volume, you attempt the mount yourself with your own
+  remembered password.
+- **Usage**:
+  ```bash
+  python tools/detect_hidden_volumes.py <start_path> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/detect_hidden_volumes.py /Volumes/OldDrive ./output/hidden_volumes.json
   ```
 
 ---

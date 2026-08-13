@@ -179,3 +179,5 @@ cython_debug/
 !.pHive/epics/wallet-relationship-graph/**
 !.pHive/epics/conservative-balance-retries/
 !.pHive/epics/conservative-balance-retries/**
+!.pHive/epics/deep-crawl-hidden-volumes/
+!.pHive/epics/deep-crawl-hidden-volumes/**
