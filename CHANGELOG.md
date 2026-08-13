@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-13
+
+### Added
+
+- **BTCRecover wallet-unlock integration.** New `scripts/install_btcrecover.sh`
+  installs [BTCRecover](https://github.com/3rdIteration/btcrecover) (the
+  actively maintained Python 3 fork -- the original `gurnec/btcrecover` is
+  Python 2-only and no longer runs) into `vendor/btcrecover/`. New standalone
+  tool `tools/unlock_wallet.py` wraps it to test candidate passwords against
+  a real wallet file (Bitcoin Core, Armory, Electrum, and more).
+  **Critical safety property:** the tool enforces BTCRecover's own documented
+  "separation principle" (from its bundled `SKILL.md`, written for AI
+  agents) with a hard gate -- it refuses to run unless the machine is
+  verified offline, since a real recovery run must never happen on a
+  network-connected session. Candidates are read from a file only, never a
+  command-line argument. Tested only against BTCRecover's own public test
+  fixture, not any real wallet.
+- First Mermaid pipeline diagram in the README, showing how all nine tools
+  relate.
+
 ## [0.7.0] - 2026-08-13
 
 ### Added
