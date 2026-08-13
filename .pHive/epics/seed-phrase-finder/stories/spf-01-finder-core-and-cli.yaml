@@ -1,0 +1,100 @@
+id: spf-01-finder-core-and-cli
+epic: seed-phrase-finder
+title: BIP39 checksum-validated phrase scanner + safe-output CLI
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  New module tools/find_seed_phrases.py:
+
+  - `extract_words(text) -> list[str]`: tokenize to lowercase words, strip
+    punctuation.
+  - `find_candidate_phrases(text) -> list[dict]`: slide a window over word
+    counts [12, 15, 18, 21, 24], keep windows where
+    `mnemonic.Mnemonic("english").check(" ".join(window))` passes. Returns
+    `[{"phrase": str, "word_count": int}, ...]`.
+  - `scan_directory(start_path, max_file_size=10_000_000) -> dict`: os.walk
+    traversal (mirrors tools/search_wallets.py), reads each file as text
+    (open with errors="ignore", matching the codebase's existing decode
+    convention), skips files above max_file_size. Returns
+    `{file_path: [candidate phrase dicts]}` (files with zero candidates
+    omitted).
+  - CLI: `python tools/find_seed_phrases.py <start_path> <output_file>` --
+    writes the full JSON (including phrase text) to output_file. Console
+    output NEVER prints phrase text -- only
+    `f"Found {N} candidate phrase(s) in {file_count} file(s). See {output_file}."`
+    per file_path, e.g. `f"  {file_path}: {len(candidates)} candidate(s)"`
+    (path and count only, no phrase content).
+
+acceptance_criteria:
+  - "Given the well-known public BIP39 test vector ('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about') embedded in surrounding prose, when find_candidate_phrases runs, then it is found as a 12-word candidate"
+  - "Given 12 words that are all in the BIP39 wordlist but do NOT form a valid checksum, when find_candidate_phrases runs, then it is NOT returned as a candidate"
+  - "Given ordinary English prose with no embedded mnemonic, when find_candidate_phrases runs, then it returns an empty list"
+  - "Given a directory with one file containing the test vector and one unrelated text file, when scan_directory runs, then only the first file appears in the result, with its candidate phrase(s)"
+  - "Given a file larger than max_file_size, when scan_directory runs, then it is skipped without being read"
+  - "Given the CLI runs against a fixture containing the test vector, when its stdout is captured, then the test vector's phrase text does NOT appear anywhere in stdout, while the output JSON file DOES contain it"
+
+steps:
+  - id: research
+    description: Confirm the mnemonic library's Mnemonic("english").check() API and wordlist access, and re-confirm tools/search_wallets.py's traversal style for scan_directory to mirror.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_find_seed_phrases.py using the public
+      BIP39 test vector (safe -- a standard test fixture used throughout BIP39
+      tooling, not a real wallet) plus hand-built non-matching word sequences,
+      covering every acceptance criterion above including the stdout-never-
+      contains-phrase-text check (capsys).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement extract_words, find_candidate_phrases, scan_directory, and the CLI wrapper (with the stdout safety rule) to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically that no code path prints phrase text to stdout/logs, and that the max_file_size check happens via os.path.getsize (not a partial read) before any file content is read.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/find_seed_phrases.py, tests/test_find_seed_phrases.py, and requirements.txt. Manually run the CLI against a tmp fixture (not committed) to confirm stdout never shows phrase text while the output file does.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    language: python
+    new_dependency: mnemonic (BIP39 wordlist + checksum validation)
+  key_files:
+    - path: tools/search_wallets.py
+      purpose: os.walk traversal style precedent this story's scan_directory mirrors.
+
+files_to_modify:
+  - file: tools/find_seed_phrases.py
+    change: new file -- extract_words, find_candidate_phrases, scan_directory, CLI
+  - file: tests/test_find_seed_phrases.py
+    change: new file -- BIP39 checksum validation and scanning tests
+  - file: requirements.txt
+    change: add mnemonic (production dependency)
+
+design_decisions:
+  - decision: Use the mnemonic library's checksum validation (Mnemonic.check()) rather than "all words in wordlist" alone.
+    rationale: Checksum validation is the strong filter that keeps false positives rare; hand-rolling this math would be exactly the kind of crypto-correctness risk the project agreed to avoid.
+  - decision: CLI never prints found phrase text to stdout, only counts.
+    rationale: A valid BIP39 mnemonic is real private-key material; stdout can end up in shell history, logs, or screen captures.
+
+risks:
+  - severity: medium
+    description: Checksum validation isn't a perfect filter (4-8 bits of checksum depending on word count) -- rare false positives possible.
+    mitigation: Framed as "worth checking" in output; a later HD-derivation epic can confirm by checking whether a candidate actually derives to a known address.
+  - severity: high
+    description: Careless phrase-text handling (stdout, logs) is a real secret-exposure risk.
+    mitigation: Explicit stdout-never-contains-phrase-text acceptance criterion and test (capsys-based), reviewed specifically for this in the review step.
+
+references:
+  - path: .pHive/epics/seed-phrase-finder/docs/design-discussion.md
+    relevant_excerpt: |
+      "printing real seed-phrase text carelessly (stdout, logs, chat) is a
+      real secret-exposure risk. Handled via the CLI output rule."
