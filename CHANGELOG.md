@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-13
+
+### Added
+
+- **Hidden/encrypted volume detection.** New standalone tool
+  (`tools/detect_hidden_volumes.py`) flags files that look like VeraCrypt/
+  TrueCrypt-style encrypted containers, using an entropy + magic-byte heuristic
+  with no upper file-size bound -- built for scanning old hard drives and
+  backups, not just small wallet files. Detect-and-flag only: prints manual-mount
+  guidance and never attempts to guess, brute-force, or crack a password. Not
+  wired into the default `run_pipeline.py` run -- invoked deliberately against a
+  drive you suspect has a hidden container. (`deep-crawl-hidden-volumes` epic)
+
 ## [0.2.0] - 2026-08-13
 
 ### Added
