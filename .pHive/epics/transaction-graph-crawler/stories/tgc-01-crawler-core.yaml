@@ -1,7 +1,9 @@
 id: tgc-01-crawler-core
 epic: transaction-graph-crawler
 title: Co-spend clustering + bounded output-following core module
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.4.0"
 complexity: medium
 methodology: tdd
 depends_on: []
