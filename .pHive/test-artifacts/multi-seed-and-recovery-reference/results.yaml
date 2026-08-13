@@ -1,0 +1,19 @@
+epic: multi-seed-and-recovery-reference
+substrate: pytest
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 89
+tests_passed: 89
+tests_failed: 0
+coverage_by_story:
+  msr-01-multi-seed-and-reference:
+    acceptance_criteria: 4
+    covered_by_tests: 3
+    gaps: []
+    note: "The 4th acceptance criterion (reference doc states its scope-limit prominently) was verified by direct review of docs/wallet_recovery_reference.md rather than an automated test, since it's a documentation-only property."
+regression_check:
+  previous_suite: 86 tests from prior epics
+  result: pass
+bugs_filed: 0
+verdict: PASS

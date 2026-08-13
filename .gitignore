@@ -193,6 +193,8 @@ cython_debug/
 !.pHive/epics/btcrecover-integration/**
 !.pHive/epics/wallet-dat-full-scan/
 !.pHive/epics/wallet-dat-full-scan/**
+!.pHive/epics/multi-seed-and-recovery-reference/
+!.pHive/epics/multi-seed-and-recovery-reference/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

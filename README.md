@@ -354,6 +354,20 @@ properly parses the wallet's actual Berkeley DB structure to enumerate
 
 ---
 
+## Is It Actually Recoverable?
+
+Not every found wallet is a self-custody wallet you hold the keys to -- some
+may turn out to be old exchange or custodial-service balances, which this
+project's tools can't recover directly (no password/seed helps if you never
+held the keys). See
+[`docs/wallet_recovery_reference.md`](docs/wallet_recovery_reference.md) for
+a reference on which wallet software this project supports recovering
+(Bitcoin Core, Electrum, Armory, and more via BTCRecover), well-known defunct
+exchanges/services to cross-check against your own memory, and how to use
+this project's dormancy/clustering output to help tell the two apart.
+
+---
+
 ## Pipeline Overview
 
 ```mermaid
