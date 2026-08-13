@@ -1,7 +1,9 @@
 id: dcpf-01-path-fix-and-dormancy
 epic: dormancy-check-and-path-fix
 title: Fix standalone invocation + add dormancy/last-activity reporting
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.5.0"
 complexity: low
 methodology: tdd
 depends_on: []
