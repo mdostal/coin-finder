@@ -1,7 +1,9 @@
 id: wker-01-extraction-and-report
 epic: wif-key-extraction-and-recovery-report
 title: WIF extraction (offline-gated) + wallet recoverability report
-status: complete
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.15.0"
 complexity: large
 methodology: tdd
 depends_on: []
