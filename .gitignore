@@ -197,6 +197,8 @@ cython_debug/
 !.pHive/epics/multi-seed-and-recovery-reference/**
 !.pHive/epics/fork-coin-checker/
 !.pHive/epics/fork-coin-checker/**
+!.pHive/epics/exodus-hashcat-integration/
+!.pHive/epics/exodus-hashcat-integration/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

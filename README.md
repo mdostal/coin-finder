@@ -53,8 +53,10 @@ project/
 │   ├── unlock_wallet.py      # Standalone: offline-gated wrapper around BTCRecover for wallet password testing
 │   ├── scan_wallet_dat.py    # Standalone: enumerates every address in a wallet.dat (not just text-matchable ones)
 │   ├── check_fork_coins.py   # Standalone: checks found Bitcoin addresses on fork coins (Bitcoin Cash, Bitcoin Gold)
+│   ├── unlock_exodus_wallet.py # Standalone: offline-gated wrapper around hashcat for Exodus wallet password testing
 ├── scripts/
 │   ├── install_btcrecover.sh # Clones/updates BTCRecover into vendor/btcrecover/ (not committed)
+│   ├── install_exodus_tools.sh # Installs hashcat + fetches exodus2hashcat.py into vendor/hashcat-tools/ (not committed)
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
 ├── requirements.txt          # Python dependencies
 ├── run_pipeline.py           # Orchestrates the entire pipeline
@@ -394,6 +396,40 @@ fork coins -- free money to check for, no new derivation needed.
 
 ---
 
+### 12. Exodus Wallet Unlock via hashcat (`unlock_exodus_wallet.py`)
+
+**Standalone tool -- not part of the default pipeline run.** BTCRecover does
+not support Exodus desktop wallets. This tool wraps
+[hashcat](https://hashcat.net/hashcat/) instead -- hashcat has first-class,
+natively supported mode `28200` ("Exodus Desktop Wallet (scrypt)") -- plus
+hashcat's own official `exodus2hashcat.py` extraction script, to test
+candidate passwords against an Exodus wallet's `seed.seco` file.
+
+- **Install**: `bash scripts/install_exodus_tools.sh` -- installs hashcat
+  (via Homebrew on macOS) and fetches `exodus2hashcat.py` from hashcat's own
+  repo into `vendor/hashcat-tools/` (not committed).
+- **⚠️ Critical: same offline requirement as `unlock_wallet.py`.** Testing
+  real passwords against a real wallet must happen with network disabled.
+  `unlock_exodus_wallet.py` reuses the exact same safety gate as
+  `unlock_wallet.py` -- it refuses to run unless the machine is verified
+  offline, or you explicitly pass `--allow-online` (only for known-safe test
+  data, never a real wallet).
+- **Usage** (candidates come from a file only -- never pass a password as a
+  command-line argument):
+  ```bash
+  # 1. Install (online is fine)
+  bash scripts/install_exodus_tools.sh
+
+  # 2. Disconnect network
+
+  # 3. Run the real recovery (offline)
+  python tools/unlock_exodus_wallet.py <path-to-seed.seco> <candidates_file>
+  ```
+- On success, hashcat's own output is shown as-is, same "never condense or
+  paraphrase" principle as `unlock_wallet.py`.
+
+---
+
 ## Pipeline Overview
 
 ```mermaid
@@ -423,6 +459,8 @@ flowchart TD
         K[match_seed_phrases.py]
         L[unlock_wallet.py]
         M[scan_wallet_dat.py]
+        N[check_fork_coins.py]
+        O[unlock_exodus_wallet.py]
     end
 
     C -.public addresses found.-> I
@@ -431,6 +469,8 @@ flowchart TD
     M -.every address in a wallet.dat.-> C
     M -.ckey records found, need password.-> L
     D -.found wallet file, need password.-> L
+    M -->|found addresses| N
+    I -->|found addresses| N
 ```
 
 The default pipeline (`run_pipeline.py`) runs stages A-E automatically.
