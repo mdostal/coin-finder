@@ -387,9 +387,13 @@ controls the identical balance on the forked chain too, under the same
 private key. This tool checks addresses you've already found against those
 fork coins -- free money to check for, no new derivation needed.
 
-- **Checks**: Bitcoin Cash, Bitcoin Gold (both already have services in this
-  project). Bitcoin SV shares the address format too but has no service here
-  yet -- a stated gap, not a silent one.
+- **Checks**: Bitcoin Cash, Bitcoin Gold, Bitcoin SV. This matters even for
+  an address whose *current* BTC balance is zero: if the BTC was spent
+  *after* a fork's snapshot block, the fork-coin balance at snapshot time
+  is untouched on that fork's own chain unless separately moved there.
+  Other, smaller/less liquid forks (Bitcoin Diamond, Bitcoin Private, Super
+  Bitcoin, etc.) remain a stated gap, generally for lack of a stable public
+  balance-check API.
 - **Input**: accepts `scan_wallet_dat.py`'s output, `crawl_transaction_graph.py`'s
   output, or a plain newline-separated address list -- composes directly with
   this project's other tools.
@@ -721,7 +725,9 @@ Generates JSON files at each stage for traceability and easy debugging.
 | **Zcash (ZEC)**       | `t[1-9A-HJ-NP-Za-km-z]{34}`                                                                            | Zcash Explorer                        |
 | **OKCash (OK)**       | `[0-9A-Za-z]{34}`                                                                                      | OKCash Blockchain Explorer            |
 | **Binance Coin (BNB)**| `bnb[a-z0-9]{38}`                                                                                      | Binance Explorer                      |
-| **Monero (XMR)**      | `[48]{1}[0-9AB][1-9A-HJ-NP-Za-km-z]{93}`        
+| **Monero (XMR)**      | `[48]{1}[0-9AB][1-9A-HJ-NP-Za-km-z]{93}`        |                                        |
+| **Bitcoin SV (BSV)**  | `1[a-km-zA-HJ-NP-Z1-9]{25,34}` (fork-shares BTC's format)                                                | Blockchair                            |
+| **Feathercoin (FTC)** | `[67][a-km-zA-HJ-NP-Z1-9]{26,33}`                                                                        | Trezor Blockbook (explorer.feathercoin.com) |
 
 ---
 
