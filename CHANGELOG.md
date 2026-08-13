@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-13
+
+### Added
+
+- **Seed-phrase finder.** New standalone tool (`tools/find_seed_phrases.py`)
+  scans text files for candidate BIP39 backup seed phrases, using real
+  checksum validation (`mnemonic` library, first production dependency added
+  since kickoff) rather than just wordlist membership -- much fewer false
+  positives than naive word-matching. Security-critical: found phrase text is
+  never printed to the console, only written to the local output file, since a
+  valid seed phrase is real private-key material. v1 is text-files only;
+  OCR for image-embedded phrases is a known, explicitly deferred gap.
+  (`seed-phrase-finder` epic)
+
 ## [0.5.0] - 2026-08-13
 
 ### Added
