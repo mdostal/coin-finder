@@ -1,7 +1,9 @@
 id: msr-01-multi-seed-and-reference
 epic: multi-seed-and-recovery-reference
 title: Multi-seed CLI + wallet/service recoverability reference
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.10.0"
 complexity: low
 methodology: tdd
 depends_on: []
