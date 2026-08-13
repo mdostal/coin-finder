@@ -1,0 +1,35 @@
+epic: deep-crawl-hidden-volumes
+substrate: pytest (no Maestro/device swarm applies)
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 36
+tests_passed: 36
+tests_failed: 0
+
+coverage_by_story:
+  dcv-01-container-detection-core:
+    acceptance_criteria: 9
+    covered_by_tests: 9
+    gaps: []
+  dcv-02-walker-cli-and-report:
+    acceptance_criteria: 5
+    covered_by_tests: 5
+    gaps: []
+    note: "Also manually smoke-tested against a real synthetic random-data file + normal text file."
+  dcv-03-readme-docs:
+    acceptance_criteria: 3
+    covered_by_tests: 0
+    gaps: []
+    note: "Docs-only story. Manually reviewed for unambiguous scope-boundary language."
+
+regression_check:
+  previous_suite: 20 tests from epics wallet-relationship-graph + conservative-balance-retries
+  result: pass
+
+known_limitations_confirmed_documented:
+  - "Heuristic false-positive risk (high-entropy legitimate files) -- stated in README and design-discussion.md, not hidden."
+  - "No auto-unlock/cracking capability -- confirmed present in report output, README, and code comments (not just planning docs)."
+
+bugs_filed: 0
+verdict: PASS
