@@ -4,6 +4,42 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-13
+
+### Added
+
+- **Private key extraction** (`tools/extract_private_key.py`). For an
+  unencrypted Bitcoin Core `wallet.dat`, extracts one address's private key
+  as a WIF string for import into a real wallet (Electrum recommended, via
+  its own sweep function) -- built as the direct next step after this
+  project confirmed a real 0.29999058 BTC balance sitting in an unencrypted
+  wallet file. Same hard offline gate as `unlock_wallet.py`; never prints
+  the key, only writes it to a local file; self-verifies by re-deriving the
+  address from the WIF it's about to return and refusing on any mismatch.
+  Deliberately stops at the WIF file -- transaction construction, signing,
+  and broadcast are left to well-audited existing software, not new custom
+  code in this project.
+
+  Three real bugs were caught during this tool's own development, each
+  found by testing against real wallet data before anything with an actual
+  balance was touched: a BDB value/key pairing off-by-3 bytes; a wrong
+  assumption about the key record's trailing byte structure (the real
+  format is `compact_size(length) + DER + more metadata`, not a bare DER
+  blob); and `cryptography`'s DER parser flatly refusing Bitcoin Core's own
+  key encoding (explicit secp256k1 curve parameters, deliberately blocked
+  by that library as an anti-footgun policy) -- fixed with a minimal,
+  self-validating fixed-field extraction instead of a general-purpose
+  DER/EC-key loader. Validated against 16 real, zero-balance addresses from
+  the actual target wallet (16/16 round-tripped correctly) before this
+  tool was considered trustworthy.
+
+- **Wallet recoverability report** (`tools/generate_wallet_report.py`).
+  Combines deterministic wallet-software identification (from file
+  structure), encryption status, and on-chain dormancy for addresses of
+  interest into one Markdown report, pointing back to
+  `docs/wallet_recovery_reference.md` for the self-custody-vs-custodial
+  judgment call this project's tools still can't automate.
+
 ## [0.14.0] - 2026-08-13
 
 ### Added

@@ -207,6 +207,8 @@ cython_debug/
 !.pHive/epics/google-drive-adapter/**
 !.pHive/epics/local-web-ui/
 !.pHive/epics/local-web-ui/**
+!.pHive/epics/wif-key-extraction-and-recovery-report/
+!.pHive/epics/wif-key-extraction-and-recovery-report/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
