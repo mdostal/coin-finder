@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-13
+
+### Added
+
+- **Exodus wallet unlock via hashcat.** New `scripts/install_exodus_tools.sh`
+  installs [hashcat](https://hashcat.net/hashcat/) and fetches hashcat's own
+  official `exodus2hashcat.py` extraction script into
+  `vendor/hashcat-tools/`. New standalone tool
+  `tools/unlock_exodus_wallet.py` wraps hashcat's native mode `28200`
+  ("Exodus Desktop Wallet (scrypt)") to test candidate passwords against a
+  real Exodus wallet's `seed.seco` file -- BTCRecover doesn't support Exodus
+  at all. Reuses the exact same hard offline safety gate as
+  `unlock_wallet.py` (v0.8.0): refuses to run unless the machine is verified
+  offline. Tested only against hashcat's own official public example
+  hash/password, not any real wallet.
+
 ## [0.11.0] - 2026-08-13
 
 ### Fixed
