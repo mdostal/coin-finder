@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-13
+
+### Added
+
+- **Dormancy/last-activity reporting.** `crawl_transaction_graph.py` now shows
+  years-since-last-activity for every discovered address, with an explicit
+  call-out on anything dormant 5+ years -- lets you verify your own
+  assumptions about a wallet's history against the real blockchain record.
+
+### Fixed
+
+- **Standalone tool invocation.** Every `tools/*.py` that imports
+  `config`/`services` (`search_wallets.py`, `analyze_wallets.py`,
+  `check_wallet_balances.py`, `build_wallet_graph.py`,
+  `crawl_transaction_graph.py`) now works when run directly as
+  `python tools/foo.py ...`, per the README's documented usage. This was
+  broken pre-existing (Python only puts the script's own directory on the
+  import path, not the repo root) -- confirmed identically broken on
+  `search_wallets.py`, so not introduced by recent epics.
+
 ## [0.4.0] - 2026-08-13
 
 ### Added
