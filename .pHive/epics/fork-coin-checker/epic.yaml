@@ -1,0 +1,36 @@
+name: fork-coin-checker
+title: Fork Coin Checker + BitcoinGoldService Fix
+description: >
+  Checks found Bitcoin addresses for balances on coins that forked from
+  Bitcoin at the same address/keys (Bitcoin Cash, Bitcoin Gold) -- no new
+  derivation needed, same private key controls the identical address on
+  every fork. Also fixes a real pre-existing bug found while building this:
+  BitcoinGoldService pointed at Blockchair's webpage URL instead of its API,
+  silently returning None on every check since the service was added.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, bugfix]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    bugfix: "BitcoinGoldService's wrong API host discovered while building this epic."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as prior epics. Motivated directly
+      by user request to check fork coins on already-found addresses.
+
+stories:
+  - id: fcc-01-fork-coin-checker
+    title: Fix BitcoinGoldService + build the fork-coin checker
+    complexity: low
+    depends_on: []

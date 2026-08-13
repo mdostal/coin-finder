@@ -52,6 +52,7 @@ project/
 │   ├── match_seed_phrases.py # Standalone: derives addresses from seed phrases (bounded schemes) and checks balances
 │   ├── unlock_wallet.py      # Standalone: offline-gated wrapper around BTCRecover for wallet password testing
 │   ├── scan_wallet_dat.py    # Standalone: enumerates every address in a wallet.dat (not just text-matchable ones)
+│   ├── check_fork_coins.py   # Standalone: checks found Bitcoin addresses on fork coins (Bitcoin Cash, Bitcoin Gold)
 ├── scripts/
 │   ├── install_btcrecover.sh # Clones/updates BTCRecover into vendor/btcrecover/ (not committed)
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
@@ -365,6 +366,31 @@ a reference on which wallet software this project supports recovering
 (Bitcoin Core, Electrum, Armory, and more via BTCRecover), well-known defunct
 exchanges/services to cross-check against your own memory, and how to use
 this project's dormancy/clustering output to help tell the two apart.
+
+---
+
+### 11. Fork Coin Checker (`check_fork_coins.py`)
+
+**Standalone tool -- not part of the default pipeline run.** A hard fork
+copies the entire ledger, so any address that held BTC at a fork's snapshot
+controls the identical balance on the forked chain too, under the same
+private key. This tool checks addresses you've already found against those
+fork coins -- free money to check for, no new derivation needed.
+
+- **Checks**: Bitcoin Cash, Bitcoin Gold (both already have services in this
+  project). Bitcoin SV shares the address format too but has no service here
+  yet -- a stated gap, not a silent one.
+- **Input**: accepts `scan_wallet_dat.py`'s output, `crawl_transaction_graph.py`'s
+  output, or a plain newline-separated address list -- composes directly with
+  this project's other tools.
+- **Usage**:
+  ```bash
+  python tools/check_fork_coins.py <addresses_file> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/check_fork_coins.py ./output/wallet_scan.json ./output/fork_coins.json
+  ```
 
 ---
 

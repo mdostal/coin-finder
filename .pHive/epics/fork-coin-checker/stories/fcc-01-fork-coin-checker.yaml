@@ -1,0 +1,83 @@
+id: fcc-01-fork-coin-checker
+epic: fork-coin-checker
+title: Fix BitcoinGoldService + build the fork-coin checker
+status: completed
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  services/bitcoin_gold.py: fix check_balance()'s URL from
+  https://blockchair.com/bitcoin-gold/address/{address} (webpage) to
+  https://api.blockchair.com/bitcoin-gold/dashboards/address/{address}
+  (API), matching services/bitcoin_cash.py's already-correct pattern, and
+  fix response parsing to match (data.data[address].balance, not
+  data.balance).
+
+  tools/check_fork_coins.py: FORK_COINS = ["Bitcoin Cash", "Bitcoin Gold"].
+  check_fork_coin_balances(), check_fork_coins_for_addresses(),
+  load_addresses_from_file() (tolerant of scan_wallet_dat.py output,
+  crawl_transaction_graph.py output, or plain newline lists),
+  render_fork_coin_report(). Reuses check_wallet_balances.py's
+  load_service() and _check_balance_with_retries() -- no duplicated logic.
+
+acceptance_criteria:
+  - "Given a mocked Blockchair API response, when BitcoinGoldService.check_balance runs, then it calls the api.blockchair.com host (not the webpage host) and correctly parses the balance"
+  - "Given check_fork_coin_balances runs for an address, then every coin in FORK_COINS is checked"
+  - "Given one fork coin's mocked balance is non-zero, when check_fork_coin_balances runs, then that coin's entry reflects it while others remain correct"
+  - "Given a service is unavailable for a fork coin, when check_fork_coin_balances runs, then that coin's balance is None rather than raising"
+  - "Given scan_wallet_dat.py's or crawl_transaction_graph.py's JSON output shape, when load_addresses_from_file runs, then it returns the correct flat address list for each shape"
+  - "Given a results dict with one non-zero fork-coin balance, when render_fork_coin_report runs, then that finding is called out as SIGNIFICANT/worth checking"
+
+steps:
+  - id: test-spec
+    description: Write failing tests in tests/test_services_bitcoin_gold.py (new) and tests/test_check_fork_coins.py (new), all mocked -- no real network calls, given a live Blockchair rate-limit was encountered during research.
+    agent: tester
+  - id: implement
+    description: Fix services/bitcoin_gold.py and implement tools/check_fork_coins.py to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that the BitcoinGoldService fix exactly mirrors BitcoinCashService's already-working pattern, and that check_fork_coins.py reuses load_service/_check_balance_with_retries rather than duplicating them.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit all changes.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: services/bitcoin_cash.py
+      purpose: Already-correct Blockchair API usage pattern that bitcoin_gold.py's fix now mirrors.
+    - path: tools/check_wallet_balances.py
+      purpose: load_service() and _check_balance_with_retries() reused directly.
+
+files_to_modify:
+  - file: services/bitcoin_gold.py
+    change: fix API URL and response parsing
+  - file: tests/test_services_bitcoin_gold.py
+    change: new file -- first test coverage for any services/*.py file
+  - file: tools/check_fork_coins.py
+    change: new file
+  - file: tests/test_check_fork_coins.py
+    change: new file
+  - file: README.md
+    change: add File Structure entry and a new Tools subsection
+
+design_decisions:
+  - decision: Only check fork coins that already have a service in this project (Bitcoin Cash, Bitcoin Gold), stating Bitcoin SV as a known gap rather than adding a new service under time pressure.
+    rationale: Reuses well-tested existing services; adding a new BSV service would need its own API research and isn't blocking the immediate value here.
+
+risks:
+  - severity: low
+    description: Blockchair rate-limited this session's IP during research; live end-to-end verification wasn't possible this session.
+    mitigation: Mocked tests are the verification of record, consistent with established project practice when live calls aren't feasible; existing retry/inconclusive-tracking behavior already handles rate-limit failures correctly.
+
+references:
+  - path: .pHive/epics/fork-coin-checker/docs/design-discussion.md
+    relevant_excerpt: |
+      "services/bitcoin_gold.py::check_balance() was found pointing at the
+      webpage URL, not the API URL... every Bitcoin Gold balance check in
+      this project's history has silently returned None."

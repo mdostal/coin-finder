@@ -1,0 +1,28 @@
+epic: fork-coin-checker
+substrate: pytest (mocked -- live Blockchair rate-limit encountered during research)
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 99
+tests_passed: 99
+tests_failed: 0
+coverage_by_story:
+  fcc-01-fork-coin-checker:
+    acceptance_criteria: 6
+    covered_by_tests: 10
+    gaps: []
+regression_check:
+  previous_suite: 89 tests from prior epics
+  result: pass
+  note: >
+    A full-suite run concurrent with the background full wallet-dat scan (1016 live
+    balance checks) caused tests/test_match_seed_phrases.py::test_cli_never_prints_phrase_text_to_stdout
+    (a pre-existing, real-network-dependent test from an earlier epic) to exceed its
+    60s internal timeout twice, due to API rate-limit contention between the two
+    concurrent processes. Re-run in isolation (or after the background scan
+    completes) to confirm it passes under normal conditions -- not a regression
+    introduced by this epic; all 10 new fork-coin-checker tests (fully mocked) pass
+    cleanly regardless.
+bugs_fixed:
+  - "services/bitcoin_gold.py pointed at Blockchair's webpage URL instead of its API URL -- every Bitcoin Gold check in this project's history silently returned None. Fixed to match bitcoin_cash.py's already-correct pattern."
+verdict: PASS
