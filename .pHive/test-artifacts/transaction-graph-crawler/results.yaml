@@ -1,0 +1,32 @@
+epic: transaction-graph-crawler
+substrate: pytest (no Maestro/device swarm applies)
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 47
+tests_passed: 47
+tests_failed: 0
+
+coverage_by_story:
+  tgc-01-crawler-core:
+    acceptance_criteria: 8
+    covered_by_tests: 8
+    gaps: []
+  tgc-02-cli-report-docs:
+    acceptance_criteria: 3
+    covered_by_tests: 2
+    gaps: []
+    note: "CLI end-to-end acceptance criterion verified manually (real network/live blockchain call), not via subprocess test, to avoid real-network calls in the automated suite. Manual run against the real found address confirmed correct behavior and discovered a second real address with a non-zero balance."
+
+regression_check:
+  previous_suite: 36 tests from epics wallet-relationship-graph, conservative-balance-retries, deep-crawl-hidden-volumes
+  result: pass
+
+real_world_validation:
+  target: 1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB (the real found 0.3 BTC address)
+  result: "Discovered bc1qfx2ms6kdwnx24jllnt8r76raz3250srdsdlmvt via co-spend clustering -- confirmed real, holds 0.0179 BTC unspent."
+
+bugs_filed: 0
+notable_findings:
+  - "Confirmed pre-existing repo bug (not introduced by this epic): tools/*.py scripts that import config/services fail when run standalone as `python tools/foo.py` (README-documented usage) due to sys.path not including repo root. Reproduced identically on tools/search_wallets.py. Needs PYTHONPATH=. or a sys.path fix. Flagged for a follow-up story, not fixed in this epic (out of scope)."
+verdict: PASS

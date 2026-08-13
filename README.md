@@ -47,6 +47,7 @@ project/
 │   ├── filter_wallets.py     # Filters out zero-balance wallets
 │   ├── build_wallet_graph.py # Correlates wallets/coins across files into a relationship report
 │   ├── detect_hidden_volumes.py # Standalone: flags likely encrypted-container files (detect/flag only)
+│   ├── crawl_transaction_graph.py # Standalone: discovers likely same-owner Bitcoin addresses via public tx graph
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
 ├── requirements.txt          # Python dependencies
 ├── run_pipeline.py           # Orchestrates the entire pipeline
@@ -160,6 +161,39 @@ suspect may contain an old encrypted container (e.g. VeraCrypt/TrueCrypt).
 **Example**:
   ```bash
   python tools/detect_hidden_volumes.py /Volumes/OldDrive ./output/hidden_volumes.json
+  ```
+
+---
+
+### 6. Transaction Graph Crawler (`crawl_transaction_graph.py`)
+
+**Standalone tool, Bitcoin-only in v1 -- not part of the default pipeline run.**
+Given one known Bitcoin address, discovers other addresses likely owned by the
+same person using **public blockchain data only** (no private keys involved).
+
+- **Purpose**: Starting from a wallet you've already found, trace outward to find
+  other "sitting" wallets -- e.g. addresses you mined to and later transferred
+  from, that may still hold a balance.
+- **How it works**: Two signals, clearly distinguished in the output:
+  - **Co-spend (high confidence)**: if your address was used as one of several
+    inputs on the same transaction, the other input addresses were *necessarily*
+    signed by the same wallet -- you need every input's private key to build a
+    transaction. This is the standard technique for clustering addresses without
+    needing any keys.
+  - **Output-following (lower confidence)**: addresses that received funds *from*
+    your address are also followed, but only when that transaction has a small
+    number of outputs. Transactions with a large number of outputs (mining-pool
+    payouts, exchange batch withdrawals) are skipped entirely -- following those
+    would sweep in hundreds of unrelated people's addresses, not yours.
+  - The crawl is bounded (`--generations`, default 2; `--max-addresses`, default
+    200) so it can't run away on a busy address.
+- **Usage**:
+  ```bash
+  python tools/crawl_transaction_graph.py <seed_address> <output_file> [--generations N] [--max-addresses N] [--threshold BTC]
+  ```
+**Example**:
+  ```bash
+  python tools/crawl_transaction_graph.py 1YourFoundAddressHere ./output/cluster.json --generations 2 --threshold 1.0
   ```
 
 ---

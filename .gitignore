@@ -181,3 +181,5 @@ cython_debug/
 !.pHive/epics/conservative-balance-retries/**
 !.pHive/epics/deep-crawl-hidden-volumes/
 !.pHive/epics/deep-crawl-hidden-volumes/**
+!.pHive/epics/transaction-graph-crawler/
+!.pHive/epics/transaction-graph-crawler/**
