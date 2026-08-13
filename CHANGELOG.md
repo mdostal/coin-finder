@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-13
+
+### Added
+
+- **Blockchain transaction-graph crawler.** New standalone tool
+  (`tools/crawl_transaction_graph.py`) that discovers other Bitcoin addresses
+  likely owned by the same person, starting from one known address -- using
+  only public blockchain data (no private keys). Uses common-input-ownership
+  (co-spend) clustering as the primary, high-confidence signal, plus bounded
+  output-following for lower-confidence "where did it go" discovery, guarded
+  against mining-pool/exchange-style high-fanout transactions. Validated
+  against a real found address -- discovered a second real address holding a
+  non-zero balance. (`transaction-graph-crawler` epic)
+
+### Fixed
+
+- Confirmed (not yet fixed) a pre-existing bug: standalone tool invocation per
+  the README (`python tools/foo.py ...`) fails for any tool importing
+  `config`/`services` unless `PYTHONPATH=.` is set, because Python only puts
+  the script's own directory on the import path. Reproduced on
+  `search_wallets.py` too -- not introduced by recent epics. Tracked as a
+  follow-up.
+
 ## [0.3.0] - 2026-08-13
 
 ### Added
