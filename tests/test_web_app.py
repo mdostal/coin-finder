@@ -87,6 +87,30 @@ def test_scan_job_lifecycle_reaches_done(mock_pipeline, mock_hidden, client, tmp
 
 @patch("web.app.scan_for_hidden_volumes")
 @patch("web.app.run_pipeline")
+def test_scan_job_progress_flows_through_to_the_job_status(mock_pipeline, mock_hidden, client, tmp_path):
+    def fake_main(input_dir, output_dir, progress_callback=None):
+        progress_callback(5, 10, "checking addresses")
+
+    mock_pipeline.main.side_effect = fake_main
+    mock_hidden.return_value = []
+
+    resp = client.post("/scan", data={"input_dir": str(tmp_path)}, follow_redirects=False)
+    job_id = resp.headers["Location"].rstrip("/").split("/")[-1]
+
+    job = None
+    for _ in range(100):
+        status_resp = client.get(f"/api/jobs/{job_id}")
+        job = status_resp.get_json()
+        if job["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    assert job["status"] == "done"
+    assert job["progress"] == {"current": 5, "total": 10, "message": "checking addresses"}
+
+
+@patch("web.app.scan_for_hidden_volumes")
+@patch("web.app.run_pipeline")
 def test_scan_status_page_renders_once_done(mock_pipeline, mock_hidden, client, tmp_path):
     mock_pipeline.main.return_value = None
     mock_hidden.return_value = []

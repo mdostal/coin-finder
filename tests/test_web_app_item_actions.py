@@ -54,6 +54,31 @@ def test_scan_wallet_dat_action(mock_scan, mock_check, client, tmp_path):
     mock_check.assert_called_once()
 
 
+@patch("web.app.check_addresses_balances")
+@patch("web.app.scan_wallet_for_addresses")
+def test_scan_wallet_dat_action_reports_progress(mock_scan, mock_check, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"not a real wallet")
+
+    mock_scan.return_value = {
+        "addresses": [{"address": "1abc", "source": "key"}],
+        "encrypted_key_count": 0,
+        "unparsed_record_types": {},
+    }
+
+    def fake_check(addresses, progress_callback=None):
+        progress_callback(1, 1, "1abc")
+        return {"results": [{"address": "1abc", "source": "key", "balance": 0.0}], "limited": False, "total_available": 1}
+
+    mock_check.side_effect = fake_check
+
+    resp = client.post("/item/scan-wallet-dat", data={"wallet_path": str(wallet_file)}, follow_redirects=False)
+    job = _wait_for_job(client, _job_id_from_redirect(resp))
+
+    assert job["status"] == "done"
+    assert job["progress"] == {"current": 1, "total": 1, "message": "1abc"}
+
+
 def test_scan_wallet_dat_rejects_missing_file(client, tmp_path):
     resp = client.post("/item/scan-wallet-dat", data={"wallet_path": str(tmp_path / "nope.dat")})
     assert resp.status_code == 400

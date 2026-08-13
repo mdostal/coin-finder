@@ -18,7 +18,7 @@ from tools.scan_google_drive import get_drive_service, scan_drive_for_wallets
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
-from web.jobs import consume_job_result, get_job, run_job
+from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "ui_output"
@@ -42,6 +42,20 @@ def create_app(host="127.0.0.1"):
         )
 
     app = Flask(__name__)
+
+    @app.route("/api/status")
+    def api_status():
+        status = check_network_status()
+        return jsonify(
+            {
+                "network_status": status,
+                "features": {
+                    "unlock": "requires OFFLINE -- refuses to run otherwise" if status != "OFFLINE" else "available",
+                    "scan": "available (uses public blockchain/coin APIs -- needs network)" if status != "OFFLINE" else "unavailable while offline (balance checks need network)",
+                    "drive_scan": "available (needs network for Google's API)" if status != "OFFLINE" else "unavailable while offline",
+                },
+            }
+        )
 
     @app.route("/")
     def index():
@@ -73,7 +87,8 @@ def create_app(host="127.0.0.1"):
         if not input_dir or not Path(input_dir).is_dir():
             return render_template("index.html", error=f"Not a directory: {input_dir}"), 400
 
-        job_id = run_job(_run_scan_job, input_dir)
+        job_id = create_job()
+        start_job(job_id, _run_scan_job, input_dir, job_id)
         return redirect(url_for("scan_status", job_id=job_id))
 
     @app.route("/scan/<job_id>")
@@ -102,7 +117,8 @@ def create_app(host="127.0.0.1"):
         if not wallet_path or not Path(wallet_path).is_file():
             return render_template("index.html", error=f"Not a file: {wallet_path}"), 400
 
-        job_id = run_job(_run_scan_wallet_dat_job, wallet_path)
+        job_id = create_job()
+        start_job(job_id, _run_scan_wallet_dat_job, wallet_path, job_id)
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item/crawl", methods=["POST"])
@@ -258,9 +274,12 @@ def _split_lines(raw):
     return [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
 
 
-def _run_scan_wallet_dat_job(wallet_path):
+def _run_scan_wallet_dat_job(wallet_path, job_id):
     scan = scan_wallet_for_addresses(wallet_path)
-    checked = check_addresses_balances(scan["addresses"])
+    checked = check_addresses_balances(
+        scan["addresses"],
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
     significant = [r for r in checked["results"] if r.get("balance")]
 
     lines = [
@@ -368,7 +387,7 @@ def _run_drive_scan_job(output_dir, query):
     return {"report": "\n".join(lines), "manifest": manifest, "output_dir": output_dir}
 
 
-def _run_scan_job(input_dir):
+def _run_scan_job(input_dir, job_id):
     """
     Runs the existing default pipeline (search -> analyze -> check_balances
     -> filter -> graph) plus the hidden-volume detector, exactly the same
@@ -376,7 +395,11 @@ def _run_scan_job(input_dir):
     reimplementation.
     """
     output_dir = str(DEFAULT_OUTPUT_ROOT / Path(input_dir).name)
-    run_pipeline.main(input_dir, output_dir)
+    run_pipeline.main(
+        input_dir,
+        output_dir,
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
 
     hidden_volumes = scan_for_hidden_volumes(input_dir)
 

@@ -208,4 +208,36 @@ pre {
 
 .empty { color: var(--text-dim); font-style: italic; font-size: 0.88rem; }
 
+.conn-status {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 1.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: default;
+}
+.conn-offline { color: var(--accent); }
+.conn-online { color: var(--info); }
+.conn-unknown { color: var(--text-dim); }
+
+.progress-bar {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+  margin: 0.5rem 0 0.35rem;
+}
+.progress-bar-fill {
+  background: var(--accent);
+  height: 100%;
+  transition: width 0.2s ease;
+}
+.progress-label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
 .back-link { display: inline-block; margin-top: 1.5rem; font-size: 0.88rem; }

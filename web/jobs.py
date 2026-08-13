@@ -6,18 +6,13 @@ _jobs = {}
 _lock = threading.Lock()
 
 
-def run_job(fn, *args, secret=False, **kwargs):
+def create_job(secret=False):
     """
-    Start fn(*args, **kwargs) in a background daemon thread, tracked in an
-    in-memory registry. Single local user, one-scan-at-a-time is the
-    realistic usage pattern; nothing here prevents running several jobs
-    concurrently against different inputs.
-
-    :param secret: True for jobs whose result may itself be sensitive (e.g.
-        an unlock attempt's found password). Secret job results are hidden
-        from get_job()/the polling API entirely -- only consume_job_result()
-        can read one, exactly once, before it is deleted from the registry.
-    :return: job_id (str) usable with get_job().
+    Registers a new job in "running" state and returns its id, without
+    starting any work yet -- for callers that need the job_id before they
+    can build the work closure (e.g. to wire a progress_callback bound to
+    this exact job_id). Most callers want run_job() instead, which does
+    both steps at once.
     """
     job_id = str(uuid.uuid4())
     with _lock:
@@ -27,7 +22,13 @@ def run_job(fn, *args, secret=False, **kwargs):
             "error": None,
             "started_at": time.time(),
             "secret": secret,
+            "progress": None,
         }
+    return job_id
+
+
+def start_job(job_id, fn, *args, **kwargs):
+    """Runs fn(*args, **kwargs) in a background daemon thread for an already-created job_id (see create_job())."""
 
     def _target():
         try:
@@ -41,7 +42,36 @@ def run_job(fn, *args, secret=False, **kwargs):
                 _jobs[job_id]["error"] = str(e)
 
     threading.Thread(target=_target, daemon=True).start()
+
+
+def run_job(fn, *args, secret=False, **kwargs):
+    """
+    Start fn(*args, **kwargs) in a background daemon thread, tracked in an
+    in-memory registry. Single local user, one-scan-at-a-time is the
+    realistic usage pattern; nothing here prevents running several jobs
+    concurrently against different inputs.
+
+    :param secret: True for jobs whose result may itself be sensitive (e.g.
+        an unlock attempt's found password). Secret job results are hidden
+        from get_job()/the polling API entirely -- only consume_job_result()
+        can read one, exactly once, before it is deleted from the registry.
+    :return: job_id (str) usable with get_job().
+    """
+    job_id = create_job(secret=secret)
+    start_job(job_id, fn, *args, **kwargs)
     return job_id
+
+
+def report_progress(job_id, current, total, message=""):
+    """
+    Updates a running job's progress -- called mid-execution by a tool's
+    progress_callback. Silently a no-op for an unknown job_id (a job that
+    already finished, or was never started) rather than raising, since a
+    background thread calling this has no good way to handle that error.
+    """
+    with _lock:
+        if job_id in _jobs:
+            _jobs[job_id]["progress"] = {"current": current, "total": total, "message": message}
 
 
 def get_job(job_id):

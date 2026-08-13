@@ -13,11 +13,13 @@
       <a href="{{ url_for('index') }}">Scan</a>
       <a href="{{ url_for('item_unlock_form') }}">Unlock</a>
       <a href="{{ url_for('drive_form') }}">Drive</a>
+      <span id="conn-status" class="conn-status conn-unknown" title="Checking network status...">&bull; checking&hellip;</span>
     </nav>
   </div>
 </header>
 <div class="page">
 {% block content %}{% endblock %}
 </div>
+<script src="{{ url_for('static', filename='connectivity.js') }}"></script>
 </body>
 </html>

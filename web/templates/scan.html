@@ -22,7 +22,7 @@
 <p>{{ m.status_pill(job.status) }}</p>
 
 {% if job.status == "running" %}
-<div class="card"><p>Scanning -- this page will refresh automatically.</p></div>
+<div class="card"><p>Scanning -- this page will refresh automatically.</p><div id="job-progress"></div></div>
 {% elif job.status == "error" %}
 <div class="banner error">{{ job.error }}</div>
 {% elif results %}

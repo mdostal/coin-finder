@@ -10,7 +10,7 @@ from tools.check_wallet_balances import check_wallet_balances
 from tools.filter_wallets import filter_wallet_balances
 from tools.build_wallet_graph import build_relationship_graph, render_graph_report
 
-def main(input_dir, output_dir):
+def main(input_dir, output_dir, progress_callback=None):
     # make output dir if it doesn't exist
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -30,7 +30,7 @@ def main(input_dir, output_dir):
     analyze_wallets(search_output, analyze_output)
 
     print("Running wallet balance check...")
-    check_wallet_balances(analyze_output, scan_output)
+    check_wallet_balances(analyze_output, scan_output, progress_callback=progress_callback)
     inconclusive_output = os.path.join(sub_dir, "inconclusive_balances.json")
     if os.path.exists(inconclusive_output):
         print(f"Some addresses are still inconclusive after retries -- see {inconclusive_output}.")

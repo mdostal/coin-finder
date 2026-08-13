@@ -195,3 +195,28 @@ def test_check_addresses_balances_reflects_nonzero_balance(mock_load_service):
 
     assert result["results"][1]["balance"] == 3.5
     assert result["limited"] is False
+
+
+@patch("tools.scan_wallet_dat.load_service_for_coin")
+def test_check_addresses_balances_progress_callback_invoked_per_address(mock_load_service):
+    fake_service = MagicMock()
+    fake_service.check_balance.return_value = 0.0
+    mock_load_service.return_value = fake_service
+
+    addresses = [{"address": "1a", "source": "key"}, {"address": "1b", "source": "key"}]
+    calls = []
+    check_addresses_balances(addresses, progress_callback=lambda current, total, message="": calls.append((current, total)))
+
+    assert calls == [(1, 2), (2, 2)]
+
+
+@patch("tools.scan_wallet_dat.load_service_for_coin")
+def test_check_addresses_balances_no_progress_callback_is_unaffected(mock_load_service):
+    fake_service = MagicMock()
+    fake_service.check_balance.return_value = 0.0
+    mock_load_service.return_value = fake_service
+
+    addresses = [{"address": "1a", "source": "key"}]
+    result = check_addresses_balances(addresses)
+
+    assert result["results"][0]["balance"] == 0.0

@@ -24,7 +24,7 @@ def test_pipeline_wires_relationship_graph_from_scan_output(tmp_path):
         mock_build_graph.return_value = graph
         mock_render_report.return_value = report_text
 
-        def fake_check(input_file, output_file):
+        def fake_check(input_file, output_file, progress_callback=None):
             with open(output_file, "w") as f:
                 json.dump(scan_data, f)
 
@@ -40,3 +40,29 @@ def test_pipeline_wires_relationship_graph_from_scan_output(tmp_path):
     assert relationships_md.exists()
     assert json.loads(relationships_json.read_text()) == graph
     assert relationships_md.read_text() == report_text
+
+
+def test_pipeline_forwards_progress_callback_to_check_wallet_balances(tmp_path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    scan_data = {}
+
+    with patch("run_pipeline.search_for_wallets"), \
+         patch("run_pipeline.analyze_wallets"), \
+         patch("run_pipeline.check_wallet_balances") as mock_check, \
+         patch("run_pipeline.filter_wallet_balances"), \
+         patch("run_pipeline.build_relationship_graph", return_value={"nodes": {}, "edges": {}, "signals": {}}), \
+         patch("run_pipeline.render_graph_report", return_value=""):
+
+        def fake_check(input_file, output_file, progress_callback=None):
+            with open(output_file, "w") as f:
+                json.dump(scan_data, f)
+
+        mock_check.side_effect = fake_check
+        sentinel_callback = lambda current, total, message="": None
+
+        run_pipeline.main(str(input_dir), str(output_dir), progress_callback=sentinel_callback)
+
+    assert mock_check.call_args.kwargs["progress_callback"] is sentinel_callback

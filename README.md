@@ -566,6 +566,16 @@ still works standalone for scripting/automation.
   # (--port to use something else -- 5000 isn't the default because macOS's
   # AirPlay Receiver occupies it by default on most Macs)
   ```
+- **Connectivity status, everywhere.** A small indicator in the top nav
+  (polling `GET /api/status` every ~10s) shows OFFLINE/ONLINE/UNKNOWN on
+  every page, not just the unlock page -- hover it for what each mode means
+  for scan/unlock/Drive features specifically. Reuses the exact same
+  `check_network_status()` the offline gate itself uses, so the indicator
+  can never drift from what the gate actually enforces.
+- **Real progress on long scans.** Balance-check-heavy jobs (the default
+  scan, a full `wallet.dat` sweep) report live progress
+  (`checked N / M addresses`) instead of just "running" -- useful context
+  for a multi-hour or multi-day crawl against a large drive.
 - **Binds to `127.0.0.1` only, always.** `create_app()` refuses to construct
   an app bound to anything else -- this app handles local wallet files and
   (in a later story) real unlock candidates, and must never be reachable
