@@ -185,3 +185,5 @@ cython_debug/
 !.pHive/epics/transaction-graph-crawler/**
 !.pHive/epics/dormancy-check-and-path-fix/
 !.pHive/epics/dormancy-check-and-path-fix/**
+!.pHive/epics/seed-phrase-finder/
+!.pHive/epics/seed-phrase-finder/**

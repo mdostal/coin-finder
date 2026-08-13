@@ -1,0 +1,33 @@
+name: seed-phrase-finder
+title: Seed-Phrase Finder
+description: >
+  Scan text files for candidate BIP39 seed phrases using checksum validation
+  (mnemonic library), so they can be tried against wallets in a later HD-
+  derivation/credential-matching epic. Never prints found phrase text to
+  stdout -- writes to the local output file only.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, security-sensitive, new-dependency]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    security-sensitive: "Found phrases are real private-key material -- output handling designed accordingly."
+    new-dependency: "First production dependency addition since kickoff (mnemonic) -- audited BIP39 library per user's explicit go-ahead for key-material-adjacent work."
+  confidence: high
+  gate_decisions:
+    note: Same no-live-teammates adaptation as prior epics.
+
+stories:
+  - id: spf-01-finder-core-and-cli
+    title: BIP39 checksum-validated phrase scanner + safe-output CLI
+    complexity: medium
+    depends_on: []
