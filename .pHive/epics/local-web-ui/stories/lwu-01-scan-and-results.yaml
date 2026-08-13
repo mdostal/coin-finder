@@ -1,7 +1,7 @@
 id: lwu-01-scan-and-results
 epic: local-web-ui
 title: Flask skeleton, scan job runner, results page
-status: pending
+status: complete
 complexity: large
 methodology: tdd
 depends_on: []

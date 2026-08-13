@@ -55,6 +55,11 @@ project/
 │   ├── check_fork_coins.py   # Standalone: checks found Bitcoin addresses on fork coins (Bitcoin Cash, Bitcoin Gold)
 │   ├── unlock_exodus_wallet.py # Standalone: offline-gated wrapper around hashcat for Exodus wallet password testing
 │   ├── scan_google_drive.py  # Standalone: slow-crawls Google Drive for wallet-like files, downloads to local disk
+├── web/                       # Local web UI (Flask) tying every tool above into one app
+│   ├── app.py                 # Routes, host-binding guard, scan job wiring
+│   ├── jobs.py                 # In-memory background job registry
+│   ├── templates/              # Jinja2 templates (no frontend build step)
+│   ├── static/                 # poll.js -- polls job status, no framework
 ├── scripts/
 │   ├── install_btcrecover.sh # Clones/updates BTCRecover into vendor/btcrecover/ (not committed)
 │   ├── install_exodus_tools.sh # Installs hashcat + fetches exodus2hashcat.py into vendor/hashcat-tools/ (not committed)
@@ -470,6 +475,39 @@ other tool in this project can scan them exactly like a local drive.
   # then run the other tools against what it found, e.g.:
   python tools/find_seed_phrases.py ./output/drive_downloads ./output/drive_seed_phrases.json
   ```
+
+---
+
+## Local Web UI (`web/app.py`)
+
+A local Flask app that ties the tools above into one browser-based flow,
+instead of running each CLI tool by hand in the right order. This is the
+recommended way to use the project day to day; every tool documented above
+still works standalone for scripting/automation.
+
+- **Run it:**
+  ```bash
+  python web/app.py
+  # open http://127.0.0.1:5000
+  ```
+- **Binds to `127.0.0.1` only, always.** `create_app()` refuses to construct
+  an app bound to anything else -- this app handles local wallet files and
+  (in a later story) real unlock candidates, and must never be reachable
+  beyond this machine.
+- **What's here so far:** pick a directory on the form at `/`, submit it, and
+  it runs the same default pipeline as `run_pipeline.py` (search -> analyze
+  -> check balances -> filter -> relationship graph) plus
+  `detect_hidden_volumes.py`, as one background job. The results page polls
+  job status and renders balances (including anything still inconclusive
+  after retries), the filtered non-zero wallets, per-file analysis, the
+  relationship graph report, and hidden-volume flags -- all in one page.
+- **More is coming in this epic:** per-item actions for the remaining
+  standalone tools (`scan_wallet_dat.py`, `crawl_transaction_graph.py`,
+  `check_fork_coins.py`, `find_seed_phrases.py`, `match_seed_phrases.py`),
+  offline-gated unlock flows for BTCRecover/hashcat, a staging/copy area, and
+  a Google Drive entry point -- see `.pHive/epics/local-web-ui/` for the
+  full plan. An Electron wrapper around this app is a separate, later effort
+  outside this project's own scope.
 
 ---
 

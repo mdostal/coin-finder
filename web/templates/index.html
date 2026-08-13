@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- scan{% endblock %}
+{% block content %}
+<h2>Scan a drive or directory</h2>
+<p>Point this at a directory (a mounted old drive, a backup folder, anything)
+and it will run the full wallet-discovery pipeline against it: search,
+analyze, check balances, build a relationship graph, and flag anything that
+looks like a hidden/encrypted volume.</p>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="{{ url_for('start_scan') }}">
+  <input type="text" name="input_dir" size="60" placeholder="/path/to/drive-or-directory" required>
+  <button type="submit">Scan</button>
+</form>
+{% endblock %}

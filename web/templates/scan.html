@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- scan {{ job_id }}{% endblock %}
+
+{% macro table(rows) %}
+  {% if rows %}
+  <table>
+    <thead><tr>{% for key in rows[0].keys() %}<th>{{ key }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p><em>none</em></p>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<h2>Scan results</h2>
+<p>Status: <strong id="status">{{ job.status }}</strong></p>
+
+{% if job.status == "running" %}
+<p>Scanning -- this page will refresh automatically.</p>
+{% elif job.status == "error" %}
+<p class="error">{{ job.error }}</p>
+{% elif results %}
+  <h3>Balances</h3>
+  {{ table(results.balances) }}
+
+  {% if results.inconclusive %}
+  <h3 class="warning">Inconclusive balances (recheck later)</h3>
+  {{ table(results.inconclusive) }}
+  {% endif %}
+
+  <h3>Filtered (non-zero / interesting) wallets</h3>
+  {{ table(results.filtered) }}
+
+  <h3>File analysis</h3>
+  {{ table(results.analysis) }}
+
+  {% if results.relationships_report %}
+  <h3>Relationship graph</h3>
+  <pre>{{ results.relationships_report }}</pre>
+  {% endif %}
+
+  {% if results.hidden_volumes_report %}
+  <h3>Hidden/encrypted volume detection</h3>
+  <pre>{{ results.hidden_volumes_report }}</pre>
+  {% endif %}
+{% endif %}
+
+<script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}"></script>
+{% endblock %}
