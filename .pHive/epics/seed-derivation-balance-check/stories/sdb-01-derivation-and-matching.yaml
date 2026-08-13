@@ -1,0 +1,120 @@
+id: sdb-01-derivation-and-matching
+epic: seed-derivation-balance-check
+title: Bounded multi-scheme HD derivation + balance-check matcher
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  New module tools/match_seed_phrases.py:
+
+  - `derive_candidate_addresses(phrase, num_addresses=5) -> list[dict]`: for
+    each (scheme, coin) in the bounded v1 set -- BIP44/BIP49/BIP84 for
+    Bitcoin, BIP44 for Ethereum and Litecoin -- derive external-chain
+    addresses (account=0, change=0) for index 0..num_addresses-1 using
+    bip_utils. Returns `[{"scheme": "BIP44"|"BIP49"|"BIP84", "coin": str,
+    "index": int, "address": str}, ...]`. Never computes or returns a private
+    key / WIF -- addresses only.
+  - `check_derived_balances(derived) -> list[dict]`: for each derived address,
+    check balance via the existing per-coin service (BitcoinService,
+    EthereumService, LitecoinService from services/) using the existing
+    retry helper (tools.check_wallet_balances._check_balance_with_retries --
+    reused, not duplicated). Returns the same list with a "balance" key added
+    to each entry.
+  - `match_phrases(phrases, num_addresses=5) -> dict`: runs the above for each
+    phrase in `phrases` (a list of strings). Returns
+    `{phrase: [derived+balance dicts]}`.
+  - `load_phrases_from_file(path) -> list[str]`: accepts either
+    find_seed_phrases.py's output JSON shape (dict of file_path -> [{"phrase":
+    ...}]) or a plain newline-separated text file of phrases, and returns a
+    deduplicated flat list.
+  - `render_match_report(results) -> str`: for phrases with at least one
+    non-zero-balance derived address, includes the phrase text and every
+    non-zero finding. For phrases with nothing found, reports only the input
+    index (e.g. "phrase #2: no balance found across N addresses checked") --
+    phrase text is NOT repeated for non-findings.
+  - CLI: `python tools/match_seed_phrases.py <phrases_file> <output_file>` --
+    reads phrases only from `<phrases_file>` (never a CLI argument -- shell
+    history / ps aux exposure). Never prints phrase text to stdout, only
+    counts and (for actual findings) addresses + balances. Report states the
+    bounded v1 scheme coverage explicitly (not a silent limitation).
+
+acceptance_criteria:
+  - "Given the standard public BIP39 test vector, when derive_candidate_addresses runs with num_addresses=1, then it returns exactly the well-known, publicly documented BIP44/49/84 BTC and BIP44 ETH/LTC addresses for that mnemonic"
+  - "Given derive_candidate_addresses output, when inspected, then no entry contains a private key or WIF field -- addresses only"
+  - "Given a mocked balance-check service returning a non-zero balance for one derived address, when check_derived_balances runs, then that entry's balance field reflects it and other entries remain unaffected"
+  - "Given find_seed_phrases.py's output JSON shape, when load_phrases_from_file runs, then it returns a deduplicated flat list of phrase strings"
+  - "Given a plain newline-separated phrase file, when load_phrases_from_file runs, then it returns the same flat list shape"
+  - "Given a phrase with at least one non-zero-balance derived address, when render_match_report runs, then the phrase text appears in the report alongside that finding"
+  - "Given a phrase with zero non-zero-balance derived addresses, when render_match_report runs, then the phrase text does NOT appear in the report -- only its input index and a 'no balance found' summary"
+  - "Given the CLI runs against a fixture phrases file, when its stdout is captured, then no phrase text appears in stdout/stderr"
+
+steps:
+  - id: research
+    description: Re-confirm bip_utils's Bip44/Bip49/Bip84 API shape (already live-verified against the public test vector during epic research) and tools/check_wallet_balances.py's _check_balance_with_retries signature for reuse.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_match_seed_phrases.py using the
+      well-known public BIP39 test vector (safe, standard fixture) and mocked
+      balance-check services (no real network calls), covering every
+      acceptance criterion above.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement derive_candidate_addresses, check_derived_balances, match_phrases, load_phrases_from_file, render_match_report, and the CLI to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically that no derived-key/WIF material is ever computed or exposed, that stdout never contains phrase text under any code path, and that phrase text is genuinely absent from non-finding report entries.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/match_seed_phrases.py, tests/test_match_seed_phrases.py, and requirements.txt. Manually run the CLI against the public test vector (real balance lookups -- long-known to be empty, validates plumbing safely) to confirm no phrase text leaks to stdout.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    language: python
+    new_dependency: bip_utils (BIP32/39/44/49/84 HD derivation)
+  key_files:
+    - path: tools/check_wallet_balances.py
+      purpose: _check_balance_with_retries() is reused directly rather than duplicating retry logic.
+    - path: services/bitcoin.py
+      purpose: BitcoinService (and ethereum.py/litecoin.py) reused for balance checks on derived addresses.
+    - path: tools/find_seed_phrases.py
+      purpose: Its output JSON shape is one of load_phrases_from_file's accepted input formats.
+
+files_to_modify:
+  - file: tools/match_seed_phrases.py
+    change: new file -- derive_candidate_addresses, check_derived_balances, match_phrases, load_phrases_from_file, render_match_report, CLI
+  - file: tests/test_match_seed_phrases.py
+    change: new file -- derivation, matching, redaction, and stdout-safety tests
+  - file: requirements.txt
+    change: add bip_utils (production dependency)
+
+design_decisions:
+  - decision: Never compute or expose raw private keys/WIF -- addresses only.
+    rationale: Minimizes derived-secret surface area; the user re-derives the actual spending key in trusted wallet software once a match is known.
+  - decision: Phrase text appears in the report only for phrases with an actual finding; non-findings are reported by index only.
+    rationale: Avoids gratuitously repeating secret material in the output file for phrases that produced nothing actionable.
+  - decision: CLI reads phrases only from a file, never a command-line argument.
+    rationale: CLI args are visible in shell history and `ps aux` -- a real exposure risk for private-key-equivalent material.
+
+risks:
+  - severity: medium
+    description: Bounded scheme coverage (BIP44/49/84 x BTC/ETH/LTC) will miss exotic old-wallet derivation schemes.
+    mitigation: Explicitly deferred to a user-requested future "deep dive" epic; stated in the report, not silently dropped.
+  - severity: high
+    description: Careless phrase-text handling (stdout, logs) is a real secret-exposure risk, same class as find_seed_phrases.py.
+    mitigation: File-only input, no-stdout-printing, phrase-redacted-on-non-finding -- all covered by explicit acceptance criteria and tests.
+
+references:
+  - path: .pHive/epics/seed-derivation-balance-check/docs/design-discussion.md
+    relevant_excerpt: |
+      "bip_utils... verified live against the standard public BIP39 test
+      vector -- all derived addresses matched the well-known, publicly
+      documented test vectors for that mnemonic."

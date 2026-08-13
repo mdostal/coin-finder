@@ -1,0 +1,39 @@
+name: seed-derivation-balance-check
+title: Seed-Phrase HD Derivation + Balance Check
+description: >
+  Derives real addresses from a candidate seed phrase across a bounded set of
+  known wallet schemes (BIP44/49/84 x BTC/ETH/LTC) and checks each for a
+  balance -- reusing existing balance-check services and retry logic. Never
+  computes or exposes raw private keys. A more exhaustive "deep dive" mode
+  covering exotic old-wallet schemes is explicitly deferred to a future epic
+  per the user's own request.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, security-sensitive, new-dependency]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    security-sensitive: "Derives real addresses from private-key-equivalent seed phrases; output handling designed accordingly (file-only input, no stdout phrase printing, no raw key export)."
+    new-dependency: "bip_utils -- audited BIP32/39/44/49/84 library, per user's explicit go-ahead for key-material-adjacent work."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as prior epics. User explicitly
+      scoped v1 as "bounded but as many schemes as possible" and asked for a
+      separate future epic for a more exhaustive deep-dive mode -- noted here
+      so that follow-up isn't lost.
+
+stories:
+  - id: sdb-01-derivation-and-matching
+    title: Bounded multi-scheme HD derivation + balance-check matcher
+    complexity: medium
+    depends_on: []
