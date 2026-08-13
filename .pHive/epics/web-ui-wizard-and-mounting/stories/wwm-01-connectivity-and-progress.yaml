@@ -1,7 +1,9 @@
 id: wwm-01-connectivity-and-progress
 epic: web-ui-wizard-and-mounting
 title: Site-wide connectivity status + job progress reporting
-status: complete
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.17.0"
 complexity: medium
 methodology: tdd
 depends_on: []
