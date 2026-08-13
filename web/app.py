@@ -410,4 +410,17 @@ def _load_scan_results(output_dir):
 
 
 if __name__ == "__main__":
-    create_app().run(host="127.0.0.1", port=5000, debug=False)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Local web UI for coin-finder.")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=5050,
+        help="Port to listen on (default: 5050 -- not 5000, which macOS's AirPlay Receiver "
+        "occupies by default on most Macs, silently blocking the default Flask port).",
+    )
+    args = parser.parse_args()
+
+    print(f"Starting coin-finder's local web UI at http://127.0.0.1:{args.port}")
+    create_app().run(host="127.0.0.1", port=args.port, debug=False)

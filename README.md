@@ -562,7 +562,9 @@ still works standalone for scripting/automation.
 - **Run it:**
   ```bash
   python web/app.py
-  # open http://127.0.0.1:5000
+  # open http://127.0.0.1:5050
+  # (--port to use something else -- 5000 isn't the default because macOS's
+  # AirPlay Receiver occupies it by default on most Macs)
   ```
 - **Binds to `127.0.0.1` only, always.** `create_app()` refuses to construct
   an app bound to anything else -- this app handles local wallet files and
