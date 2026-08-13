@@ -96,6 +96,7 @@ project/
 - Dynamically loads services for each cryptocurrency based on `config/wallet_config.py`.
 - Fetches balances using APIs or node integrations for each coin.
 - Supports filtering coins via the `--coins` argument.
+- Retries a failed/inconclusive check (API error, timeout, rate limit) up to 3 times with a 2-second backoff before giving up on an address -- a confirmed balance, including `0.0`, is never retried. Addresses still inconclusive after all retries are written to `inconclusive_balances.json` instead of silently being treated as empty (see Failsafes below).
 - **Usage**:
 
 ```bash
@@ -232,7 +233,7 @@ BLOCKFROST_API_KEY=your_blockfrost_api_key
    - If unsupported coins are passed via `--coins`, the tool reports them and exits gracefully.
 
 2. **API Errors**:
-   - If an API call fails (e.g., rate limits, connectivity), the script logs the error and skips that address.
+   - If an API call fails (e.g., rate limits, connectivity), the script retries up to 3 times before giving up on that address -- a single flaky call is never enough to write a wallet off. Addresses still inconclusive after retries are recorded in `inconclusive_balances.json` (alongside `wallet_balances.json`) so they stay visible as "needs a recheck" instead of silently disappearing.
 
 3. **File Processing Errors**:
    - If a file cannot be read (e.g., permission issues), the error is logged, and processing continues.

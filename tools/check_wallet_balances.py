@@ -1,8 +1,12 @@
 import json
 import importlib
 import os
+import time
 from pathlib import Path
 from config.wallet import WALLET_SERVICES
+
+MAX_BALANCE_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 2
 
 def load_service(crypto_name):
     """
@@ -28,21 +32,52 @@ def load_service(crypto_name):
         print(f"Error loading service for {crypto_name}: {e}")
         return None
 
-def check_wallet_balances(input_file, output_file, coins_to_check=None):
+def _check_balance_with_retries(service, address, max_retries=MAX_BALANCE_RETRIES, backoff_seconds=RETRY_BACKOFF_SECONDS):
     """
-    Check balances of wallet addresses for specified cryptocurrencies.
+    Call service.check_balance(address), retrying while the result is None (the
+    existing "couldn't confirm" signal every service returns on API/network
+    failure). A confirmed float -- including 0.0 -- returns immediately without
+    retrying. Never sleeps after the final attempt.
+
+    :param service: A WalletService instance.
+    :param address: The address to check.
+    :param max_retries: Total attempts before giving up.
+    :param backoff_seconds: Seconds to sleep between attempts.
+    :return: The first non-None balance, or None if every attempt failed.
+    """
+    for attempt in range(1, max_retries + 1):
+        balance = service.check_balance(address)
+        if balance is not None:
+            return balance
+        if attempt < max_retries:
+            time.sleep(backoff_seconds)
+    return None
+
+
+def check_wallet_balances(input_file, output_file, coins_to_check=None, inconclusive_output=None):
+    """
+    Check balances of wallet addresses for specified cryptocurrencies. Retries
+    each address before giving up, and writes addresses that are still
+    inconclusive after retries to a separate file rather than letting them
+    silently disappear alongside confirmed-empty wallets.
     :param input_file: Path to the input JSON file containing wallet addresses.
     :param output_file: Path to save the results as a JSON file.
     :param coins_to_check: List of cryptocurrencies to check. Defaults to all supported coins.
+    :param inconclusive_output: Path to save addresses still inconclusive after
+        retries. Defaults to "inconclusive_balances.json" next to output_file.
     """
     # Use all configured coins if no specific list is provided
     if not coins_to_check:
         coins_to_check = list(WALLET_SERVICES.keys())
 
+    if inconclusive_output is None:
+        inconclusive_output = os.path.join(os.path.dirname(output_file), "inconclusive_balances.json")
+
     with open(input_file, "r") as f:
         wallet_data = json.load(f)
 
     results = {}
+    inconclusive = {}
 
     for file_path, crypto_wallets in wallet_data.items():
         results[file_path] = {}
@@ -60,14 +95,23 @@ def check_wallet_balances(input_file, output_file, coins_to_check=None):
 
             results[file_path][crypto_name] = {}
             for address in addresses:
-                balance = service.check_balance(address)
+                balance = _check_balance_with_retries(service, address)
                 results[file_path][crypto_name][address] = balance
                 print(f"    {address}: {balance}")
+
+                if balance is None:
+                    inconclusive.setdefault(file_path, {}).setdefault(crypto_name, []).append(address)
 
     with open(output_file, "w") as f:
         json.dump(results, f, indent=4)
 
     print(f"Wallet balance check complete. Results saved to {output_file}.")
+
+    if inconclusive:
+        with open(inconclusive_output, "w") as f:
+            json.dump(inconclusive, f, indent=4)
+        print(f"{sum(len(a) for c in inconclusive.values() for a in c.values())} address(es) still inconclusive after retries. Saved to {inconclusive_output}.")
+
     return results
 
 if __name__ == "__main__":

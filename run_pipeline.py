@@ -31,6 +31,9 @@ def main(input_dir, output_dir):
 
     print("Running wallet balance check...")
     check_wallet_balances(analyze_output, scan_output)
+    inconclusive_output = os.path.join(sub_dir, "inconclusive_balances.json")
+    if os.path.exists(inconclusive_output):
+        print(f"Some addresses are still inconclusive after retries -- see {inconclusive_output}.")
 
     print("Running wallet filter...")
     filter_wallet_balances(scan_output, filter_output)
