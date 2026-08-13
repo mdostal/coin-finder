@@ -1,0 +1,103 @@
+id: lwu-03-unlock-workflows
+epic: local-web-ui
+title: Web-safe unlock flows for BTCRecover and hashcat (offline-gated)
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [lwu-01-scan-and-results]
+
+description: |
+  Dedicated unlock page and routes -- deliberately separate from lwu-02's
+  generic item-action pattern, because this is the epic's highest-risk
+  surface (docs/design-discussion.md Risks section).
+
+  - GET /item/unlock -- body/query: a wallet or seed.seco file path (chosen
+    by which unlock path applies -- BTCRecover for wallet files, hashcat's
+    exodus2hashcat flow for seed.seco). Renders the current network status
+    (calls tools.unlock_wallet.check_network_status() server-side on page
+    load, not cached/trusted from a prior request) and a form: a textarea
+    for candidate passwords, one per line.
+  - POST /item/unlock -- writes the submitted textarea content to a local
+    temp file server-side (never appears in the URL/query string, matching
+    the existing CLI's file-only-candidates rule) before calling
+    tools.unlock_wallet.run_unlock or
+    tools.unlock_exodus_wallet.run_exodus_unlock. Re-checks
+    check_network_status() immediately before running (not just at GET
+    time) -- if not OFFLINE, returns HTTP 409 with the existing tools'
+    exact refusal message, and does not invoke the subprocess at all. This
+    409 is enforced server-side regardless of what the client sent; a
+    disabled-looking button on the frontend is a UX nicety, not the actual
+    gate.
+  - Result delivery: the job's result (BTCRecover/hashcat's output, which
+    may include a found password) lives only in the in-memory job registry
+    entry for that one job, is returned exactly once by GET
+    /api/jobs/<job_id>, and is deleted from the registry immediately after
+    being read the first time -- it is never written to any file, log, or
+    persisted job-history record. The unlock result page's template
+    displays a banner stating the result will not reappear after leaving
+    the page.
+  - The submitted candidates temp file is deleted after the job completes
+    (success or failure), not left on disk.
+
+acceptance_criteria:
+  - "Given the machine is online, when POST /item/unlock is submitted, then the response is 409 and no subprocess is invoked (assert the mocked run_unlock/run_exodus_unlock is never called)"
+  - "Given the machine is offline (mocked check_network_status), when POST /item/unlock is submitted with a wallet file and candidates textarea, then run_unlock is called with a file path for candidates, not the raw textarea content as an argument"
+  - "Given a completed unlock job, when GET /api/jobs/<job_id> is called once, then it returns the result; when called a second time for the same job_id, then it no longer returns that result (404 or an explicit 'already consumed' response, not the secret again)"
+  - "Given an unlock job of either outcome (found or not found), when the job completes, then the temp candidates file used for that job no longer exists on disk afterward"
+
+steps:
+  - id: test-spec
+    description: Write failing tests in tests/test_web_app_unlock.py (Flask test client, mocked check_network_status/run_unlock/run_exodus_unlock -- no real BTCRecover/hashcat invocation, no real offline requirement in tests) covering the 409 refusal, the file-not-raw-arg candidate handling, the once-only result delivery, and temp-file cleanup.
+    agent: tester
+  - id: implement
+    description: Implement GET/POST /item/unlock and the once-only job-result-consumption behavior in web/jobs.py (or a small unlock-specific wrapper around it) to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically for any code path that could deliver the unlock result a second time or write it to disk/logs -- this is the epic's highest-risk story per docs/design-discussion.md, and this review must be adversarial about it (try to find a path that leaks the result, not just confirm the happy path works).
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit the unlock routes/templates, tests/test_web_app_unlock.py, and a README subsection on the web unlock flow that explicitly restates the offline-gate and once-only-result properties.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/unlock_wallet.py
+      purpose: check_network_status/run_unlock -- the offline gate and file-only-candidates contract this story must preserve exactly, now re-verified server-side per request.
+    - path: tools/unlock_exodus_wallet.py
+      purpose: Same shape as unlock_wallet.py, for Exodus seed.seco files via hashcat.
+    - path: .pHive/epics/local-web-ui/docs/design-discussion.md
+      purpose: "Risks section: 'Unlock result exposure via HTTP' -- this story's design is the direct mitigation."
+
+files_to_modify:
+  - file: web/app.py
+    change: add GET/POST /item/unlock
+  - file: web/jobs.py
+    change: add once-only result consumption for jobs marked secret-bearing
+  - file: web/templates/unlock.html
+    change: new file
+  - file: tests/test_web_app_unlock.py
+    change: new file
+  - file: README.md
+    change: add web unlock flow subsection restating offline-gate/once-only-result guarantees
+
+design_decisions:
+  - decision: Unlock job results are consumed exactly once from the in-memory registry, then deleted -- stricter than every other job type in this epic.
+    rationale: This is the one job type whose result can itself be the secret (a found password). "Never persisted" isn't enough on its own if the in-memory value could still be re-read indefinitely by anyone with local network access to the dev server; once-only consumption bounds the exposure window to a single read.
+  - decision: check_network_status() is called fresh at both GET (informational) and POST (enforced) time, never trusted across the request boundary.
+    rationale: A page left open in a browser tab could go stale relative to the machine's actual current network state; only the POST-time check gates the actual subprocess invocation.
+
+risks:
+  - severity: critical
+    description: A found password/seed phrase reaching an HTTP response is a materially different exposure than reaching a terminal's own stdout.
+    mitigation: Once-only in-memory delivery, never persisted, adversarial review pass specifically targeting this story per the review step above.
+  - severity: medium
+    description: The offline-gate check itself (DNS-probe based) could false-negative (report OFFLINE while some other path egress exists, e.g. a VPN or a non-DNS route).
+    mitigation: Pre-existing, documented limitation of tools/unlock_wallet.py's check_network_status (mirrors BTCRecover's own net_check.py approach) -- not introduced or worsened by this story; not silently overstated as a perfect guarantee in the UI copy.
+
+references:
+  - path: .pHive/epics/local-web-ui/docs/design-discussion.md
+    relevant_excerpt: "never persist the unlock result to disk/job-history; deliver it once; document in the UI itself... that the result is not saved and won't reappear"
