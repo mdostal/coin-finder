@@ -14,7 +14,9 @@ from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_h
 from tools.find_seed_phrases import find_candidate_phrases, scan_directory
 from tools.match_seed_phrases import load_phrases_from_file, match_phrases, render_match_report
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
-from web.jobs import get_job, run_job
+from tools.unlock_exodus_wallet import run_exodus_unlock
+from tools.unlock_wallet import check_network_status, run_unlock
+from web.jobs import consume_job_result, get_job, run_job
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "ui_output"
@@ -143,6 +145,67 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("item_result.html", job_id=job_id, job=job)
 
+    @app.route("/item/unlock", methods=["GET"])
+    def item_unlock_form():
+        return render_template("unlock.html", network_status=check_network_status(), error=None)
+
+    @app.route("/item/unlock", methods=["POST"])
+    def item_unlock():
+        # Re-checked here, at the moment of the actual request -- never
+        # trusted from the GET page load or from anything the client sent.
+        # This is the real gate; a disabled-looking button is just a UX
+        # nicety on top of it.
+        network_status = check_network_status()
+        if network_status != "OFFLINE":
+            return (
+                render_template(
+                    "unlock.html",
+                    network_status=network_status,
+                    error=(
+                        f"Refusing to run: network status is {network_status}, not OFFLINE. "
+                        "Testing real passwords against a real wallet must happen with network "
+                        "disabled -- disconnect and try again."
+                    ),
+                ),
+                409,
+            )
+
+        target_path = (request.form.get("target_path") or "").strip()
+        candidates = request.form.get("candidates") or ""
+        kind = request.form.get("kind") or "btcrecover"
+
+        if not target_path or not Path(target_path).is_file():
+            return render_template("unlock.html", network_status=network_status, error=f"Not a file: {target_path}"), 400
+        if not candidates.strip():
+            return (
+                render_template("unlock.html", network_status=network_status, error="Enter at least one candidate password/phrase."),
+                400,
+            )
+
+        # Written to a local temp file server-side -- never placed in the
+        # URL/query string, matching the CLI tools' file-only-candidates rule.
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write(candidates)
+            candidates_path = f.name
+
+        job_fn = _run_exodus_unlock_job if kind == "exodus" else _run_btcrecover_unlock_job
+        job_id = run_job(job_fn, target_path, candidates_path, secret=True)
+        return redirect(url_for("item_unlock_status", job_id=job_id))
+
+    @app.route("/item/unlock-status/<job_id>")
+    def item_unlock_status(job_id):
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
+        return render_template("unlock_status.html", job_id=job_id, job=job)
+
+    @app.route("/item/unlock-result/<job_id>")
+    def item_unlock_result(job_id):
+        job = consume_job_result(job_id)
+        if job is None:
+            abort(404)
+        return render_template("unlock_result.html", job_id=job_id, job=job)
+
     return app
 
 
@@ -227,6 +290,22 @@ def _run_match_seed_phrases_job(phrases_file):
     phrases = load_phrases_from_file(phrases_file)
     results = match_phrases(phrases)
     return {"report": render_match_report(results), "phrase_count": len(phrases)}
+
+
+def _run_btcrecover_unlock_job(wallet_path, candidates_path):
+    try:
+        result = run_unlock(wallet_path, candidates_path)
+    finally:
+        Path(candidates_path).unlink(missing_ok=True)
+    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
+
+
+def _run_exodus_unlock_job(seed_seco_path, candidates_path):
+    try:
+        result = run_exodus_unlock(seed_seco_path, candidates_path)
+    finally:
+        Path(candidates_path).unlink(missing_ok=True)
+    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
 
 
 def _run_scan_job(input_dir):

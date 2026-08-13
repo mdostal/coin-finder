@@ -13,4 +13,6 @@ looks like a hidden/encrypted volume.</p>
   <input type="text" name="input_dir" size="60" placeholder="/path/to/drive-or-directory" required>
   <button type="submit">Scan</button>
 </form>
+
+<p><a href="{{ url_for('item_unlock_form') }}">Unlock a wallet (BTCRecover / hashcat)</a></p>
 {% endblock %}

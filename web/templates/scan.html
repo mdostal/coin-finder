@@ -78,6 +78,8 @@
     <label>Match seed phrases -- existing candidates file: <input type="text" name="phrases_file" size="50"></label>
     <button type="submit">Run</button>
   </form>
+
+  <p><a href="{{ url_for('item_unlock_form') }}">Unlock a wallet (BTCRecover / hashcat)</a></p>
 {% endif %}
 
 <script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}"></script>

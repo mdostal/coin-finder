@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- unlock{% endblock %}
+{% block content %}
+<h2>Unlock a wallet</h2>
+
+<p>Network status right now: <strong>{{ network_status }}</strong>.
+{% if network_status != "OFFLINE" %}
+This must read OFFLINE before a real recovery run is allowed -- disconnect
+network access and reload this page.
+{% else %}
+Safe to test candidates against a real wallet.
+{% endif %}
+</p>
+
+<p class="warning">
+The result of a run (whether a password/phrase was found, and what it was)
+is shown to you exactly once, immediately after the job finishes, and is
+never written to disk or logged. Leave that page and it is gone for good --
+if you need it again, run this again.
+</p>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="{{ url_for('item_unlock') }}">
+  <p>
+    <label>File to unlock (wallet file, or an Exodus seed.seco):</label><br>
+    <input type="text" name="target_path" size="60" required>
+  </p>
+  <p>
+    <label>Kind:</label>
+    <select name="kind">
+      <option value="btcrecover">Wallet file (BTCRecover)</option>
+      <option value="exodus">Exodus seed.seco (hashcat)</option>
+    </select>
+  </p>
+  <p>
+    <label>Candidate passwords/phrases (one per line):</label><br>
+    <textarea name="candidates" rows="6" cols="60" required></textarea>
+  </p>
+  <button type="submit">Run</button>
+</form>
+{% endblock %}

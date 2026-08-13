@@ -1,7 +1,7 @@
 id: lwu-03-unlock-workflows
 epic: local-web-ui
 title: Web-safe unlock flows for BTCRecover and hashcat (offline-gated)
-status: pending
+status: complete
 complexity: medium
 methodology: tdd
 depends_on: [lwu-01-scan-and-results]
@@ -85,6 +85,23 @@ files_to_modify:
     change: add web unlock flow subsection restating offline-gate/once-only-result guarantees
 
 design_decisions:
+  - decision: >
+      Implementation correction found during this story's own build (before
+      any test or code was written to the wrong shape): the description
+      above says the result is "returned exactly once by GET
+      /api/jobs/<job_id>" -- but /api/jobs/<job_id> is also the endpoint
+      poll.js calls repeatedly while a job is running. If that same endpoint
+      performed the one-time consuming read, the *background poll itself*
+      would consume the secret before the human ever saw the result page,
+      and the subsequent page load would show "already consumed" instead of
+      the actual result -- defeating the whole point. Implemented instead
+      as: /api/jobs/<job_id> (get_job()) never exposes a secret job's result,
+      even once done -- it only reports status/error. A separate route,
+      GET /item/unlock-result/<job_id>, is the only place that performs the
+      one-time consuming read (consume_job_result()), and it is only ever
+      hit by an actual page load, not a polling fetch. poll.js gained an
+      optional data-done-url attribute so the unlock-status page navigates
+      there once the job leaves "running", instead of reloading itself.
   - decision: Unlock job results are consumed exactly once from the in-memory registry, then deleted -- stricter than every other job type in this epic.
     rationale: This is the one job type whose result can itself be the secret (a found password). "Never persisted" isn't enough on its own if the in-memory value could still be re-read indefinitely by anyone with local network access to the dev server; once-only consumption bounds the exposure window to a single read.
   - decision: check_network_status() is called fresh at both GET (informational) and POST (enforced) time, never trusted across the request boundary.

@@ -514,11 +514,27 @@ still works standalone for scripting/automation.
   including phrase text at all, only counts and file locations, since a web
   job result lives in server memory rendered into a browser tab rather than
   a local output file only you can read.
-- **More is coming in this epic:** offline-gated unlock flows for
-  BTCRecover/hashcat, a staging/copy area, and a Google Drive entry point --
-  see `.pHive/epics/local-web-ui/` for the full plan. An Electron wrapper
-  around this app is a separate, later effort outside this project's own
-  scope.
+- **Unlock a wallet** (`/item/unlock`) -- web-safe version of
+  `unlock_wallet.py`/`unlock_exodus_wallet.py`. Shows the machine's current
+  network status live; the offline gate is re-checked server-side on every
+  submission (not just at page load, and not just a disabled button) and
+  refuses with HTTP 409 -- no subprocess is invoked at all -- unless the
+  machine reads OFFLINE. Candidate passwords/phrases are written to a local
+  temp file server-side before the tool runs (never placed in a URL/query
+  string), and that file is deleted the moment the job finishes, success or
+  not.
+
+  **The result (whether a password was found, and what it was) is shown
+  exactly once**, on a dedicated result page, and is then permanently
+  deleted from the server's memory -- reloading or revisiting that page
+  returns 404, not the secret again. The job-status polling path used
+  everywhere else in this app deliberately never carries this result, so a
+  found password can't leak through a background poll before you've
+  actually looked at the page.
+- **More is coming in this epic:** a staging/copy area and a Google Drive
+  entry point -- see `.pHive/epics/local-web-ui/` for the full plan. An
+  Electron wrapper around this app is a separate, later effort outside this
+  project's own scope.
 
 ---
 

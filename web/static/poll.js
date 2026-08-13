@@ -2,6 +2,10 @@
   var script = document.currentScript;
   var jobId = script.getAttribute("data-job-id");
   var initialStatus = script.getAttribute("data-status");
+  // Optional: navigate here instead of reloading in place once the job
+  // leaves "running" -- used by the unlock flow, whose status page never
+  // carries the secret-bearing result itself (see web/jobs.py).
+  var doneUrl = script.getAttribute("data-done-url");
   if (!jobId || initialStatus !== "running") {
     return;
   }
@@ -14,6 +18,8 @@
       .then(function (job) {
         if (job.status === "running") {
           setTimeout(poll, 2000);
+        } else if (doneUrl) {
+          window.location.href = doneUrl;
         } else {
           window.location.reload();
         }
