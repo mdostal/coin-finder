@@ -51,6 +51,7 @@ project/
 │   ├── find_seed_phrases.py  # Standalone: scans text files for checksum-valid BIP39 seed phrases
 │   ├── match_seed_phrases.py # Standalone: derives addresses from seed phrases (bounded schemes) and checks balances
 │   ├── unlock_wallet.py      # Standalone: offline-gated wrapper around BTCRecover for wallet password testing
+│   ├── scan_wallet_dat.py    # Standalone: enumerates every address in a wallet.dat (not just text-matchable ones)
 ├── scripts/
 │   ├── install_btcrecover.sh # Clones/updates BTCRecover into vendor/btcrecover/ (not committed)
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
@@ -317,6 +318,42 @@ README for the full supported list).
 
 ---
 
+### 10. Full wallet.dat Scanner (`scan_wallet_dat.py`)
+
+**Standalone tool -- not part of the default pipeline run.** `analyze_wallets.py`
+finds addresses by regex-matching *text* in a file -- which only catches
+addresses that happen to be stored as readable label text. A Bitcoin Core
+`wallet.dat` typically stores hundreds or thousands of addresses as raw
+binary key records instead, which a text regex will never find. This tool
+properly parses the wallet's actual Berkeley DB structure to enumerate
+**every** address in it.
+
+- **Purpose**: Check every address a wallet file actually contains, not just
+  the handful that happen to be regex-matchable.
+- **How it works**: Walks the wallet's Berkeley DB btree structure directly
+  and decodes Bitcoin Core's own record format. **Safety property, enforced
+  structurally, not just by convention:** every address this tool needs
+  (from both "key" records and "name"/label records) lives in the database
+  *key* half of each record -- the *value* half, where private keys are
+  stored, is skipped via position arithmetic and is **never read from disk**
+  during a scan. This isn't a "don't print it" rule like the seed-phrase
+  tools -- the private key bytes never enter memory in the first place.
+- If the wallet has `ckey` (encrypted) records, this tool still finds those
+  addresses (safe -- public keys only) but reports that a password is needed
+  to actually spend from them (see `unlock_wallet.py`).
+- **Usage** (checking potentially hundreds of addresses live can take a
+  while and press against API rate limits -- use `--limit` for a bounded
+  first pass):
+  ```bash
+  python tools/scan_wallet_dat.py <wallet_path> <output_file> [--limit N]
+  ```
+**Example**:
+  ```bash
+  python tools/scan_wallet_dat.py ~/wallets/Bitcoin/wallets/mywallet/wallet.dat ./output/wallet_scan.json --limit 50
+  ```
+
+---
+
 ## Pipeline Overview
 
 ```mermaid
@@ -345,11 +382,14 @@ flowchart TD
         J[find_seed_phrases.py]
         K[match_seed_phrases.py]
         L[unlock_wallet.py]
+        M[scan_wallet_dat.py]
     end
 
     C -.public addresses found.-> I
     J -->|candidate seed phrases| K
     K -.no match.-> L
+    M -.every address in a wallet.dat.-> C
+    M -.ckey records found, need password.-> L
     D -.found wallet file, need password.-> L
 ```
 

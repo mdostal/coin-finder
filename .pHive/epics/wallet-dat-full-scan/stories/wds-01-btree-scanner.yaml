@@ -1,7 +1,7 @@
 id: wds-01-btree-scanner
 epic: wallet-dat-full-scan
 title: Safe BDB key enumeration + address derivation + balance scan
-status: pending
+status: completed
 complexity: high
 methodology: tdd
 depends_on: []
