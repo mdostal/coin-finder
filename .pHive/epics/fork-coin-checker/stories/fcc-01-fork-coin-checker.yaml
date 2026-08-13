@@ -1,7 +1,9 @@
 id: fcc-01-fork-coin-checker
 epic: fork-coin-checker
 title: Fix BitcoinGoldService + build the fork-coin checker
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.11.0"
 complexity: low
 methodology: tdd
 depends_on: []
