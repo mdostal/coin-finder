@@ -1,7 +1,7 @@
 id: wrg-01-relationship-graph-core
 epic: wallet-relationship-graph
 title: Build the relationship-graph core module
-status: pending
+status: completed
 complexity: medium
 methodology: tdd
 depends_on: []
