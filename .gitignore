@@ -177,3 +177,5 @@ cython_debug/
 .pHive/epics/*
 !.pHive/epics/wallet-relationship-graph/
 !.pHive/epics/wallet-relationship-graph/**
+!.pHive/epics/conservative-balance-retries/
+!.pHive/epics/conservative-balance-retries/**
