@@ -1,0 +1,59 @@
+id: dcv-03-readme-docs
+epic: deep-crawl-hidden-volumes
+title: Document the new tool and its no-auto-unlock scope boundary
+status: pending
+complexity: low
+methodology: tdd
+depends_on: [dcv-02-walker-cli-and-report]
+
+description: |
+  Add a new "Tools" subsection ("5. Hidden/Encrypted Volume Detector
+  (`detect_hidden_volumes.py`)") to README.md documenting: purpose, the
+  entropy+magic-byte heuristic (in plain language, with the known-limitation
+  caveat), usage/example, and -- explicitly, not just implied -- that this tool
+  detects and flags candidates only and never attempts to unlock, guess, or crack
+  passwords itself. Also add it to the File Structure tree. This tool is
+  standalone (not part of the default `run_pipeline.py` flow), so it does NOT get
+  a "Pipeline Overview" entry like the epic 1/2 stages did -- note that
+  distinction in the new subsection.
+
+  Satisfies the `documentation` cross-cutting concern
+  (.pHive/cross-cutting-concerns.yaml).
+
+acceptance_criteria:
+  - "Given the README's File Structure tree, when this story is done, then tools/detect_hidden_volumes.py is listed"
+  - "Given the README's Tools section, when this story is done, then a new subsection documents purpose, the heuristic (in plain language), usage, and example"
+  - "Given that subsection, when this story is done, then it explicitly states the tool detects/flags only and never attempts to unlock or crack anything, and that it is a standalone tool not part of the default pipeline run"
+
+steps:
+  - id: implement
+    description: Update README.md per the description above.
+    agent: developer
+  - id: review
+    description: Review that the scope-boundary statement is unambiguous and not buried -- this is the story's most important acceptance criterion given the epic's security-sensitive framing.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit README.md.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: README.md
+      purpose: File Structure tree and Tools section both need updates; this tool intentionally does NOT touch Pipeline Overview (standalone).
+
+files_to_modify:
+  - file: README.md
+    change: add File Structure entry and a new Tools subsection with explicit scope-boundary language
+
+cross_cutting:
+  - concern: documentation
+    action: "Add detect_hidden_volumes.py to README's File Structure tree and Tools section, stating the detect-only scope boundary explicitly."
+
+references:
+  - path: .pHive/epics/deep-crawl-hidden-volumes/docs/research-brief.md
+    relevant_excerpt: |
+      "This tool will detect and flag candidates and print guidance... It will
+      not attempt to guess, brute-force, or crack passwords."

@@ -1,0 +1,48 @@
+name: deep-crawl-hidden-volumes
+title: Deep-Crawl + Hidden/Encrypted Volume Detection
+description: >
+  Standalone tool detecting likely VeraCrypt/TrueCrypt-style encrypted
+  containers (entropy + magic-byte heuristic) within a scanned directory tree,
+  with no upper file-size bound -- addresses north_star.avoid: crawl multi-TB
+  drives thoroughly and flag hidden/encrypted areas. Detect-and-flag only; does
+  not attempt to unlock/crack anything (explicit scope boundary, see
+  docs/design-discussion.md).
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, security-sensitive, novel-capability]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    security-sensitive: "Detects encrypted containers that may hold real financial keys; scope boundary (no cracking) confirmed in research before implementation."
+    novel-capability: "No existing code in the repo touches entropy/magic-byte detection -- wholly new, unlike epics 1-2 which extended existing pipeline stages."
+  confidence: medium
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as prior epics. Given this epic
+      introduces a genuinely new technique (not an extension of exercised
+      code), the design discussion spends more space on the heuristic's known
+      limitations and the explicit no-auto-unlock scope boundary than epics
+      1-2 needed to.
+
+stories:
+  - id: dcv-01-container-detection-core
+    title: Entropy + magic-byte encrypted-container heuristic (core functions)
+    complexity: medium
+    depends_on: []
+  - id: dcv-02-walker-cli-and-report
+    title: Directory walker, CLI, and report with manual-mount guidance
+    complexity: medium
+    depends_on: [dcv-01-container-detection-core]
+  - id: dcv-03-readme-docs
+    title: Document the new tool and its no-auto-unlock scope boundary
+    complexity: low
+    depends_on: [dcv-02-walker-cli-and-report]
