@@ -1,7 +1,7 @@
 id: wwm-04-wizard-and-polish
 epic: web-ui-wizard-and-mounting
 title: Guided setup wizard + continued visual polish
-status: pending
+status: complete
 complexity: medium
 methodology: tdd
 depends_on: [wwm-01-connectivity-and-progress, wwm-02-bound-targets-and-volumes, wwm-03-rclone-mounting]

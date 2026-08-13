@@ -36,7 +36,7 @@ then <code>rclone config</code> to set up a remote -- see the README's
           {% endif %}
           <form method="post" action="{{ url_for('mounts_unmount') }}" style="display:inline">
             <input type="hidden" name="remote_name" value="{{ mnt.remote_name }}">
-            <button type="submit">Unmount</button>
+            <button type="submit" class="btn-secondary">Unmount</button>
           </form>
         </td>
       </tr>

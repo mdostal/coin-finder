@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- attach {{ "Google Drive" if kind == "gdrive" else "a GCS bucket" }}{% endblock %}
+{% block content %}
+<h2>Attach {{ "Google Drive" if kind == "gdrive" else "a GCS bucket" }}</h2>
+<p>Multi-terabyte cloud storage can't be scanned by downloading it all
+first -- there isn't enough disk space or time for that. Instead, this
+attaches it as a folder your Mac can browse directly, fetching each file's
+contents only when something actually needs to read it.</p>
+
+<div class="card">
+  <h3 style="margin-top:0">Step 1 -- Install the tools</h3>
+  {% if rclone_installed %}
+  <p>&#x2713; rclone is installed.</p>
+  {% else %}
+  <p>Not installed yet. Open a terminal in this project and run:</p>
+  <pre>./scripts/install_rclone.sh</pre>
+  <p class="subtle">This installs <a href="https://rclone.org/">rclone</a>
+  (does the actual attaching) and macFUSE (a macOS component rclone needs).
+  <strong>macOS will ask you to approve macFUSE in System Settings -&gt;
+  Privacy &amp; Security</strong> -- this one step can't be automated, the
+  installer will tell you exactly what to click.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Step 2 -- Connect your account</h3>
+  {% if remotes %}
+  <p>&#x2713; You have {{ remotes | length }} connection(s) already set up: {{ remotes | join(", ") }}.</p>
+  {% else %}
+  <p>Once rclone is installed, run this in a terminal:</p>
+  <pre>rclone config</pre>
+  <p class="subtle">
+  {% if kind == "gdrive" %}
+  This opens a browser window asking you to sign in to Google and approve
+  access -- the same kind of "Allow" screen you'd see for any app asking to
+  use your Google account. rclone only ever reads your files (this project
+  mounts everything read-only), never writes or deletes anything.
+  {% else %}
+  This asks for a GCS service-account key (a small JSON file you download
+  from the Google Cloud Console for the bucket you want to attach).
+  {% endif %}
+  </p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Step 3 -- Mount it</h3>
+  <p>Once you've done steps 1 and 2, head to the
+  <a href="{{ url_for('mounts_page') }}">Mounts page</a> to actually attach
+  it and check it's working -- that page shows a real, live status (not
+  just "it didn't error"), and lets you add it to your saved scan targets
+  once it's confirmed healthy.</p>
+</div>
+{% endblock %}

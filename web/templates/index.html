@@ -1,14 +1,21 @@
 {% extends "base.html" %}
-{% block title %}coin-finder -- scan{% endblock %}
+{% block title %}coin-finder{% endblock %}
 {% block content %}
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+{% if staged %}<div class="banner warning">Staged to {{ staged }}.</div>{% endif %}
+
+{% if not targets and not volumes %}
+<div class="banner" style="background:var(--bg-raised);border-color:var(--border);color:var(--text-dim)">
+  First time here? The <a href="{{ url_for('wizard_start') }}">setup wizard</a>
+  walks you through attaching a drive, physical or cloud, step by step.
+</div>
+{% endif %}
+
 <h2>Scan a drive or directory</h2>
 <p>Point this at a directory (a mounted old drive, a backup folder, anything)
 and it will run the full wallet-discovery pipeline against it: search,
 analyze, check balances, build a relationship graph, and flag anything that
 looks like a hidden/encrypted volume.</p>
-
-{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
-{% if staged %}<div class="banner warning">Staged to {{ staged }}.</div>{% endif %}
 
 <div class="card">
   <form method="post" action="{{ url_for('start_scan') }}">
@@ -18,9 +25,45 @@ looks like a hidden/encrypted volume.</p>
   </form>
 </div>
 
+{% if targets %}
+<div class="card">
+  <h3 style="margin-top:0">Your saved targets</h3>
+  <table>
+    <thead><tr><th>Label</th><th>Kind</th><th></th></tr></thead>
+    <tbody>
+      {% for t in targets %}
+      <tr>
+        <td>{{ t.label }}</td>
+        <td>{{ t.kind }}</td>
+        <td>
+          <form method="post" action="{{ url_for('start_scan') }}" style="display:inline">
+            <input type="hidden" name="input_dir" value="{{ t.path }}">
+            <button type="submit">Scan</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="subtle" style="margin-bottom:0"><a href="{{ url_for('targets_page') }}">Manage targets &rarr;</a></p>
+</div>
+{% endif %}
+
+{% set unbound_count = (volumes or []) | rejectattr("is_bound") | list | length %}
+{% if unbound_count > 0 %}
+<div class="banner warning">
+  {{ unbound_count }} plugged-in drive{{ "s" if unbound_count != 1 else "" }} not
+  yet saved as a target -- see <a href="{{ url_for('targets_page') }}">Targets</a>.
+</div>
+{% endif %}
+
 <p>
+  <a href="{{ url_for('wizard_start') }}">Setup wizard</a>
+  &nbsp;&middot;&nbsp;
   <a href="{{ url_for('item_unlock_form') }}">Unlock a wallet (BTCRecover / hashcat)</a>
   &nbsp;&middot;&nbsp;
   <a href="{{ url_for('drive_form') }}">Scan Google Drive</a>
+  &nbsp;&middot;&nbsp;
+  <a href="{{ url_for('mounts_page') }}">Mounts</a>
 </p>
 {% endblock %}

@@ -61,7 +61,12 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/")
     def index():
-        return render_template("index.html", error=request.args.get("error"))
+        return render_template(
+            "index.html",
+            error=request.args.get("error"),
+            targets=list_targets(),
+            volumes=list_mounted_volumes(),
+        )
 
     @app.route("/api/browse")
     def browse():
@@ -327,7 +332,31 @@ def create_app(host="127.0.0.1"):
         add_target(remote_name, mount_point, kind)
         return redirect(url_for("targets_page"))
 
+    @app.route("/wizard")
+    def wizard_start():
+        return render_template("wizard_start.html")
+
+    @app.route("/wizard/choose", methods=["POST"])
+    def wizard_choose():
+        target_type = (request.form.get("target_type") or "").strip()
+        if target_type == "local":
+            return redirect(url_for("index"))
+        if target_type == "volume":
+            return redirect(url_for("targets_page"))
+        if target_type in ("gdrive", "gcs"):
+            return redirect(url_for("wizard_cloud", kind=target_type))
+        return redirect(url_for("wizard_start"))
+
+    @app.route("/wizard/cloud")
+    def wizard_cloud():
+        kind = request.args.get("kind", "gdrive")
+        return render_template("wizard_cloud.html", kind=kind, rclone_installed=_is_rclone_installed(), remotes=list_remotes())
+
     return app
+
+
+def _is_rclone_installed():
+    return shutil.which("rclone") is not None
 
 
 def _split_lines(raw):

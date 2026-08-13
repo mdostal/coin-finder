@@ -4,6 +4,40 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-08-13
+
+### Added
+
+- **Site-wide connectivity status + job progress.** A persistent nav-bar
+  indicator (`GET /api/status`, reusing `check_network_status()` -- never a
+  second implementation) shows OFFLINE/ONLINE/UNKNOWN on every page, not
+  just the unlock page. Long balance-check jobs (the default scan, a full
+  `wallet.dat` sweep) now report live progress (`checked N / M addresses`)
+  via an additive `progress_callback=None` parameter threaded through
+  `check_wallet_balances.py`, `scan_wallet_dat.py`, and `run_pipeline.py` --
+  every existing CLI/test call site unaffected.
+- **Saved scan targets** (`/targets`) -- bind a drive/directory once, reuse
+  it with one click. Detects already-mounted volumes (macOS) so a
+  just-plugged-in physical drive shows up ready to scan. Removing a target
+  only ever forgets the saved reference, never touches the underlying
+  files.
+- **rclone-based Google Drive/GCS mounting** (`/mounts`,
+  `scripts/install_rclone.sh`) -- for cloud storage too large to download
+  first, mount it as a local-looking directory instead; the existing scan
+  tools then just work against it, no new cloud-aware scanning code needed.
+  Mounts are always read-only. Health-checked via real process/mount-point
+  status, not just path existence, since a crashed FUSE mount is a known
+  failure mode that silently reads as an empty (not broken) directory.
+- **Guided setup wizard** (`/wizard`) -- "what do you want to scan?" routes
+  to the right existing page (local scan form, detected volumes, or the
+  Drive/GCS mounting walkthrough) with plain-language explanation at each
+  step. Never reimplements scanning/mounting/binding, and never claims a
+  step succeeded without that page's own real health check confirming it.
+- Local web UI: second visual-design pass (nav wrapping, button hierarchy,
+  a dashboard-style home page tying saved targets + wizard entry point
+  together), a real favicon (emoji placeholder), and a real fix for
+  `ui_output/` never having been gitignored in the first place.
+
 ## [0.16.0] - 2026-08-13
 
 ### Added

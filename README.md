@@ -667,6 +667,17 @@ this app is a separate, later effort outside this project's own scope.
      the difference between "drive is empty" and "drive stopped responding
      partway through." This is a real, known limitation, not a false
      guarantee of resilience.
+- **Setup wizard** (`/wizard`) -- "what do you want to scan?" and it routes
+  you the rest of the way: a local folder hands straight to the regular
+  scan form, a plugged-in physical drive shows you what's detected, Google
+  Drive/GCS walks through the mounting steps above in plain language. The
+  wizard never reimplements scanning/mounting/binding itself -- it only
+  explains and sequences the pages above, and it never claims a step
+  succeeded (e.g. "Drive mounted!") without that page's own real health
+  check confirming it.
+- **The home page is now a small dashboard** -- your saved targets with
+  one-click scan, a nudge if a plugged-in drive isn't saved yet, and quick
+  links to the wizard, unlock, Drive, and mounts pages.
 
 ---
 
