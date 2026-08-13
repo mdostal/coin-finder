@@ -1,0 +1,20 @@
+# Consumer override layer — see hive/references/configuration.md for the full
+# schema and shipped baseline. Only project-specific overrides live here.
+
+metrics:
+  enabled: true
+
+execution:
+  default_methodology: tdd # updated by developer discovery
+
+developer:
+  pr_style: single-commit
+  commit_granularity: medium
+  review_depth: standard
+  notes: "Security-sensitive: handles real private keys/wallet secrets. Be careful about logging, committing, or transmitting sensitive material."
+
+planning:
+  collaborative_review: true
+
+meta_team:
+  github_forwarding: false

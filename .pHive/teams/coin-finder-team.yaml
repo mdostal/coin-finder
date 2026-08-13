@@ -1,0 +1,66 @@
+name: coin-finder-team
+description: Single Python CLI/pipeline team for coin-finder — no frontend, no backend service split; one codebase covering search/analyze/check-balance/filter stages plus per-coin wallet services.
+lead: team-lead
+methodology: tdd # from hive.config.yaml -> execution.default_methodology
+
+members:
+  - agent: backend-developer
+    role: Pipeline stages, wallet services, and config/regex/mapping logic
+    domain:
+      - path: tools/**
+        read: true
+        write: true
+        delete: false
+      - path: services/**
+        read: true
+        write: true
+        delete: false
+      - path: config/**
+        read: true
+        write: true
+        delete: false
+      - path: run_pipeline.py
+        read: true
+        write: true
+        delete: false
+
+  - agent: tester
+    role: Author and run tests (none exist yet — TDD default methodology means new work should land with tests)
+    domain:
+      - path: tests/**
+        read: true
+        write: true
+        delete: false
+      - path: "**/*_test.py"
+        read: true
+        write: true
+        delete: false
+      - path: "**/test_*.py"
+        read: true
+        write: true
+        delete: false
+
+  - agent: reviewer
+    role: Code review, with extra scrutiny on anything touching wallet addresses, private keys, or API error handling
+    tool_access: [codex]
+    # no domain override -- read-only everywhere by agent default
+
+context:
+  tech_stack:
+    language: python
+    package_manager: pip
+    key_deps: [requests, python-dotenv]
+  commit_granularity: medium
+  pr_style: single-commit
+  review_depth: standard
+  notes: |
+    Generated from project discovery (kickoff 2026-08-12).
+    Security-sensitive: this codebase handles real private keys and wallet secrets.
+    Never log, commit, or transmit key material. No test suite exists yet -- default
+    methodology is TDD, so new pipeline/service work should land with tests.
+    North-star goals beyond the current pipeline: wallet/coin relationship graphing to
+    surface missing wallets and recovery paths, deep multi-terabyte/backup-format
+    crawling, hidden/encrypted volume detection (VeraCrypt/TrueCrypt), and eventually a
+    simple UI. See .pHive/project-profile.yaml -> north_star for full detail.
+
+team_memory_path: .pHive/team-memories/coin-finder-team/

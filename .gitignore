@@ -165,3 +165,13 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Hive: session/hook noise (harness-generated, not project content)
+.pHive/agent-complete/
+.pHive/interrupts/
+.pHive/metrics/
+.pHive/session-effort.txt
+.pHive/sessions/
+
+# Hive: epics are re-ignored by default, allowlisted per-epic below
+.pHive/epics/*
