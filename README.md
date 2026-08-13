@@ -55,6 +55,8 @@ project/
 │   ├── check_fork_coins.py   # Standalone: checks found Bitcoin addresses on fork coins (Bitcoin Cash, Bitcoin Gold)
 │   ├── unlock_exodus_wallet.py # Standalone: offline-gated wrapper around hashcat for Exodus wallet password testing
 │   ├── scan_google_drive.py  # Standalone: slow-crawls Google Drive for wallet-like files, downloads to local disk
+│   ├── extract_private_key.py # Standalone: offline-gated WIF extraction from an unencrypted wallet.dat, self-verifying
+│   ├── generate_wallet_report.py # Standalone: recoverability report (software ID, encryption, on-chain dormancy)
 ├── web/                       # Local web UI (Flask) tying every tool above into one app
 │   ├── app.py                 # Routes, host-binding guard, scan job wiring
 │   ├── jobs.py                 # In-memory background job registry
@@ -474,6 +476,74 @@ other tool in this project can scan them exactly like a local drive.
   python tools/scan_google_drive.py ./output/drive_downloads
   # then run the other tools against what it found, e.g.:
   python tools/find_seed_phrases.py ./output/drive_downloads ./output/drive_seed_phrases.json
+  ```
+
+---
+
+### 14. Private Key Extraction (`extract_private_key.py`)
+
+**Standalone tool -- not part of the default pipeline run, and the highest-stakes
+tool in this project.** For an **unencrypted** Bitcoin Core `wallet.dat` (no
+password), the private key for a given address is sitting in the file right
+now -- this tool extracts it as a WIF string, for import into a real wallet
+so you can actually spend/sweep the funds. Encrypted (`ckey`) records are
+refused with a clear error -- recover the password with `unlock_wallet.py`
+first.
+
+- **Same hard offline gate as `unlock_wallet.py`**: refuses to touch any key
+  material unless the machine is verified offline. A real private key must
+  never be extracted on a network-connected machine.
+- **Never prints the key** -- written to a local output file only, same
+  discipline as every other secret-handling tool in this project.
+- **Self-verifying**: before returning anything, it re-derives the address
+  from the WIF it's about to hand back and refuses if it doesn't match
+  exactly. This caught real bugs during development (see below) and is a
+  permanent runtime safety net, not just a test.
+- **This tool deliberately stops at the WIF file.** It does not build, sign,
+  or broadcast a transaction -- that logic is left to well-audited, widely
+  used software instead of new custom code in this project. Recommended
+  next step: import the WIF into [Electrum](https://electrum.org/)
+  ("Wallet" -> "Private keys" -> "Import"), then use Electrum's own
+  **sweep** function to move the *entire* balance to a fresh address in a
+  wallet you control long-term. Once a key has been extracted from an old
+  wallet.dat, treat it as permanently compromised -- don't just spend part
+  of it and leave the rest on the old key.
+- **Usage**:
+  ```bash
+  python tools/extract_private_key.py <wallet_path> <address> <output_file>
+  ```
+  Refuses with an error (no file written) unless the machine reads OFFLINE.
+
+**Real bugs this tool's own development caught** (documented because they're
+the actual evidence this code is trustworthy, not just that its tests
+pass): a BDB value/key pairing off-by-3 bytes, a wrong assumption about a
+fixed trailer length after the key's DER blob (the real format is
+`compact_size(length) + DER + more metadata`), and `cryptography`'s DER
+parser flatly refusing Bitcoin Core's own key encoding (it uses *explicit*
+secp256k1 curve parameters, which general-purpose DER libraries
+deliberately reject as an anti-footgun policy). Each was found by testing
+against **real wallet data** (16 real, zero-balance addresses, 16/16
+round-tripped correctly) before this tool was ever pointed at anything with
+an actual balance -- see
+`.pHive/epics/wif-key-extraction-and-recovery-report/` for the full story.
+
+---
+
+### 15. Wallet Recoverability Report (`generate_wallet_report.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Produces a
+Markdown report for one `wallet.dat`: file metadata, deterministically
+identified software (from the file's own structure -- e.g. "Bitcoin Core"),
+encryption status, and -- only for addresses you explicitly ask about, to
+avoid an accidental full-wallet on-chain crawl -- public on-chain dormancy
+via `crawl_transaction_graph.py`'s existing functions. Points back to
+[`docs/wallet_recovery_reference.md`](docs/wallet_recovery_reference.md)
+for the self-custody-vs-custodial judgment call this project's tools can't
+automate (that needs your own memory, not a classifier).
+
+- **Usage**:
+  ```bash
+  python tools/generate_wallet_report.py <wallet_path> <output_file> [--address ADDR ...]
   ```
 
 ---
