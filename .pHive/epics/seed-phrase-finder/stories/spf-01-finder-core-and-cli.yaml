@@ -1,7 +1,7 @@
 id: spf-01-finder-core-and-cli
 epic: seed-phrase-finder
 title: BIP39 checksum-validated phrase scanner + safe-output CLI
-status: pending
+status: completed
 complexity: medium
 methodology: tdd
 depends_on: []

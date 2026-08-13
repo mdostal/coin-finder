@@ -48,6 +48,7 @@ project/
 │   ├── build_wallet_graph.py # Correlates wallets/coins across files into a relationship report
 │   ├── detect_hidden_volumes.py # Standalone: flags likely encrypted-container files (detect/flag only)
 │   ├── crawl_transaction_graph.py # Standalone: discovers likely same-owner Bitcoin addresses via public tx graph
+│   ├── find_seed_phrases.py  # Standalone: scans text files for checksum-valid BIP39 seed phrases
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
 ├── requirements.txt          # Python dependencies
 ├── run_pipeline.py           # Orchestrates the entire pipeline
@@ -198,6 +199,39 @@ same person using **public blockchain data only** (no private keys involved).
 **Example**:
   ```bash
   python tools/crawl_transaction_graph.py 1YourFoundAddressHere ./output/cluster.json --generations 2 --threshold 1.0
+  ```
+
+---
+
+### 7. Seed-Phrase Finder (`find_seed_phrases.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Scans text files
+for candidate BIP39 seed phrases (the 12/15/18/21/24-word backup phrases used
+by nearly all modern wallets -- Electrum, Exodus, hardware wallets, and more).
+
+- **Purpose**: Help find backup seed phrases you wrote down somewhere on an old
+  drive, so they can be tried against known wallets.
+- **How it works**: Every BIP39 phrase's last word encodes a **checksum** of the
+  preceding words. This tool doesn't just look for runs of words that happen to
+  be in the BIP39 wordlist (which would false-positive constantly on ordinary
+  text) -- it validates the actual checksum via the `mnemonic` library (the
+  standard, audited Python BIP39 implementation), so only sequences that are
+  cryptographically valid mnemonics are flagged. Still a heuristic worth a
+  manual look, not an absolute certainty.
+- **Security note**: a valid seed phrase IS the private key material for a
+  wallet. This tool **never prints found phrase text to the console** -- only a
+  count per file. The actual phrase text is written only to your local output
+  JSON file, which is the real deliverable; keep that file private.
+- **Scope (v1)**: plain text files only. Images (e.g. photographed handwritten
+  backups) aren't scanned -- that would need OCR, which is a separate,
+  not-yet-built capability.
+- **Usage**:
+  ```bash
+  python tools/find_seed_phrases.py <start_path> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/find_seed_phrases.py /Volumes/OldDrive ./output/seed_phrases.json
   ```
 
 ---

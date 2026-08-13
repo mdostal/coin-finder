@@ -1,0 +1,19 @@
+epic: seed-phrase-finder
+substrate: pytest
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 62
+tests_passed: 62
+tests_failed: 0
+coverage_by_story:
+  spf-01-finder-core-and-cli:
+    acceptance_criteria: 6
+    covered_by_tests: 7
+    gaps: []
+    note: "Includes a subprocess-based CLI test confirming the found phrase text never appears in stdout/stderr while still landing correctly in the output JSON file."
+regression_check:
+  previous_suite: 55 tests from prior epics
+  result: pass
+bugs_filed: 0
+verdict: PASS
