@@ -1,7 +1,9 @@
 id: gda-01-drive-scanner
 epic: google-drive-adapter
 title: OAuth-based Drive scanner, download-to-disk only
-status: completed
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.13.0"
 complexity: medium
 methodology: tdd
 depends_on: []
