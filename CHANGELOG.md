@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-13
+
+### Added
+
+- **Seed-phrase HD derivation + balance matcher.** New standalone tool
+  (`tools/match_seed_phrases.py`) turns a candidate seed phrase into an
+  answer: derives addresses across a bounded set of known schemes
+  (BIP44/BIP49/BIP84 for Bitcoin, BIP44 for Ethereum/Litecoin) via `bip_utils`
+  (audited BIP32/39/44/49/84 library), and checks each against real balances
+  using the project's existing balance-check services. Never computes or
+  exposes a private key -- addresses only. Same secret-handling discipline as
+  the seed-phrase finder: phrases are read from a file only (never a CLI
+  argument), never printed to the console, and the report only repeats
+  phrase text for phrases that actually produced a balance. v1's scheme
+  coverage is intentionally bounded; a more exhaustive "deep dive" mode for
+  exotic old-wallet schemes is planned as a future tool. (`seed-derivation-balance-check` epic)
+
 ## [0.6.0] - 2026-08-13
 
 ### Added
