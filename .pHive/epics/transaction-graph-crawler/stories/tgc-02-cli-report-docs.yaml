@@ -1,7 +1,7 @@
 id: tgc-02-cli-report-docs
 epic: transaction-graph-crawler
 title: CLI, report, and README documentation
-status: pending
+status: completed
 complexity: low
 methodology: tdd
 depends_on: [tgc-01-crawler-core]

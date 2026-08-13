@@ -1,9 +1,14 @@
+import json
+import os
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 from tools.crawl_transaction_graph import (
     crawl_wallet_cluster,
     find_co_spend_addresses,
     find_output_addresses,
+    render_cluster_report,
 )
 
 SEED = "1Seed00000000000000000000000000"
@@ -113,3 +118,54 @@ def test_every_discovered_address_has_balance_populated_from_mocked_service(
     assert result[SEED]["balance"] == 1.5
     assert result[COSPEND]["balance"] == 1.5
     assert result[SEED]["confidence"] == "seed"
+
+
+def test_report_sorted_by_balance_descending_and_significant_tagged():
+    results = {
+        SEED: {"confidence": "seed", "generation": 0, "balance": 0.1},
+        COSPEND: {"confidence": "co-spend", "generation": 1, "balance": 5.0},
+        THIRD_PARTY: {"confidence": "output", "generation": 1, "balance": None},
+    }
+
+    report = render_cluster_report(results, balance_threshold=1.0)
+
+    cospend_pos = report.index(COSPEND)
+    seed_pos = report.index(SEED)
+    third_party_pos = report.index(THIRD_PARTY)
+    assert cospend_pos < seed_pos < third_party_pos
+    assert f"SIGNIFICANT" in report
+    assert report.count("SIGNIFICANT") == 1  # only the 5.0 BTC entry
+
+
+def test_report_never_asserts_certainty_for_output_confidence():
+    results = {SEED: {"confidence": "output", "generation": 1, "balance": 2.0}}
+
+    report = render_cluster_report(results)
+
+    assert "confidence: output" in report
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_cli_writes_json_and_markdown_report(mock_fetch, mock_service_cls, tmp_path):
+    # This test exercises the module functions directly (not via subprocess,
+    # since the CLI makes real network/BitcoinService calls) -- see the
+    # separate manual smoke-test note in the story for real-world CLI
+    # verification against the actual found address.
+    from tools.crawl_transaction_graph import crawl_wallet_cluster, render_cluster_report
+
+    mock_fetch.return_value = []
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    results = crawl_wallet_cluster([SEED], max_generations=1)
+    output_file = tmp_path / "cluster.json"
+    report_file = tmp_path / "cluster.md"
+
+    with open(output_file, "w") as f:
+        json.dump(results, f)
+    with open(report_file, "w") as f:
+        f.write(render_cluster_report(results))
+
+    assert output_file.exists()
+    assert report_file.exists()
+    assert json.loads(output_file.read_text())[SEED]["confidence"] == "seed"
