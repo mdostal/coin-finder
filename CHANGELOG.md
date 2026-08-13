@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-13
+
+### Added
+
+- **Full wallet.dat key enumeration + balance scan.** New standalone tool
+  (`tools/scan_wallet_dat.py`) parses a Bitcoin Core `wallet.dat`'s actual
+  Berkeley DB structure to enumerate every address it contains, not just the
+  ones a text regex happens to match. Real-world validation against a real
+  wallet found 1016 unique addresses versus the 7 previously ever checked
+  (0.7% prior coverage). If the wallet has encrypted (`ckey`) records, this
+  tool still finds those addresses safely and reports that a password is
+  needed to spend from them (see `unlock_wallet.py`).
+  **Safety property enforced structurally, not just by convention:** every
+  address needed lives in the database *key* half of each record; the
+  *value* half, where private keys are stored, is skipped via position
+  arithmetic and is never read from disk during a scan -- private key bytes
+  never enter memory in the first place, this isn't a "don't print it" rule.
+  `--limit` bounds a first pass since checking hundreds of addresses live can
+  take a while.
+
 ## [0.8.0] - 2026-08-13
 
 ### Added
