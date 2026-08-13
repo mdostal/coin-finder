@@ -1,0 +1,113 @@
+id: wds-01-btree-scanner
+epic: wallet-dat-full-scan
+title: Safe BDB key enumeration + address derivation + balance scan
+status: pending
+complexity: high
+methodology: tdd
+depends_on: []
+
+description: |
+  New module tools/scan_wallet_dat.py:
+
+  - `read_btree_key_items(wallet_path) -> list[bytes]`: walks the BDB btree
+    (validated algorithm from live research against the real wallet file --
+    magic-byte check, page-size read, leaf-page detection type=5/level=1,
+    item header (len,type) parsing, 32-bit-aligned position arithmetic).
+    SAFETY-CRITICAL: for each key/value pair, only the KEY half is ever
+    `.read()` from disk; the VALUE half's file position is skipped via
+    length-header arithmetic alone, never read into memory. Returns the raw
+    key bytes for every non-deleted item.
+  - `decode_bdb_key_record(key_bytes) -> dict`: decodes Bitcoin Core's
+    CDataStream tag+payload serialization (compact-size length prefix, per
+    Bitcoin's WriteCompactSize: 1 byte if <253). For tag in ("key", "ckey"):
+    `{"type": tag, "pubkey": bytes}`. For tag == "name":
+    `{"type": "name", "address": str}`. Otherwise: `{"type": tag}`.
+  - `pubkey_to_address(pubkey_bytes) -> str`: `bip_utils.P2PKHAddrEncoder
+    .EncodeKey(pubkey_bytes, net_ver=b"\x00")` -- reused from
+    match_seed_phrases.py's established pattern, verified live against the
+    standard BIP44 test vector.
+  - `scan_wallet_for_addresses(wallet_path) -> dict`: orchestrates the above.
+    Returns `{"addresses": [{"address": str, "source": "key"|"name"}, ...]
+    (deduplicated), "encrypted_key_count": int, "unparsed_record_types":
+    {tag: count}}`. If encrypted_key_count > 0, the wallet has ckey records
+    (encrypted) -- addresses are still safely derivable from their pubkeys,
+    but the report must state that a password (via unlock_wallet.py) is
+    needed to actually spend from them.
+  - `check_addresses_balances(addresses, limit=None) -> list[dict]`: reuses
+    `_check_balance_with_retries` + `BitcoinService`. When `limit` is set and
+    fewer than the full address count is checked, the result/report states
+    this explicitly -- never silent truncation.
+  - CLI: `python tools/scan_wallet_dat.py <wallet_path> <output_file>
+    [--limit N]`.
+
+acceptance_criteria:
+  - "Given a hand-constructed BDB key-record byte sequence for tag 'key' with a known pubkey, when decode_bdb_key_record runs, then it returns {'type': 'key', 'pubkey': <the exact pubkey bytes>}"
+  - "Given a hand-constructed BDB key-record byte sequence for tag 'name' with a known address string, when decode_bdb_key_record runs, then it returns {'type': 'name', 'address': <the exact address string>}"
+  - "Given a hand-constructed BDB key-record byte sequence for an unrecognized tag, when decode_bdb_key_record runs, then it returns {'type': tag} without raising"
+  - "Given the standard public BIP44 test-vector pubkey, when pubkey_to_address runs, then it returns the exact publicly documented test-vector address"
+  - "Given a synthetic single-page BDB-shaped fixture built in the test file (constructed from the validated real-file format, containing one 'key' pair and one 'name' pair), when read_btree_key_items runs, then it returns exactly those two key-byte sequences and never calls .read() at a value's file position (verified via a read-call-counting monkeypatch of open(), mirroring the pattern from dcv-01's read-bounding test)"
+  - "Given a mocked BitcoinService returning a non-zero balance for one address among several, when check_addresses_balances runs, then that entry's balance reflects it and a limit, when set below the full address count, is stated in the returned/reported data"
+  - "Given a wallet scan that includes ckey (encrypted) records, when scan_wallet_for_addresses runs, then encrypted_key_count reflects the count and the CLI's report states a password is needed to spend from those addresses"
+
+steps:
+  - id: research
+    description: (Already completed via live diagnostic runs against the real wallet.dat during epic research -- documented in docs/design-discussion.md.) Re-confirm the exact byte offsets/struct formats before writing tests.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_scan_wallet_dat.py using
+      hand-constructed byte fixtures (no real wallet file needed for the
+      core parsing tests) and the standard public BIP44 test vector for
+      pubkey_to_address. Include the read-call-counting test verifying value
+      bytes are never read for key/ckey pairs.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement read_btree_key_items, decode_bdb_key_record, pubkey_to_address, scan_wallet_for_addresses, check_addresses_balances, and the CLI to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically and carefully that no code path reads a value position for a key/ckey record under any circumstance -- this is the story's most important property. Also verify the --limit truncation is always reported, never silent.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/scan_wallet_dat.py and tests/test_scan_wallet_dat.py. Manually run a BOUNDED (--limit 30) real scan against the actual backup-wallet-1/wallet.dat to sanity-check real output -- not a full 1000+-address sweep in this session.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: .pHive/epics/wallet-dat-full-scan/docs/design-discussion.md
+      purpose: Documents the live diagnostic research this story's algorithm and safety property are based on.
+    - path: tools/check_wallet_balances.py
+      purpose: _check_balance_with_retries() reused for check_addresses_balances.
+    - path: tools/match_seed_phrases.py
+      purpose: Established pattern for reusing bip_utils address encoding.
+
+files_to_modify:
+  - file: tools/scan_wallet_dat.py
+    change: new file -- read_btree_key_items, decode_bdb_key_record, pubkey_to_address, scan_wallet_for_addresses, check_addresses_balances, CLI
+  - file: tests/test_scan_wallet_dat.py
+    change: new file -- synthetic BDB fixture tests, read-bounding test, balance-check tests
+
+design_decisions:
+  - decision: Only ever read the BDB key half of any record; value positions are skipped via length-header arithmetic, never read.
+    rationale: Every address this tool needs lives in the key half (pubkey for "key"/"ckey" records, address string for "name" records); structurally excluding value reads means private-key bytes are never loaded into memory during the scan, not merely ignored after loading.
+  - decision: pool/keymeta records are counted but not deep-parsed in v1.
+    rationale: key + name records already cover the highest-confidence address set; deferred as a stated follow-up rather than silently dropped.
+
+risks:
+  - severity: critical
+    description: A bug that reads a value position for a key/ckey record would load a raw private key into memory.
+    mitigation: Structural safety property (position tracked, read() only called for value positions on non-key-bearing tags like "name"'s label, which this tool doesn't even need); explicit review step and a dedicated read-call-counting test.
+  - severity: medium
+    description: Checking 1000+ addresses live could take a long time / press rate limits.
+    mitigation: --limit flag for bounded first passes, always reported when applied.
+
+references:
+  - path: .pHive/epics/wallet-dat-full-scan/docs/design-discussion.md
+    relevant_excerpt: |
+      "Every address this tool needs (from both record types) lives in the
+      BDB key half, never the value half. The scanner is therefore
+      structured to never call .read() on a value's file position at all."
