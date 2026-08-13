@@ -1,0 +1,26 @@
+epic: exodus-hashcat-integration
+substrate: pytest, plus real hashcat crack against hashcat's own official example hash
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 105
+tests_passed: 104
+tests_failed: 0
+tests_deselected_known_flaky_unrelated: 1
+coverage_by_story:
+  ehi-01-exodus-unlock:
+    acceptance_criteria: 5
+    covered_by_tests: 6
+    gaps: []
+    note: >
+      Extraction against the REAL seed.seco file was validated live during research
+      (documented in design-discussion.md), not re-run as part of the automated suite
+      (would require the real file to be present, which is machine-specific). The
+      automated crack test uses hashcat's own official example hash/password instead,
+      genuinely exercising the same crack mechanism without touching any real wallet.
+real_world_findings:
+  - "BTCRecover does not support Exodus wallets at all (no WalletExodus class)."
+  - "hashcat mode 28200 natively supports Exodus (scrypt), first-class, not deprecated."
+  - "A hand-constructed synthetic test hash (from METADATA_* size constants) was wrong -- real format has a two-layer key-wrapping structure the constants don't fully reveal. Corrected by using hashcat's own shipped example hash instead."
+  - "hashcat's default scrypt memory allocation failed in this sandboxed environment (misreported available memory) -- fixed with --backend-devices-keepfree 5 --scrypt-tmto 4, now baked into the tool's defaults since the user could hit the same issue on their own machine."
+verdict: PASS

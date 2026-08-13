@@ -1,0 +1,99 @@
+id: ehi-01-exodus-unlock
+epic: exodus-hashcat-integration
+title: Install hashcat + exodus2hashcat.py, offline-gated unlock wrapper
+status: completed
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  scripts/install_exodus_tools.sh: fetches hashcat's official
+  tools/exodus2hashcat.py into vendor/hashcat-tools/ (gitignored) and
+  installs hashcat itself via Homebrew on macOS.
+
+  tools/unlock_exodus_wallet.py:
+  - extract_exodus_hash(seed_seco_path, script_path=None): shells out to
+    exodus2hashcat.py, returns the EXODUS:... hash line. Raises RuntimeError
+    with the script's stderr on failure.
+  - find_exodus2hashcat_script(): locates vendor/hashcat-tools/exodus2hashcat.py.
+  - run_exodus_unlock(seed_seco_path, candidates_file, script_path=None,
+    allow_online=False): HARD SAFETY GATE identical in spirit to
+    unlock_wallet.py -- reuses check_network_status() from that module
+    (imported, not duplicated). Extracts the hash, writes to a temp file,
+    runs `hashcat -m 28200 -a 0 --potfile-disable --backend-devices-keepfree
+    5 --scrypt-tmto 4 -o <outfile> <hashfile> <candidates_file>`.
+  - CLI: candidates from a file only, never a CLI argument.
+
+acceptance_criteria:
+  - "Given the machine is online, when run_exodus_unlock is called without allow_online, then it raises RuntimeError and no subprocess is invoked"
+  - "Given the machine is verified offline (mocked), when run_exodus_unlock is called, then it proceeds to invoke hash extraction and the hashcat subprocess"
+  - "Given a malformed (non-SECO) file, when extract_exodus_hash runs against the real exodus2hashcat.py script, then it raises RuntimeError with a clear message rather than crashing uninformatively"
+  - "Given hashcat's own official example hash and password (mode 28200, 'Example.Pass: hashcat'), when run_exodus_unlock runs end-to-end (extraction mocked to return the example hash, real hashcat crack), then the password is recovered"
+  - "Given the CLI is invoked with a candidates file, when its own argv is inspected, then no password/candidate text appears in the command-line arguments"
+
+steps:
+  - id: research
+    description: (Already completed via live web research and live experimentation during epic research -- documented in docs/design-discussion.md, including the discovery that a hand-built synthetic test hash was wrong and hashcat's own shipped example was the correct fixture to use.)
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_unlock_exodus_wallet.py using
+      hashcat's own official example hash + password (mode 28200) -- a
+      public fixture from the hashcat project itself, not a real wallet.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement extract_exodus_hash, find_exodus2hashcat_script, run_exodus_unlock, and the CLI to make the failing tests pass, including the --backend-devices-keepfree/--scrypt-tmto tuning flags found necessary during research. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that the offline safety gate mirrors unlock_wallet.py's (reused function, not reimplemented divergently), and that no code path passes password/candidate content as a subprocess or CLI argument.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit scripts/install_exodus_tools.sh, tools/unlock_exodus_wallet.py, tests/test_unlock_exodus_wallet.py, vendor/hashcat-tools/exodus2hashcat.py exclusion in .gitignore. Ran the full flow (install, extraction against the real seed.seco, hashcat crack against the official example) locally during research.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/unlock_wallet.py
+      purpose: check_network_status() is imported and reused directly, not duplicated -- same offline-safety discipline applied consistently across both wallet-unlock tools.
+    - path: .pHive/epics/exodus-hashcat-integration/docs/design-discussion.md
+      purpose: Documents the live research (BTCRecover lacks Exodus support, hashcat's native mode 28200, the flawed synthetic-hash attempt, the memory-tuning fix) this story's design depends on.
+
+files_to_modify:
+  - file: scripts/install_exodus_tools.sh
+    change: new file
+  - file: tools/unlock_exodus_wallet.py
+    change: new file
+  - file: tests/test_unlock_exodus_wallet.py
+    change: new file
+  - file: .gitignore
+    change: vendor/ already excludes vendor/hashcat-tools/ (no new pattern needed)
+  - file: README.md
+    change: add File Structure entry and new Tools subsection
+
+design_decisions:
+  - decision: Use hashcat's own official example hash + password (mode 28200) as the test fixture, instead of hand-constructing a synthetic one.
+    rationale: A hand-built synthetic hash (from METADATA_* size constants alone) was tried first and was wrong -- the real format has a two-layer key-wrapping structure the constants don't fully reveal. hashcat's own shipped example is correct by construction.
+  - decision: Reuse check_network_status() from tools/unlock_wallet.py rather than reimplementing it.
+    rationale: Identical safety semantics needed across both wallet-unlock tools; a single implementation avoids drift.
+  - decision: Default hashcat invocation includes --backend-devices-keepfree 5 --scrypt-tmto 4.
+    rationale: Needed to work around a memory-allocation issue found live in this sandboxed environment; harmless (speed/reliability tradeoff only) elsewhere, so kept as a default rather than conditional.
+
+risks:
+  - severity: critical
+    description: Running a real password-guessing attempt against a real wallet while online is the same failure mode the BTCRecover integration's safety gate exists to prevent.
+    mitigation: Identical hard offline gate, reused from unlock_wallet.py; this epic's testing never touches the real seed.seco.
+  - severity: low
+    description: vendor/hashcat-tools/exodus2hashcat.py tracks upstream HEAD, not pinned.
+    mitigation: Accepted, same tradeoff as vendor/btcrecover/.
+
+references:
+  - path: .pHive/epics/exodus-hashcat-integration/docs/design-discussion.md
+    relevant_excerpt: |
+      "hashcat's own official repository ships tools/exodus2hashcat.py...
+      feeding hashcat's own mode 28200... a first-class, natively supported
+      hash mode."

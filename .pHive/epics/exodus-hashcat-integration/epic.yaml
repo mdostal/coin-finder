@@ -1,0 +1,43 @@
+name: exodus-hashcat-integration
+title: Exodus Wallet Unlock via hashcat
+description: >
+  Installs and wraps hashcat + its own official exodus2hashcat.py extraction
+  script to test candidate passwords against a real Exodus desktop wallet's
+  seed.seco file (mode 28200, natively supported). BTCRecover does not
+  support Exodus. Same hard offline safety gate as the BTCRecover
+  integration, reused not duplicated. Tested only against hashcat's own
+  official public example hash/password.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, security-critical, external-tool-integration]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase; wraps external tools via subprocess."
+    cli-tool: "project_type: framework, has_ui: false."
+    security-critical: "Real wallet password recovery -- same offline-only execution model as btcrecover-integration, enforced by a hard safety gate."
+    external-tool-integration: "Second epic integrating a separate, well-audited third-party tool (hashcat) rather than a Python library dependency."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as prior epics. Required real
+      external research (BTCRecover doesn't support Exodus; found hashcat's
+      native mode 28200 + its official exodus2hashcat.py extraction script)
+      and live experimentation (a hand-constructed synthetic test hash was
+      wrong; hashcat's own shipped example hash was used instead; a
+      sandboxed-environment memory-allocation issue was found and fixed with
+      tuning flags) before the design could be finalized -- documented in
+      docs/design-discussion.md.
+
+stories:
+  - id: ehi-01-exodus-unlock
+    title: Install hashcat + exodus2hashcat.py, offline-gated unlock wrapper
+    complexity: medium
+    depends_on: []
