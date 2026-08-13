@@ -1,7 +1,7 @@
 id: crb-01-retry-and-inconclusive-tracking
 epic: conservative-balance-retries
 title: Retry balance checks and track inconclusive results
-status: pending
+status: completed
 complexity: medium
 methodology: tdd
 depends_on: []
