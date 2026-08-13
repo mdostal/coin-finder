@@ -1,7 +1,7 @@
 id: wrg-03-readme-docs
 epic: wallet-relationship-graph
 title: Document the new pipeline stage in README
-status: pending
+status: completed
 complexity: low
 methodology: tdd
 depends_on: [wrg-02-pipeline-integration]
