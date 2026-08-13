@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-13
+
+### Added
+
+- **Bitcoin SV fork checking.** `tools/check_fork_coins.py`'s FORK_COINS
+  list now includes Bitcoin SV (previously a stated gap) via a new
+  `services/bitcoin_sv.py` (Blockchair, same pattern as Bitcoin Cash/Gold).
+  Matters even for an address whose *current* BTC balance is zero: BTC
+  spent *after* a fork's snapshot leaves the fork-coin balance untouched on
+  that fork's own chain.
+- **Feathercoin support.** New `services/feathercoin.py` (Trezor's
+  Blockbook explorer, verified live against a real address before being
+  trusted -- Chainz Cryptoid, this project's usual multi-coin API host,
+  does not support Feathercoin at all) plus search keywords, so old
+  Feathercoin wallet files can be found and their balances checked like
+  every other supported coin.
+
 ## [0.15.0] - 2026-08-13
 
 ### Added

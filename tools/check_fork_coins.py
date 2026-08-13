@@ -9,10 +9,14 @@ from tools.check_wallet_balances import _check_balance_with_retries, load_servic
 # Coins that fork-shared Bitcoin's address format at the time of their split
 # -- the same private key that controls a BTC address controls the identical
 # address on these chains too, so any BTC address is worth checking on all
-# of them for free (no new derivation needed). Only coins with an existing
-# service in this project are checked; Bitcoin SV (BSV) shares the format
-# too but has no service here yet -- a known, stated gap, not a silent one.
-FORK_COINS = ["Bitcoin Cash", "Bitcoin Gold"]
+# of them for free (no new derivation needed). This matters even for an
+# address whose BTC balance is now zero: if the BTC was spent *after* a
+# fork's snapshot block, the fork-coin balance at snapshot time is
+# untouched on that fork's own chain unless it was separately moved there.
+# Other, smaller/less liquid forks (Bitcoin Diamond, Bitcoin Private, Super
+# Bitcoin, etc.) are a known, stated gap -- no service exists here for them,
+# generally because they lack a stable public balance-check API.
+FORK_COINS = ["Bitcoin Cash", "Bitcoin Gold", "Bitcoin SV"]
 
 
 def check_fork_coin_balances(address, coins=None):
