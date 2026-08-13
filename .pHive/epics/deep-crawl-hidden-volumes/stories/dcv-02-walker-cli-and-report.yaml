@@ -1,7 +1,7 @@
 id: dcv-02-walker-cli-and-report
 epic: deep-crawl-hidden-volumes
 title: Directory walker, CLI, and report with manual-mount guidance
-status: pending
+status: completed
 complexity: medium
 methodology: tdd
 depends_on: [dcv-01-container-detection-core]

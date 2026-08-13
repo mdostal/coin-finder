@@ -1,8 +1,13 @@
+import json
 import os
+import subprocess
+import sys
 
 from tools.detect_hidden_volumes import (
     has_known_signature,
     looks_like_encrypted_container,
+    render_hidden_volumes_report,
+    scan_for_hidden_volumes,
     shannon_entropy,
 )
 
@@ -103,3 +108,66 @@ def test_container_detection_never_reads_more_than_three_samples(tmp_path, monke
 
     assert len(read_calls) <= 3
     assert sum(read_calls) <= 3 * 65536
+
+
+def test_scan_finds_only_the_container_like_file(tmp_path):
+    (tmp_path / "notes.txt").write_text("just a normal small text file")
+    container_like = tmp_path / "backup.dat"
+    container_like.write_bytes(os.urandom(1_048_576))  # 1 MiB, multiple of 512
+
+    results = scan_for_hidden_volumes(str(tmp_path))
+
+    assert len(results) == 1
+    assert results[0]["path"] == str(container_like)
+
+
+def test_scan_returns_empty_list_when_no_candidates(tmp_path):
+    (tmp_path / "notes.txt").write_text("just a normal small text file")
+
+    results = scan_for_hidden_volumes(str(tmp_path))
+
+    assert results == []
+
+
+def test_report_lists_candidate_paths_with_worth_checking_framing():
+    candidates = [{"path": "/drive/backup.dat", "size": 1_048_576, "entropy": 7.99}]
+
+    report = render_hidden_volumes_report(candidates)
+
+    assert "/drive/backup.dat" in report
+    assert "IS encrypted" not in report
+    assert "worth checking" in report.lower() or "candidate" in report.lower()
+
+
+def test_report_always_includes_manual_mount_guidance_and_no_auto_unlock_statement():
+    empty_report = render_hidden_volumes_report([])
+    nonempty_report = render_hidden_volumes_report(
+        [{"path": "/drive/backup.dat", "size": 1_048_576, "entropy": 7.99}]
+    )
+
+    for report in (empty_report, nonempty_report):
+        assert "veracrypt" in report.lower()
+        assert "does not" in report.lower() or "never" in report.lower()
+        assert "unlock" in report.lower() or "crack" in report.lower()
+
+
+def test_cli_writes_json_and_markdown_report(tmp_path):
+    container_like = tmp_path / "backup.dat"
+    container_like.write_bytes(os.urandom(1_048_576))
+    output_file = tmp_path / "hidden_volumes.json"
+
+    subprocess_result = subprocess.run(
+        [sys.executable, "tools/detect_hidden_volumes.py", str(tmp_path), str(output_file)],
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        capture_output=True,
+        text=True,
+    )
+
+    assert subprocess_result.returncode == 0, subprocess_result.stderr
+    assert output_file.exists()
+    report_file = output_file.with_suffix(".md")
+    assert report_file.exists()
+
+    data = json.loads(output_file.read_text())
+    assert len(data) == 1
+    assert data[0]["path"] == str(container_like)
