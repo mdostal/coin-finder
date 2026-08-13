@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-13
+
+### Fixed
+
+- **`BitcoinGoldService` pointed at the wrong host.** `check_balance()` was
+  hitting Blockchair's webpage URL instead of its API URL, so every Bitcoin
+  Gold balance check in this project's history silently returned `None`,
+  indistinguishable from "no balance." Fixed to match `BitcoinCashService`'s
+  already-correct pattern. First test coverage for any `services/*.py` file
+  in this repo.
+
+### Added
+
+- **Fork coin checker.** New standalone tool `tools/check_fork_coins.py`.
+  A hard fork copies the entire ledger, so any address that held BTC at a
+  fork's snapshot controls the identical balance on the forked chain too,
+  under the same private key -- free money to check for, no new derivation
+  needed. Checks Bitcoin Cash and Bitcoin Gold (Bitcoin SV shares the format
+  too but has no service here yet -- a stated gap). Composes directly with
+  `scan_wallet_dat.py`'s and `crawl_transaction_graph.py`'s output.
+
 ## [0.10.0] - 2026-08-13
 
 ### Added
