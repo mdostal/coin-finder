@@ -1,5 +1,6 @@
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -7,7 +8,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 
 import run_pipeline
+from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
+from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addresses, render_cluster_report
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
+from tools.find_seed_phrases import find_candidate_phrases, scan_directory
+from tools.match_seed_phrases import load_phrases_from_file, match_phrases, render_match_report
+from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
 from web.jobs import get_job, run_job
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -85,7 +91,142 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return jsonify(job)
 
+    @app.route("/item/scan-wallet-dat", methods=["POST"])
+    def item_scan_wallet_dat():
+        wallet_path = (request.form.get("wallet_path") or "").strip()
+        if not wallet_path or not Path(wallet_path).is_file():
+            return render_template("index.html", error=f"Not a file: {wallet_path}"), 400
+
+        job_id = run_job(_run_scan_wallet_dat_job, wallet_path)
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/item/crawl", methods=["POST"])
+    def item_crawl():
+        addresses = _split_lines(request.form.get("addresses"))
+        if not addresses:
+            return render_template("index.html", error="Enter at least one address."), 400
+
+        job_id = run_job(_run_crawl_job, addresses)
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/item/fork-coins", methods=["POST"])
+    def item_fork_coins():
+        addresses = _split_lines(request.form.get("addresses"))
+        if not addresses:
+            return render_template("index.html", error="Enter at least one address."), 400
+
+        job_id = run_job(_run_fork_coins_job, addresses)
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/item/find-seed-phrases", methods=["POST"])
+    def item_find_seed_phrases():
+        target_path = (request.form.get("target_path") or "").strip()
+        if not target_path or not Path(target_path).exists():
+            return render_template("index.html", error=f"Not found: {target_path}"), 400
+
+        job_id = run_job(_run_find_seed_phrases_job, target_path)
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/item/match-seed-phrases", methods=["POST"])
+    def item_match_seed_phrases():
+        phrases_file = (request.form.get("phrases_file") or "").strip()
+        if not phrases_file or not Path(phrases_file).is_file():
+            return render_template("index.html", error=f"Not a file: {phrases_file}"), 400
+
+        job_id = run_job(_run_match_seed_phrases_job, phrases_file)
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/item-result/<job_id>")
+    def item_result(job_id):
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
+        return render_template("item_result.html", job_id=job_id, job=job)
+
     return app
+
+
+def _split_lines(raw):
+    """Splits textarea input into a list of non-blank, non-comment lines."""
+    if not raw:
+        return []
+    return [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def _run_scan_wallet_dat_job(wallet_path):
+    scan = scan_wallet_for_addresses(wallet_path)
+    checked = check_addresses_balances(scan["addresses"])
+    significant = [r for r in checked["results"] if r.get("balance")]
+
+    lines = [
+        f"Encrypted key records: {scan['encrypted_key_count']}",
+        f"Checked {len(checked['results'])} of {checked['total_available']} address(es).",
+        f"{len(significant)} address(es) with a non-zero balance.",
+    ]
+    for entry in significant:
+        lines.append(f"- {entry['address']}: {entry['balance']}")
+
+    return {
+        "report": "\n".join(lines),
+        "encrypted_key_count": scan["encrypted_key_count"],
+        "results": checked["results"],
+    }
+
+
+def _run_crawl_job(addresses):
+    """
+    Writes the submitted addresses to a local temp file before calling
+    load_seed_addresses -- reuses the CLI's exact file-or-literal contract
+    instead of forwarding raw request data directly into it.
+    """
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write("\n".join(addresses))
+        temp_path = f.name
+
+    try:
+        seeds = load_seed_addresses(temp_path)
+        results = crawl_wallet_cluster(seeds)
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
+
+    return {"report": render_cluster_report(results), "results": results}
+
+
+def _run_fork_coins_job(addresses):
+    results = check_fork_coins_for_addresses(addresses)
+    return {"report": render_fork_coin_report(results), "results": results}
+
+
+def _run_find_seed_phrases_job(target_path):
+    """
+    Strips phrase text before it ever enters the job registry -- stricter
+    than the CLI's own "never printed" rule, since a job result lives in
+    server memory rendered into a browser tab rather than a local file only
+    the same user can read.
+    """
+    path = Path(target_path)
+    if path.is_dir():
+        raw_results = scan_directory(str(path))
+    else:
+        with open(path, "r", errors="ignore") as f:
+            text = f.read()
+        candidates = find_candidate_phrases(text)
+        raw_results = {str(path): candidates} if candidates else {}
+
+    counts = {file_path: len(candidates) for file_path, candidates in raw_results.items()}
+    total = sum(counts.values())
+
+    lines = [f"Found {total} candidate phrase(s) across {len(counts)} file(s)."]
+    for file_path, count in counts.items():
+        lines.append(f"- {file_path}: {count} candidate(s)")
+
+    return {"report": "\n".join(lines), "counts": counts}
+
+
+def _run_match_seed_phrases_job(phrases_file):
+    phrases = load_phrases_from_file(phrases_file)
+    results = match_phrases(phrases)
+    return {"report": render_match_report(results), "phrase_count": len(phrases)}
 
 
 def _run_scan_job(input_dir):

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- result {{ job_id }}{% endblock %}
+{% block content %}
+<h2>Result</h2>
+<p>Status: <strong id="status">{{ job.status }}</strong></p>
+
+{% if job.status == "running" %}
+<p>Working -- this page will refresh automatically.</p>
+{% elif job.status == "error" %}
+<p class="error">{{ job.error }}</p>
+{% elif job.result %}
+<pre>{{ job.result.report }}</pre>
+{% endif %}
+
+<p><a href="{{ url_for('index') }}">&laquo; back</a></p>
+
+<script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}"></script>
+{% endblock %}

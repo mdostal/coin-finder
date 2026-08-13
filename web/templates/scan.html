@@ -48,6 +48,36 @@
   <h3>Hidden/encrypted volume detection</h3>
   <pre>{{ results.hidden_volumes_report }}</pre>
   {% endif %}
+
+  <h3>More actions</h3>
+  <p>Run one of the deeper, on-demand tools against something found above.</p>
+
+  <form method="post" action="{{ url_for('item_scan_wallet_dat') }}">
+    <label>Full wallet.dat scan -- path: <input type="text" name="wallet_path" size="50"></label>
+    <button type="submit">Run</button>
+  </form>
+
+  <form method="post" action="{{ url_for('item_crawl') }}">
+    <label>Transaction-graph crawl -- addresses (one per line):</label><br>
+    <textarea name="addresses" rows="3" cols="50"></textarea><br>
+    <button type="submit">Run</button>
+  </form>
+
+  <form method="post" action="{{ url_for('item_fork_coins') }}">
+    <label>Fork coin check -- addresses (one per line):</label><br>
+    <textarea name="addresses" rows="3" cols="50"></textarea><br>
+    <button type="submit">Run</button>
+  </form>
+
+  <form method="post" action="{{ url_for('item_find_seed_phrases') }}">
+    <label>Find seed phrases -- directory or file: <input type="text" name="target_path" size="50"></label>
+    <button type="submit">Run</button>
+  </form>
+
+  <form method="post" action="{{ url_for('item_match_seed_phrases') }}">
+    <label>Match seed phrases -- existing candidates file: <input type="text" name="phrases_file" size="50"></label>
+    <button type="submit">Run</button>
+  </form>
 {% endif %}
 
 <script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}"></script>

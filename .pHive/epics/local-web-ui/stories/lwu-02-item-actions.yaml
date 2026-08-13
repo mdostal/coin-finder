@@ -1,7 +1,7 @@
 id: lwu-02-item-actions
 epic: local-web-ui
 title: Per-item on-demand tool actions (scan_wallet_dat, crawl, fork coins, seed phrases)
-status: pending
+status: complete
 complexity: medium
 methodology: tdd
 depends_on: [lwu-01-scan-and-results]

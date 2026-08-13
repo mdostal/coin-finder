@@ -501,13 +501,24 @@ still works standalone for scripting/automation.
   job status and renders balances (including anything still inconclusive
   after retries), the filtered non-zero wallets, per-file analysis, the
   relationship graph report, and hidden-volume flags -- all in one page.
-- **More is coming in this epic:** per-item actions for the remaining
-  standalone tools (`scan_wallet_dat.py`, `crawl_transaction_graph.py`,
-  `check_fork_coins.py`, `find_seed_phrases.py`, `match_seed_phrases.py`),
-  offline-gated unlock flows for BTCRecover/hashcat, a staging/copy area, and
-  a Google Drive entry point -- see `.pHive/epics/local-web-ui/` for the
-  full plan. An Electron wrapper around this app is a separate, later effort
-  outside this project's own scope.
+- **On-demand actions** (a "More actions" section at the bottom of the
+  results page): run the standalone tools that intentionally sit outside the
+  default pipeline against anything found -- a full `scan_wallet_dat.py`
+  enumeration for a `.dat` file, a `crawl_transaction_graph.py` co-spend
+  cluster for one or more addresses, a `check_fork_coins.py` check, or
+  `find_seed_phrases.py`/`match_seed_phrases.py` against a directory/file.
+  Same secrecy rules as the CLI tools apply here too: seed-phrase text is
+  never included in a job result unless that specific phrase actually
+  produced a balance (`match_seed_phrases.py`'s existing rule) -- and
+  `find_seed_phrases.py`'s web results go further than the CLI, never
+  including phrase text at all, only counts and file locations, since a web
+  job result lives in server memory rendered into a browser tab rather than
+  a local output file only you can read.
+- **More is coming in this epic:** offline-gated unlock flows for
+  BTCRecover/hashcat, a staging/copy area, and a Google Drive entry point --
+  see `.pHive/epics/local-web-ui/` for the full plan. An Electron wrapper
+  around this app is a separate, later effort outside this project's own
+  scope.
 
 ---
 
