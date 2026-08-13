@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 # Add the project root to the Python path
@@ -7,6 +8,7 @@ from tools.search_wallets import search_for_wallets
 from tools.analyze_wallets import analyze_wallets
 from tools.check_wallet_balances import check_wallet_balances
 from tools.filter_wallets import filter_wallet_balances
+from tools.build_wallet_graph import build_relationship_graph, render_graph_report
 
 def main(input_dir, output_dir):
     # make output dir if it doesn't exist
@@ -33,7 +35,19 @@ def main(input_dir, output_dir):
     print("Running wallet filter...")
     filter_wallet_balances(scan_output, filter_output)
 
+    print("Building wallet relationship graph...")
+    relationships_output = os.path.join(sub_dir, "wallet_relationships.json")
+    relationships_report = os.path.join(output_dir, "wallet_relationships.md")
+    with open(scan_output, "r") as f:
+        scan_data = json.load(f)
+    graph = build_relationship_graph(scan_data)
+    with open(relationships_output, "w") as f:
+        json.dump(graph, f, indent=4)
+    with open(relationships_report, "w") as f:
+        f.write(render_graph_report(graph))
+
     print(f"\nPipeline complete. Filtered wallets saved to {filter_output}.")
+    print(f"Relationship report saved to {relationships_report}.")
 
 if __name__ == "__main__":
     import argparse

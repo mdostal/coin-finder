@@ -1,0 +1,47 @@
+name: wallet-relationship-graph
+title: Wallet & Coin Relationship Graph
+description: >
+  Correlate discovered wallet files/addresses across the pipeline to surface
+  duplicate-address confirmations and multi-coin coverage gaps, addressing the
+  north_star.goal item "build graph views of discovered wallets/coins to surface
+  other wallets that may be missing" (.pHive/project-profile.yaml).
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, no-existing-tests]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase; no frontend/backend split (project-profile.yaml -> tech_stack)."
+    cli-tool: "project_type: framework, has_ui: false -- no UI persona needed."
+    no-existing-tests: "code_quality.test_first_signals.test_absence: true drove the tdd methodology and story shape."
+  confidence: medium
+  gate_decisions:
+    note: >
+      No live multi-agent dispatch (CC-Workflows/Multica) was configured or
+      available in this session -- researcher/technical-writer/tpm roles were
+      performed directly by the orchestrating agent rather than spawned as
+      independent teammates. Grill (Phase A2) and the collaborative review gate
+      were condensed into a single self-review pass on the design discussion
+      rather than run as a separate adversarial persona. Flagged here for
+      provenance, not hidden.
+
+stories:
+  - id: wrg-01-relationship-graph-core
+    title: Build the relationship-graph core module
+    complexity: medium
+    depends_on: []
+  - id: wrg-02-pipeline-integration
+    title: Wire relationship graph into run_pipeline.py as stage 5
+    complexity: low
+    depends_on: [wrg-01-relationship-graph-core]
+  - id: wrg-03-readme-docs
+    title: Document the new pipeline stage in README
+    complexity: low
+    depends_on: [wrg-02-pipeline-integration]

@@ -44,6 +44,8 @@ project/
 │   ├── search_wallets.py     # Finds potential wallet files
 │   ├── analyze_wallets.py    # Analyzes files for wallet addresses
 │   ├── check_wallet_balances.py  # Checks balances for wallet addresses
+│   ├── filter_wallets.py     # Filters out zero-balance wallets
+│   ├── build_wallet_graph.py # Correlates wallets/coins across files into a relationship report
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
 ├── requirements.txt          # Python dependencies
 ├── run_pipeline.py           # Orchestrates the entire pipeline
@@ -105,6 +107,25 @@ python tool/check_wallet_balances.py <input_file> <output_file> [--coins <coin1>
 python tool/analyze_wallets.py ./output/wallet_search_output.txt ./output/wallet_analysis.json
 ```
 
+### 4. Relationship Graph Tool (`build_wallet_graph.py`)
+
+- **Purpose**: Correlates wallet data across files and coins to surface relationships the other stages can't see on their own.
+- **How it works**:
+  - Reads `wallet_balances.json` (or `wallet_analysis.json`) and builds a graph of files, addresses, and coins.
+  - Flags **duplicate addresses** (the same address found in 2+ files — strong evidence it's a real wallet).
+  - Flags **multi-coin files** (a file with addresses for 2+ different coins — looks like a real wallet app backup).
+  - Flags **coverage gaps** (supported coins not found in a file that already matched at least one coin) — phrased as a nudge to double-check, not a claim the wallet holds those coins.
+- **Usage**:
+  ```bash
+  python tools/build_wallet_graph.py <input_file> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/build_wallet_graph.py ./output/checks/wallet_balances.json ./output/checks/wallet_relationships.json
+  ```
+
+---
+
 ## Pipeline Overview
 
 ### Search
@@ -115,6 +136,12 @@ Extracts wallet addresses from the identified files.
 
 ### Check Balances
 Fetches the balances for the extracted wallet addresses.
+
+### Relationship Graph
+Correlates wallets and coins across all discovered files, producing
+`wallet_relationships.json` (the graph) and `wallet_relationships.md` (a
+human-readable report) — highlighting duplicate addresses, multi-coin files, and
+coverage gaps worth a second look.
 
 ### Output
 Generates JSON files at each stage for traceability and easy debugging.
