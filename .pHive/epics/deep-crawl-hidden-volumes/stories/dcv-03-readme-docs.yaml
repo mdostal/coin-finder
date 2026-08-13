@@ -1,7 +1,7 @@
 id: dcv-03-readme-docs
 epic: deep-crawl-hidden-volumes
 title: Document the new tool and its no-auto-unlock scope boundary
-status: pending
+status: completed
 complexity: low
 methodology: tdd
 depends_on: [dcv-02-walker-cli-and-report]
