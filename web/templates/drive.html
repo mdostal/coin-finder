@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- Google Drive{% endblock %}
+{% block content %}
+<h2>Scan Google Drive</h2>
+<p>Slow-crawls your Google Drive for wallet-like files and downloads matches
+directly to a local directory -- the same
+<code>tools/scan_google_drive.py</code> tool and OAuth flow documented in the
+README, just started from here. First use requires the one-time Google Cloud
+OAuth setup described there (a <code>credentials.json</code> in this
+project's root); the first run will open a browser window for consent.</p>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="{{ url_for('drive_scan') }}">
+  <p>
+    <label>Local output directory (downloaded files land here):</label><br>
+    <input type="text" name="output_dir" size="60" required>
+  </p>
+  <p>
+    <label>Optional Drive API query (leave blank for everything not trashed):</label><br>
+    <input type="text" name="query" size="60">
+  </p>
+  <button type="submit">Scan Drive</button>
+</form>
+{% endblock %}

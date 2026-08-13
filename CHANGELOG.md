@@ -4,6 +4,54 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-13
+
+### Added
+
+- **Local Web UI (`web/app.py`).** A local Flask app that ties every tool in
+  this project (the default `run_pipeline.py` flow plus all 13 standalone
+  tools) into one Disk-Drill-style browser experience: pick a drive or
+  directory, run a scan, browse the results (balances, inconclusive
+  balances, relationship graph, hidden-volume flags) in one page, then act
+  on anything found -- a full `scan_wallet_dat.py` enumeration, a
+  transaction-graph crawl, a fork-coin check, seed-phrase discovery/matching,
+  an offline-gated unlock attempt (BTCRecover or hashcat), a Google Drive
+  scan, or staging a file for backup. Run it with `python web/app.py` and
+  open `http://127.0.0.1:5000`. An Electron wrapper around this app is a
+  separate, later effort outside this project's own scope.
+
+  **Every safety property built up over the course of this project carries
+  through the new HTTP surface, unweakened:**
+  - `create_app()` refuses to bind to anything but `127.0.0.1`/`localhost` --
+    enforced in code, not just documented.
+  - The offline gate for real password/seed recovery
+    (`unlock_wallet.py`/`unlock_exodus_wallet.py`) is re-checked server-side
+    on every unlock submission, not just at page load and not just via a
+    disabled button -- refuses with HTTP 409, no subprocess invoked, unless
+    the machine reads OFFLINE.
+  - Candidate passwords/phrases are written to a local temp file
+    server-side, never placed in a URL or query string, and that file is
+    deleted the moment the job finishes.
+  - An unlock result (which may itself be a found password) is delivered
+    exactly once, via a dedicated result page, then permanently deleted from
+    server memory -- the polling path used everywhere else in the app
+    deliberately never carries it, so a background status poll can't
+    silently consume it before a human actually sees the result page. This
+    correction was found and applied mid-build, before any code shipped in
+    the wrong shape -- documented in
+    `.pHive/epics/local-web-ui/stories/lwu-03-unlock-workflows.yaml`.
+  - `find_seed_phrases.py`'s web results go stricter than its own CLI: no
+    phrase text at all, only counts and file locations, since a web job
+    result lives in server memory rendered into a browser tab rather than a
+    local output file only the user can read. `match_seed_phrases.py` keeps
+    its existing rule (phrase text shown only for an actual balance match).
+  - Staging a file is copy-only (`shutil.copy2`) and refuses to silently
+    overwrite an existing same-named staged file.
+  - The Google Drive entry point reuses `scan_google_drive.py`'s existing
+    OAuth + direct-Drive-API-to-disk functions unchanged -- no
+    reimplementation of the architecture built after this project's earlier
+    live safety correction.
+
 ## [0.13.0] - 2026-08-13
 
 ### Added

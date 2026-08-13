@@ -531,10 +531,24 @@ still works standalone for scripting/automation.
   everywhere else in this app deliberately never carries this result, so a
   found password can't leak through a background poll before you've
   actually looked at the page.
-- **More is coming in this epic:** a staging/copy area and a Google Drive
-  entry point -- see `.pHive/epics/local-web-ui/` for the full plan. An
-  Electron wrapper around this app is a separate, later effort outside this
-  project's own scope.
+- **Stage a file** -- copies (never moves) a found file into a local staging
+  directory (`ui_output/staged/` by default) so you can gather recovery
+  candidates in one place without touching the original drive. Refuses to
+  silently overwrite an existing same-named staged file.
+- **Scan Google Drive** (`/drive`) -- entry point for
+  `tools/scan_google_drive.py`'s OAuth crawl, using the exact same
+  `get_drive_service`/`scan_drive_for_wallets` functions as the CLI tool (no
+  reimplementation). First use needs the one-time Google Cloud OAuth setup
+  documented under "Google Drive Adapter" above. Downloaded files land in a
+  local directory you choose, then show up in a normal scan of that
+  directory just like any other local drive.
+
+This closes out the epic's planned scope: every one of the 13 standalone
+tools plus the default pipeline is now reachable from this one app, with
+every safety property built up over the course of this project (offline
+gating, file-only secrets, never-persisted unlock results, localhost-only
+binding) carried through the HTTP layer intact. An Electron wrapper around
+this app is a separate, later effort outside this project's own scope.
 
 ---
 
@@ -572,6 +586,8 @@ flowchart TD
         P[scan_google_drive.py]
     end
 
+    Q[web/app.py -- Local Web UI]
+
     C -.public addresses found.-> I
     J -->|candidate seed phrases| K
     K -.no match.-> L
@@ -582,12 +598,16 @@ flowchart TD
     D -.found wallet file, need password.-> L
     M -->|found addresses| N
     I -->|found addresses| N
+    Q -.calls every stage above directly, in-process.-> A
+    Q -.calls every stage above directly, in-process.-> P
 ```
 
 The default pipeline (`run_pipeline.py`) runs stages A-E automatically.
 Everything under "Standalone tools" is invoked deliberately, on its own,
 against whatever the earlier stages (or your own manual digging) turned up --
-they are not run automatically.
+they are not run automatically. `web/app.py` (see "Local Web UI" above) is a
+UI consumer of every stage and tool shown here -- it calls the same
+importable functions in-process, not a reimplementation of any of them.
 
 ### Search
 Identifies potential wallet files in a specified directory.

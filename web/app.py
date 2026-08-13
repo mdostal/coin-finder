@@ -1,4 +1,5 @@
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -13,6 +14,7 @@ from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addres
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
 from tools.find_seed_phrases import find_candidate_phrases, scan_directory
 from tools.match_seed_phrases import load_phrases_from_file, match_phrases, render_match_report
+from tools.scan_google_drive import get_drive_service, scan_drive_for_wallets
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
@@ -20,6 +22,7 @@ from web.jobs import consume_job_result, get_job, run_job
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "ui_output"
+DEFAULT_STAGING_DIR = DEFAULT_OUTPUT_ROOT / "staged"
 ALLOWED_HOSTS = ("127.0.0.1", "localhost")
 
 
@@ -206,6 +209,45 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("unlock_result.html", job_id=job_id, job=job)
 
+    @app.route("/item/stage", methods=["POST"])
+    def item_stage():
+        file_path = (request.form.get("file_path") or "").strip()
+        staging_dir = (request.form.get("staging_dir") or "").strip() or str(DEFAULT_STAGING_DIR)
+
+        source = Path(file_path)
+        if not file_path or not source.is_file():
+            return render_template("index.html", error=f"Not a file: {file_path}"), 400
+
+        destination_dir = Path(staging_dir)
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / source.name
+
+        if destination.exists():
+            return (
+                render_template(
+                    "index.html",
+                    error=f"Refusing to overwrite existing staged file: {destination}",
+                ),
+                409,
+            )
+
+        shutil.copy2(source, destination)
+        return render_template("index.html", error=None, staged=str(destination))
+
+    @app.route("/drive")
+    def drive_form():
+        return render_template("drive.html", error=None)
+
+    @app.route("/drive/scan", methods=["POST"])
+    def drive_scan():
+        output_dir = (request.form.get("output_dir") or "").strip()
+        query = (request.form.get("query") or "").strip() or None
+        if not output_dir:
+            return render_template("drive.html", error="Enter a local output directory."), 400
+
+        job_id = run_job(_run_drive_scan_job, output_dir, query)
+        return redirect(url_for("item_result", job_id=job_id))
+
     return app
 
 
@@ -306,6 +348,24 @@ def _run_exodus_unlock_job(seed_seco_path, candidates_path):
     finally:
         Path(candidates_path).unlink(missing_ok=True)
     return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
+
+
+def _run_drive_scan_job(output_dir, query):
+    """
+    Reuses tools/scan_google_drive.py's exact OAuth + direct-Drive-API-to-
+    disk functions -- no reimplementation. Runs in a background job because
+    get_drive_service() can open a real local browser window for one-time
+    OAuth consent, which would otherwise block the request thread.
+    """
+    service = get_drive_service()
+    manifest = scan_drive_for_wallets(service, output_dir, query=query)
+
+    lines = [f"Downloaded {len(manifest)} candidate file(s) to {output_dir}."]
+    for entry in manifest:
+        lines.append(f"- {entry['name']} -> {entry['local_path']}")
+    lines.append(f"Scan {output_dir} next (from the home page) to check balances and everything else.")
+
+    return {"report": "\n".join(lines), "manifest": manifest, "output_dir": output_dir}
 
 
 def _run_scan_job(input_dir):
