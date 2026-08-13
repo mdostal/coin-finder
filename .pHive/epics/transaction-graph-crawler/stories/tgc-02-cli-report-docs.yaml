@@ -1,0 +1,76 @@
+id: tgc-02-cli-report-docs
+epic: transaction-graph-crawler
+title: CLI, report, and README documentation
+status: pending
+complexity: low
+methodology: tdd
+depends_on: [tgc-01-crawler-core]
+
+description: |
+  Add to tools/crawl_transaction_graph.py:
+
+  - `render_cluster_report(results, balance_threshold=1.0) -> str`: plain-text
+    report, entries sorted by balance descending (None/0 last), each line
+    showing address, confidence tag, generation, and balance. Addresses with
+    balance >= balance_threshold get a "SIGNIFICANT" call-out. Framed as
+    discovery candidates (confidence-tagged), not certain findings -- same
+    "worth checking" posture as epics 1 and 3.
+  - CLI (`if __name__ == "__main__"`): `python tools/crawl_transaction_graph.py
+    <seed_address> <output_file> [--generations N] [--max-addresses N]
+    [--threshold BTC]` -- writes JSON results to `<output_file>` and the report
+    to a sibling `.md` file (same two-output pattern as prior epics).
+
+  README.md: new "Tools" subsection documenting purpose, the co-spend/output-
+  following distinction (plain language), the Bitcoin-only v1 scope, usage, and
+  example -- satisfies the `documentation` cross-cutting concern
+  (.pHive/cross-cutting-concerns.yaml). Standalone tool, not part of
+  run_pipeline.py -- note that explicitly like detect_hidden_volumes.py's
+  README section does.
+
+acceptance_criteria:
+  - "Given a results dict with mixed confidence/balance entries, when render_cluster_report runs, then output is sorted by balance descending and entries >= balance_threshold are marked SIGNIFICANT"
+  - "Given the CLI is invoked as `python tools/crawl_transaction_graph.py <address> <output_file>`, when it completes, then <output_file> (JSON) and its sibling .md report both exist"
+  - "Given the README, when this story is done, then a new Tools subsection documents purpose, the co-spend vs output-following distinction, Bitcoin-only v1 scope, usage, and example, and states this is a standalone tool not part of run_pipeline.py"
+
+steps:
+  - id: test-spec
+    description: Write failing tests extending tests/test_crawl_transaction_graph.py for render_cluster_report() using hand-built results dicts (no network), and a CLI subprocess test mirroring tools/build_wallet_graph.py's CLI test pattern.
+    agent: tester
+  - id: implement
+    description: Implement render_cluster_report() and the CLI wrapper to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review report framing (confidence-tagged, not asserted as certain) and that README accurately describes the Bitcoin-only v1 scope.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/crawl_transaction_graph.py, tests/test_crawl_transaction_graph.py, and README.md updates. Manually run the CLI against the real found address (1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB) to sanity-check real-world output.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/build_wallet_graph.py
+      purpose: Two-output (JSON + .md) CLI and report-rendering pattern precedent from epic wallet-relationship-graph.
+    - path: README.md
+      purpose: Needs a new Tools subsection; File Structure tree also needs the new file listed.
+
+files_to_modify:
+  - file: tools/crawl_transaction_graph.py
+    change: add render_cluster_report and CLI wrapper
+  - file: tests/test_crawl_transaction_graph.py
+    change: extend with report and CLI tests
+  - file: README.md
+    change: add File Structure entry and new Tools subsection
+
+cross_cutting:
+  - concern: documentation
+    action: "Add crawl_transaction_graph.py to README's File Structure tree and a new Tools subsection covering purpose, the co-spend/output heuristic distinction, Bitcoin-only scope, usage, and example."
+
+references:
+  - path: .pHive/epics/transaction-graph-crawler/stories/tgc-01-crawler-core.yaml
+    relevant_excerpt: |
+      crawl_wallet_cluster() -> {address: {confidence, generation, balance}} --
+      the result shape this story's report renderer consumes.
