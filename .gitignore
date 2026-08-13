@@ -175,3 +175,5 @@ cython_debug/
 
 # Hive: epics are re-ignored by default, allowlisted per-epic below
 .pHive/epics/*
+!.pHive/epics/wallet-relationship-graph/
+!.pHive/epics/wallet-relationship-graph/**

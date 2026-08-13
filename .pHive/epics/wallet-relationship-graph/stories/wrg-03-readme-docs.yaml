@@ -1,0 +1,63 @@
+id: wrg-03-readme-docs
+epic: wallet-relationship-graph
+title: Document the new pipeline stage in README
+status: pending
+complexity: low
+methodology: tdd
+depends_on: [wrg-02-pipeline-integration]
+
+description: |
+  Update README.md to document the new stage 5 (relationship graph):
+  - File Structure tree: add tools/build_wallet_graph.py under the tools/ listing.
+  - Tools section: add a "4. Relationship Graph Tool (build_wallet_graph.py)"
+    subsection matching the existing tool subsections' format (Purpose / How it
+    works / Usage / Example).
+  - Pipeline Overview section: add a "Relationship Graph" step after "Check
+    Balances" / before "Output", describing what wallet_relationships.md /
+    wallet_relationships.json contain.
+
+  This satisfies the `documentation` cross-cutting concern
+  (.pHive/cross-cutting-concerns.yaml), which applies here because this story
+  changes workflow steps (new pipeline stage) and output-file structure.
+
+acceptance_criteria:
+  - "Given the README's File Structure tree, when this story is done, then tools/build_wallet_graph.py is listed alongside the other tools/*.py entries"
+  - "Given the README's numbered Tools section, when this story is done, then a new subsection documents build_wallet_graph.py's purpose, usage, and example, in the same format as the existing three tool subsections"
+  - "Given the README's Pipeline Overview section, when this story is done, then a Relationship Graph step is documented between Check Balances and Output, naming both output files (wallet_relationships.json, wallet_relationships.md) and what each contains"
+
+steps:
+  - id: implement
+    description: Update README.md per the three sections above.
+    agent: developer
+  - id: review
+    description: Review for consistency with the existing README format/tone and accuracy against the actual implementation from wrg-01 and wrg-02.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit README.md.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: README.md
+      purpose: Primary project documentation; File Structure tree, Tools section, and Pipeline Overview section all need updates for the new stage.
+
+files_to_modify:
+  - file: README.md
+    change: add build_wallet_graph.py to File Structure tree, Tools section, and Pipeline Overview
+
+cross_cutting:
+  - concern: documentation
+    action: "Update README.md File Structure tree, Tools section, and Pipeline Overview to describe the new relationship-graph stage and its two output files."
+
+references:
+  - path: .pHive/epics/wallet-relationship-graph/stories/wrg-01-relationship-graph-core.yaml
+    relevant_excerpt: |
+      tools/build_wallet_graph.py -- build_relationship_graph, render_graph_report,
+      CLI wrapper matching filter_wallets.py's style.
+  - path: .pHive/epics/wallet-relationship-graph/stories/wrg-02-pipeline-integration.yaml
+    relevant_excerpt: |
+      Stage 5 writes <output_dir>/checks/wallet_relationships.json and
+      <output_dir>/wallet_relationships.md.

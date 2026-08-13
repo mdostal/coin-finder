@@ -1,0 +1,145 @@
+id: wrg-01-relationship-graph-core
+epic: wallet-relationship-graph
+title: Build the relationship-graph core module
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  New module `tools/build_wallet_graph.py` providing two pure functions:
+
+  - `build_relationship_graph(wallet_data: dict) -> dict` — takes either
+    `wallet_analysis.json`'s shape (`{file_path: {crypto: [address, ...]}}`) or
+    `wallet_balances.json`'s shape (`{file_path: {crypto: {address: balance}}}`)
+    and returns:
+    ```
+    {
+      "nodes": {"files": [...], "addresses": [...], "coins": [...]},
+      "edges": {"file_has_address": [{"file": ..., "address": ..., "coin": ...}],
+                "address_is_coin": [{"address": ..., "coin": ...}]},
+      "signals": {
+        "duplicate_addresses": {address: [file_path, ...]},   # only entries with len >= 2
+        "multi_coin_files": {file_path: [coin, ...]},          # only entries with len >= 2
+        "coverage_gaps": {file_path: {"found": [coin, ...],
+                                       "missing_supported_coins": [coin, ...]}}
+      }
+    }
+    ```
+    Normalize both input shapes to a common internal `{file: {coin: {address: balance_or_None}}}`
+    representation at the top of the function before building the graph, so downstream
+    logic doesn't branch on input shape.
+  - `render_graph_report(graph: dict) -> str` — plain-text/Markdown summary, ordered
+    duplicate_addresses (highest signal) -> multi_coin_files -> coverage_gaps. Report
+    copy must phrase `coverage_gaps` as a question/nudge ("you might want to check
+    for X"), not an assertion the wallet has that coin — see design-discussion.md
+    Section 4 risk note.
+
+  `missing_supported_coins` in `coverage_gaps` is computed against
+  `config.wallet.WALLET_SERVICES.keys()` (the coins this tool supports), not against
+  any external "coins this wallet app supports" list — v1 keeps this simple per
+  design-discussion.md Open Question 2.
+
+  Balances of `None` (API failure, not confirmed zero — see
+  `check_wallet_balances.py`) must be preserved as `None` through the graph, never
+  coerced to 0 or silently dropped — ties to `north_star.avoid`: don't negate a
+  result just because an API call was inconclusive.
+
+acceptance_criteria:
+  - "Given the same address appears under 2+ different file_path keys, when build_relationship_graph runs, then signals.duplicate_addresses includes that address mapped to all file paths it appeared in"
+  - "Given a single file_path has addresses for 2+ different coins, when build_relationship_graph runs, then signals.multi_coin_files includes that file mapped to the list of coins found"
+  - "Given a file_path has addresses for some but not all coins in config.wallet.WALLET_SERVICES, when build_relationship_graph runs, then signals.coverage_gaps[file_path].missing_supported_coins lists exactly the supported coins not found in that file"
+  - "Given an address's balance is None (not 0), when build_relationship_graph runs, then the None is preserved on the corresponding edge/node, never coerced to 0 or omitted"
+  - "Given either wallet_analysis.json shape (list of addresses) or wallet_balances.json shape (dict of address->balance) as input, when build_relationship_graph runs, then both produce equivalent nodes/edges (balances default to None for the analysis-only shape)"
+  - "Given a graph with at least one entry in each signal category, when render_graph_report runs, then the output lists duplicate_addresses before multi_coin_files before coverage_gaps, and coverage_gaps copy reads as a nudge/question, not an assertion"
+
+steps:
+  - id: research
+    description: Re-confirm the exact JSON shapes produced by tools/analyze_wallets.py and tools/check_wallet_balances.py, and read config/wallet.py's WALLET_SERVICES for the coverage-gap comparison set.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_build_wallet_graph.py against
+      build_relationship_graph() and render_graph_report() covering every acceptance
+      criterion above, using small hand-built wallet_data dicts (no file I/O, no
+      network calls). Do NOT read/write the implementation module while writing
+      these — tests encode the acceptance criteria independently.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement tools/build_wallet_graph.py (build_relationship_graph, render_graph_report, and a thin argparse CLI wrapper matching tools/filter_wallets.py's style) to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review implementation and tests for correctness, convention compliance (naming, argparse style matching filter_wallets.py), and that coverage_gaps report copy reads as a nudge not an assertion.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/build_wallet_graph.py and tests/test_build_wallet_graph.py to the feat/wallet-relationship-graph branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    language: python
+    test_framework: pytest
+  key_files:
+    - path: tools/analyze_wallets.py
+      purpose: Source of the wallet_analysis.json shape this module must accept as one valid input.
+    - path: tools/check_wallet_balances.py
+      purpose: Source of the wallet_balances.json shape (the richer, preferred input) and the None-balance-on-API-failure behavior that must be preserved.
+    - path: config/wallet.py
+      purpose: WALLET_SERVICES.keys() is the comparison set for coverage_gaps.missing_supported_coins.
+    - path: tools/filter_wallets.py
+      purpose: Style template for a new single-responsibility pipeline stage (read JSON, transform, write JSON, thin argparse CLI).
+
+files_to_modify:
+  - file: tools/build_wallet_graph.py
+    change: new file -- build_relationship_graph, render_graph_report, CLI wrapper
+  - file: tests/test_build_wallet_graph.py
+    change: new file -- first test suite in the repo
+
+code_examples:
+  - title: Existing single-responsibility pipeline stage pattern to follow
+    file: tools/filter_wallets.py
+    snippet: |
+      def filter_wallet_balances(input_file, output_file):
+          with open(input_file, "r") as f:
+              wallet_data = json.load(f)
+          # ... transform ...
+          with open(output_file, "w") as f:
+              json.dump(filtered_data, f, indent=4)
+
+      if __name__ == "__main__":
+          import argparse
+          parser = argparse.ArgumentParser(description="...")
+          parser.add_argument("input_file", ...)
+          parser.add_argument("output_file", ...)
+          args = parser.parse_args()
+          filter_wallet_balances(args.input_file, args.output_file)
+
+design_decisions:
+  - decision: Normalize both wallet_analysis.json and wallet_balances.json shapes to a common internal representation at the top of build_relationship_graph(), rather than branching throughout.
+    rationale: Keeps the signal-computation logic shape-agnostic and easy to test; only the normalization step needs to know about both input shapes.
+  - decision: coverage_gaps.missing_supported_coins compares against config.wallet.WALLET_SERVICES.keys(), not an external "what coins does this wallet app support" list.
+    rationale: Simpler, no new data source, and avoids an overclaim -- see design-discussion.md Open Question 2. Report copy makes the nudge/question framing explicit.
+
+risks:
+  - severity: medium
+    description: coverage_gaps could read as an overclaim ("this file has these coins") if report wording is careless.
+    mitigation: Acceptance criterion requires nudge/question phrasing; reviewer step explicitly checks this.
+  - severity: low
+    description: None-balance addresses (API failures) could get silently coerced to 0 or dropped if implementation carelessly does `if balance:` checks.
+    mitigation: Explicit acceptance criterion + test case for None-balance preservation.
+
+references:
+  - path: .pHive/epics/wallet-relationship-graph/docs/design-discussion.md
+    relevant_excerpt: |
+      Section 3, point 1: the graph dict shape (nodes/edges/signals) and the
+      conservative framing of coverage_gaps as a nudge, not an assertion.
+  - path: .pHive/epics/wallet-relationship-graph/docs/research-brief.md
+    relevant_excerpt: |
+      "No stage currently correlates data across files or across coins... No
+      test suite exists anywhere in the repo... this is the first code in the
+      repo to land with tests."
