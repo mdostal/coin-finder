@@ -1,7 +1,7 @@
 id: dcv-01-container-detection-core
 epic: deep-crawl-hidden-volumes
 title: Entropy + magic-byte encrypted-container heuristic (core functions)
-status: pending
+status: completed
 complexity: medium
 methodology: tdd
 depends_on: []
