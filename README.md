@@ -49,6 +49,7 @@ project/
 │   ├── detect_hidden_volumes.py # Standalone: flags likely encrypted-container files (detect/flag only)
 │   ├── crawl_transaction_graph.py # Standalone: discovers likely same-owner Bitcoin addresses via public tx graph
 │   ├── find_seed_phrases.py  # Standalone: scans text files for checksum-valid BIP39 seed phrases
+│   ├── match_seed_phrases.py # Standalone: derives addresses from seed phrases (bounded schemes) and checks balances
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
 ├── requirements.txt          # Python dependencies
 ├── run_pipeline.py           # Orchestrates the entire pipeline
@@ -232,6 +233,44 @@ by nearly all modern wallets -- Electrum, Exodus, hardware wallets, and more).
 **Example**:
   ```bash
   python tools/find_seed_phrases.py /Volumes/OldDrive ./output/seed_phrases.json
+  ```
+
+---
+
+### 8. Seed-Phrase Matcher (`match_seed_phrases.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Takes candidate
+seed phrases (e.g. from `find_seed_phrases.py`'s output) and tries them
+against real accounts.
+
+- **Purpose**: Turn a candidate backup phrase into an answer -- does it
+  actually produce a wallet with money in it?
+- **How it works**: Derives addresses using the standard HD-wallet derivation
+  schemes (`bip_utils` -- an audited BIP32/39/44/49/84 library, not hand-rolled
+  crypto math): BIP44/BIP49/BIP84 for Bitcoin, BIP44 for Ethereum and
+  Litecoin. Checks the first several addresses (default 5) on each scheme for
+  a balance, reusing this project's existing balance-check services and
+  retry logic.
+  - **v1 scope**: this bounded scheme set won't catch every possible old
+    wallet -- some very old software (pre-BIP32 Bitcoin Core, old Electrum
+    versions) used nonstandard schemes. A more exhaustive "deep dive" mode is
+    planned as a future, separately-run tool for exactly this situation.
+  - **Never computes or outputs a private key.** Only public addresses and
+    their balances. If a match is found, you re-derive the actual spending
+    key yourself in trusted wallet software (Electrum, a hardware wallet,
+    etc.), now knowing which phrase/scheme/index to use.
+- **Security note**: pass phrases only via a file -- **never** as a
+  command-line argument (visible in shell history and `ps aux`). Found phrase
+  text is never printed to the console; it's written to your local output
+  file only, and only for phrases that actually produced a balance (phrases
+  with nothing found are reported by index, not repeated in the output).
+- **Usage**:
+  ```bash
+  python tools/match_seed_phrases.py <phrases_file> <output_file> [--num-addresses N]
+  ```
+**Example**:
+  ```bash
+  python tools/match_seed_phrases.py ./output/seed_phrases.json ./output/matches.json
   ```
 
 ---
