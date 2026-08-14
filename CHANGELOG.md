@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-14
+
+### Added
+
+- **Persistent findings dashboard** (`/findings`, `web/findings.py`). Every
+  scan's results used to live only in an in-memory job, gone on server
+  restart, with no way to see the accumulated picture across many scans.
+  New SQLite-backed store records every wallet/address/balance found by
+  any scan (the default pipeline scan, `scan_wallet_dat.py`,
+  `crawl_transaction_graph.py`, `check_fork_coins.py`), keyed on
+  (coin, address) so re-scanning updates a finding in place. A one-click
+  "archive all zero-balance findings" action supports the "move and
+  archive all the 0s, then work on the rest" workflow this was built for
+  -- directly motivated by the upcoming multi-day, multi-session Google
+  Drive and physical-drive crawls. Archiving a finding never gets silently
+  undone by a later re-scan.
+
+### Fixed
+
+- Two real test-isolation bugs caught while building the findings store:
+  wiring it into existing job functions immediately leaked test fixture
+  addresses into the real, persistent `web/findings.db`, and even a
+  read-only `list_findings()` call created a stray real db file as a
+  side effect of connecting to it. Both fixed with a new
+  `tests/conftest.py` autouse fixture that patches both functions for the
+  entire test suite -- verified the full run no longer touches
+  `web/findings.db` at all.
+
 ## [0.18.0] - 2026-08-14
 
 ### Added

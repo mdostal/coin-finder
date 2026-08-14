@@ -1,7 +1,7 @@
 id: fd-02-findings-dashboard-page
 epic: findings-dashboard
 title: /findings dashboard page with sort/filter/archive
-status: pending
+status: complete
 complexity: medium
 methodology: tdd
 depends_on: [fd-01-findings-store]

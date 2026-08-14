@@ -690,6 +690,16 @@ this app is a separate, later effort outside this project's own scope.
 - **The home page is now a small dashboard** -- your saved targets with
   one-click scan, a nudge if a plugged-in drive isn't saved yet, and quick
   links to the wizard, unlock, Drive, and mounts pages.
+- **Findings dashboard** (`/findings`) -- every wallet/address/balance ever
+  found across every scan, in one persistent (SQLite-backed,
+  `web/findings.db`) place. Unlike a single scan's results, this
+  accumulates across every scan you run, including across restarts and
+  separate sessions -- built for the upcoming multi-day, multi-session
+  Google Drive and physical-drive crawls, where seeing everything found so
+  far in one place (and being able to "archive all zero-balance findings"
+  in one click, to focus on what still needs attention) matters a lot more
+  than any single scan's transient result page. Inconclusive balances are
+  always shown as "inconclusive," never silently as if they were zero.
 
 ---
 
