@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-14
+
+### Added
+
+- **Private key extraction is now in the web UI** (`/item/extract-key`) --
+  `tools/extract_private_key.py` was CLI-only until now, a real gap given
+  it's the tool that actually unlocks this project's first confirmed real
+  find. Same offline gate as the web unlock flow (re-checked server-side on
+  every submission, refuses with 409 otherwise) and the same once-only
+  result delivery (shown on a dedicated page exactly once, then deleted
+  from server memory -- never reappears, never persisted).
+
 ## [0.17.1] - 2026-08-13
 
 ### Fixed
