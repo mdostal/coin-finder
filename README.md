@@ -1,6 +1,13 @@
 
 # Cryptocurrency Wallet Pipeline
 
+<!-- shared:tagline -->
+> Scan a machine for crypto wallet files and check balances. CLI. Free & open source.
+<!-- /shared:tagline -->
+<!-- shared:byline -->
+Built by [Mathew Dostal](https://mdostal.com) — fractional CTO, Dostal Technology.
+<!-- /shared:byline -->
+
 ---
 
 ## Overview
@@ -17,14 +24,7 @@ The wallet tools I found out there just didn't match up to what I needed them to
 
 So, here's a thing!
 
-If you like it and want to support me making community tools, here are some options:
-
-- Star the repo
-- Tweet about it
-
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/mdostal)
-
-Feel free to reach out if you have any questions or suggestions! (Or if you'd like to see this as a single downloadable executable)
+---
 
 ## File Structure
 
@@ -953,3 +953,18 @@ CRYPTO_PATTERNS = {
     "Bitcoin Cash": r"bitcoincash:[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{42}",
 }
 ```
+
+<!-- shared:support -->
+## Support this project
+
+Free and open source, always. A few ways to help — or just say hi:
+
+- **Use it, star it, file an issue.** Honestly the best support an open-source project can get. → [this project](https://github.com/mdostal/coin-finder)
+- **Hire me.** I do fractional-CTO and consulting work — fixing and scaling tech stacks. → [mdostal.com/contact](https://mdostal.com/contact)
+- **[Buy me a coffee](https://www.buymeacoffee.com/mdostal)** if it saved you time.
+- **More tools like this** → [tools.mdostal.com](https://tools.mdostal.com)
+- **Life outside the terminal** → [life.mdostal.com](https://life.mdostal.com)
+- **What we're building at Firefly Events** — event discovery, 8,000+ events/day from 7+ sources → [ff.events](https://ff.events)
+
+Always up for a conversation if any of it's useful to you.
+<!-- /shared:support -->

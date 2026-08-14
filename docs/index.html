@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>coin-finder — find your old crypto wallets</title>
+<meta name="description" content="Scan a machine for crypto wallet files and check balances. CLI. Free &amp; open source.">
+<link rel="icon" type="image/x-icon" href="assets/icon/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icon/icon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/icon/icon-16.png">
+<style>
+  :root {
+    --bg: #0f1115;
+    --bg-raised: #161a21;
+    --bg-inset: #0b0d11;
+    --border: #262b35;
+    --text: #e6e9ef;
+    --text-dim: #9aa3b2;
+    --accent: #2dd4a7;
+    --accent-dim: #1c8f72;
+    --gold: #e8b339;
+    --gold-dim: #b8862a;
+    --mono: "SF Mono", "Menlo", "Consolas", monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    margin: 0;
+    line-height: 1.6;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-dim); }
+  code {
+    font-family: var(--mono);
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.4rem;
+    color: var(--accent);
+    font-size: 0.88em;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 1.5rem; }
+
+  /* nav */
+  .topnav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(15,17,21,0.9);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topnav .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 0.9rem;
+    padding-bottom: 0.9rem;
+  }
+  .brand { display: flex; align-items: center; gap: 0.55rem; font-family: var(--mono); font-weight: 600; color: var(--text); font-size: 1rem; }
+  .brand img { width: 26px; height: 26px; border-radius: 7px; }
+  .navlinks { display: flex; gap: 1.5rem; font-size: 0.88rem; color: var(--text-dim); }
+  .navlinks a { color: var(--text-dim); }
+  .navlinks a:hover { color: var(--text); }
+  @media (max-width: 640px) { .navlinks { display: none; } }
+
+  /* hero */
+  .hero { padding: 5rem 0 4rem; text-align: center; }
+  .hero img.icon {
+    width: 108px;
+    height: 108px;
+    border-radius: 24px;
+    box-shadow: 0 20px 60px -20px rgba(45,212,167,0.35);
+    margin-bottom: 1.75rem;
+  }
+  .hero h1 {
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+  .hero .tagline {
+    font-size: 1.15rem;
+    color: var(--text-dim);
+    max-width: 56ch;
+    margin: 0 auto 1.25rem;
+  }
+  .hero .sub {
+    font-size: 0.95rem;
+    color: var(--text-dim);
+    max-width: 62ch;
+    margin: 0 auto 2.25rem;
+  }
+  .cta-row { display: flex; gap: 0.9rem; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.35rem;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    border: 1px solid var(--border);
+  }
+  .btn-primary { background: var(--accent); color: #06231b; border-color: var(--accent); }
+  .btn-primary:hover { background: var(--accent-dim); color: #06231b; }
+  .btn-ghost { color: var(--text); background: transparent; }
+  .btn-ghost:hover { background: var(--bg-raised); color: var(--text); }
+
+  /* sections */
+  section { padding: 4rem 0; border-top: 1px solid var(--border); }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 0.6rem;
+  }
+  h2 { font-size: clamp(1.5rem, 3vw, 1.9rem); margin: 0 0 1rem; letter-spacing: -0.01em; text-wrap: balance; }
+  .lede { color: var(--text-dim); max-width: 68ch; margin: 0 0 2.25rem; font-size: 1.02rem; }
+
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; }
+  .card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.4rem;
+  }
+  .card h3 { margin: 0 0 0.55rem; font-size: 1.02rem; color: var(--text); }
+  .card p { margin: 0; color: var(--text-dim); font-size: 0.9rem; }
+  .card .mark { color: var(--gold); font-family: var(--mono); font-size: 0.8rem; margin-bottom: 0.5rem; display: block; }
+
+  .coinbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.75rem;
+  }
+  .coin-chip {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+  }
+
+  .toollist { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem 1.5rem; margin-top: 0.5rem; }
+  .toolitem { display: flex; gap: 0.7rem; align-items: flex-start; }
+  .toolitem .n { font-family: var(--mono); color: var(--accent-dim); font-size: 0.82rem; padding-top: 0.1rem; flex-shrink: 0; width: 1.6rem; }
+  .toolitem div p { margin: 0.2rem 0 0; color: var(--text-dim); font-size: 0.87rem; }
+  .toolitem div strong { color: var(--text); font-size: 0.95rem; }
+
+  pre.install {
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem 1.4rem;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.87rem;
+    color: var(--text);
+    line-height: 1.8;
+  }
+  pre.install .comment { color: var(--text-dim); }
+
+  .quote {
+    border-left: 3px solid var(--accent-dim);
+    padding-left: 1.2rem;
+    color: var(--text-dim);
+    font-size: 0.98rem;
+    margin: 0;
+  }
+
+  .support-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.85rem; }
+  .support-list li { color: var(--text-dim); font-size: 0.95rem; }
+  .support-list strong { color: var(--text); }
+
+  footer { padding: 3rem 0 4rem; border-top: 1px solid var(--border); }
+  footer .wrap { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+  footer .fine { color: var(--text-dim); font-size: 0.85rem; }
+  footer .fine a { color: var(--text-dim); }
+  footer .fine a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="wrap">
+    <div class="brand"><img src="assets/icon/icon-32.png" alt=""> coin-finder</div>
+    <div class="navlinks">
+      <a href="#finds">What it finds</a>
+      <a href="#safety">Safety</a>
+      <a href="#toolkit">Toolkit</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/mdostal/coin-finder">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="icon" src="assets/icon/icon-256.png" alt="coin-finder icon">
+    <h1>Find your old crypto wallets before you lose them for good.</h1>
+    <p class="tagline">An open-source toolkit for locating, analyzing, and recovering wallet files scattered across old drives, backups, and cloud storage — Bitcoin, Litecoin, Dogecoin, and 17 more.</p>
+    <p class="sub">Built after years of not being able to find my own old mined coins. Offline-first by default, every secret stays file-only, and the whole thing is readable source — no unverifiable third-party binaries.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/mdostal/coin-finder">View on GitHub</a>
+      <a class="btn btn-ghost" href="https://github.com/mdostal/coin-finder/releases/latest">Latest release</a>
+      <a class="btn btn-ghost" href="#install">Install</a>
+    </div>
+  </div>
+</header>
+
+<section id="finds">
+  <div class="wrap">
+    <p class="kicker">01 — WHAT IT FINDS</p>
+    <h2>Search, analyze, and check balances across 20 cryptocurrencies</h2>
+    <p class="lede">Point it at a directory, a mounted drive, or a Google Drive account. It searches for wallet-shaped files, extracts every address it can find, checks live balances, and builds a relationship graph across everything it turns up.</p>
+    <div class="grid3">
+      <div class="card">
+        <span class="mark">wallet.dat</span>
+        <h3>Bitcoin-family wallets</h3>
+        <p>Full Berkeley DB parsing for Bitcoin Core-derived wallets — encrypted key detection, address enumeration, and (for unencrypted wallets) direct private-key extraction with self-verification.</p>
+      </div>
+      <div class="card">
+        <span class="mark">seed phrases</span>
+        <h3>BIP39 phrase discovery</h3>
+        <p>Scans text and files for candidate 12/24-word seed phrases, validates them against the real BIP39 checksum, and matches them against known addresses.</p>
+      </div>
+      <div class="card">
+        <span class="mark">hidden volumes</span>
+        <h3>Encrypted/hidden detection</h3>
+        <p>Flags likely encrypted or hidden volumes on a drive so you know what's worth a deeper pass, even before you have a password for it.</p>
+      </div>
+      <div class="card">
+        <span class="mark">Exodus</span>
+        <h3>Exodus desktop wallets</h3>
+        <p>hashcat-backed password recovery for Exodus's <code>seed.seco</code> format, which nothing else in the open-source space wraps cleanly.</p>
+      </div>
+      <div class="card">
+        <span class="mark">fork coins</span>
+        <h3>Hard-fork balance checks</h3>
+        <p>A hard fork copies the whole ledger — this checks any Bitcoin address you find against Bitcoin Cash, Bitcoin SV, and Bitcoin Gold too.</p>
+      </div>
+      <div class="card">
+        <span class="mark">multi-TB drives</span>
+        <h3>Google Drive &amp; cloud mounts</h3>
+        <p>OAuth-based Drive crawl, or mount a multi-terabyte Drive/GCS bucket read-only with rclone and scan it like any local directory — no full download required.</p>
+      </div>
+    </div>
+
+    <div class="coinbar">
+      <span class="coin-chip">BTC</span><span class="coin-chip">BCH</span><span class="coin-chip">BSV</span>
+      <span class="coin-chip">BTG</span><span class="coin-chip">LTC</span><span class="coin-chip">DOGE</span>
+      <span class="coin-chip">ETH</span><span class="coin-chip">ETC</span><span class="coin-chip">SHIB</span>
+      <span class="coin-chip">XRP</span><span class="coin-chip">ADA</span><span class="coin-chip">ATOM</span>
+      <span class="coin-chip">BNB</span><span class="coin-chip">XMR</span><span class="coin-chip">ZEC</span>
+      <span class="coin-chip">USDT</span><span class="coin-chip">HNT</span><span class="coin-chip">MIOTA</span>
+      <span class="coin-chip">OK</span><span class="coin-chip">FTC</span>
+    </div>
+  </div>
+</section>
+
+<section id="safety">
+  <div class="wrap">
+    <p class="kicker">02 — BUILT SAFETY-FIRST</p>
+    <h2>The tools out there didn't hold up. This one has to.</h2>
+    <p class="lede">Every wallet-recovery tool I found either didn't do what I needed, or pulled in third-party code I couldn't verify wasn't a trojan. This project is fully readable source, and treats your keys and passwords like it means it.</p>
+    <div class="grid3">
+      <div class="card">
+        <h3>Offline by default, your call to override</h3>
+        <p>Testing real passwords against a real wallet refuses to run online unless you explicitly opt in — a clear, informed choice every time, not a silent bypass.</p>
+      </div>
+      <div class="card">
+        <h3>File-only secrets, always</h3>
+        <p>Candidate passwords and phrases are never passed as CLI arguments or query strings — only through local files, the same discipline everywhere in the codebase.</p>
+      </div>
+      <div class="card">
+        <h3>Once-only results</h3>
+        <p>A found password or extracted key is shown to you exactly once. It's never logged, never written to disk, and gone for good the moment you navigate away.</p>
+      </div>
+      <div class="card">
+        <h3>Localhost-only web app</h3>
+        <p>The local dashboard refuses to bind to anything but 127.0.0.1 — it's not reachable beyond your own machine, ever.</p>
+      </div>
+      <div class="card">
+        <h3>No unverifiable binaries</h3>
+        <p>No compiled blobs, no closed-source dependencies claiming to "just work." Every line that touches your keys is here for you to read.</p>
+      </div>
+      <div class="card">
+        <h3>Vault-backed password tracking</h3>
+        <p>Save known/guessed passwords once, labeled, backed by <a href="https://github.com/mdostal/portunus">Portunus</a> — see which label matched a found password without ever re-exposing the value.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="toolkit">
+  <div class="wrap">
+    <p class="kicker">03 — THE TOOLKIT</p>
+    <h2>15 standalone tools, plus a local web app that runs all of them</h2>
+    <p class="lede">Every tool works on its own from the command line. The local web app (<code>python web/app.py</code>) wraps all of them in one dashboard — scan targets, mounted drives, the password vault, and native Finder/zenity file pickers included.</p>
+    <div class="toollist">
+      <div class="toolitem"><span class="n">01</span><div><strong>Search</strong><p>Finds wallet-shaped files by extension and keyword.</p></div></div>
+      <div class="toolitem"><span class="n">02</span><div><strong>Analyze</strong><p>Extracts addresses from whatever search found.</p></div></div>
+      <div class="toolitem"><span class="n">03</span><div><strong>Balance check</strong><p>Checks live balances across every supported coin.</p></div></div>
+      <div class="toolitem"><span class="n">04</span><div><strong>Relationship graph</strong><p>Correlates wallet data across files and coins.</p></div></div>
+      <div class="toolitem"><span class="n">05</span><div><strong>Hidden volumes</strong><p>Flags likely encrypted/hidden volumes on a drive.</p></div></div>
+      <div class="toolitem"><span class="n">06</span><div><strong>Transaction graph</strong><p>Co-spend clustering from one known address.</p></div></div>
+      <div class="toolitem"><span class="n">07</span><div><strong>Seed-phrase finder</strong><p>Scans for candidate BIP39 phrases.</p></div></div>
+      <div class="toolitem"><span class="n">08</span><div><strong>Seed-phrase matcher</strong><p>Tries candidate phrases against known addresses.</p></div></div>
+      <div class="toolitem"><span class="n">09</span><div><strong>Wallet unlock</strong><p>BTCRecover-backed password testing.</p></div></div>
+      <div class="toolitem"><span class="n">10</span><div><strong>Full wallet.dat scan</strong><p>Deep Berkeley DB enumeration.</p></div></div>
+      <div class="toolitem"><span class="n">11</span><div><strong>Fork coin checker</strong><p>Checks a BTC address against fork coins.</p></div></div>
+      <div class="toolitem"><span class="n">12</span><div><strong>Exodus unlock</strong><p>hashcat-backed <code>seed.seco</code> recovery.</p></div></div>
+      <div class="toolitem"><span class="n">13</span><div><strong>Google Drive adapter</strong><p>OAuth crawl for wallet-like files in Drive.</p></div></div>
+      <div class="toolitem"><span class="n">14</span><div><strong>Private key extraction</strong><p>Self-verifying WIF extraction from unencrypted wallets.</p></div></div>
+      <div class="toolitem"><span class="n">15</span><div><strong>Recoverability report</strong><p>One Markdown report per wallet.dat, start to finish.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <p class="kicker">04 — INSTALL &amp; RUN</p>
+    <h2>Clone it, install the requirements, run the dashboard</h2>
+    <p class="lede">Full setup details (including Google Drive OAuth and optional rclone mounting) are in the README — this is the fast path.</p>
+    <pre class="install"><span class="comment"># clone and install</span>
+git clone https://github.com/mdostal/coin-finder.git
+cd coin-finder
+pip install -r requirements.txt
+
+<span class="comment"># run the local dashboard (127.0.0.1 only)</span>
+python web/app.py</pre>
+    <p style="margin-top:1.5rem"><a href="https://github.com/mdostal/coin-finder#readme">Full README &amp; docs →</a></p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">WHY THIS EXISTS</p>
+    <blockquote class="quote">
+      "If anyone is like me and happens to stash crypto coins like a squirrel stashes nuts... often forgetting where they are.... I've created a toolset to help find wallets, check them for coins, and filter the files down to reasonable ones based on what it found on the corresponding blockchain."
+    </blockquote>
+  </div>
+</section>
+
+<section id="support">
+  <div class="wrap">
+    <p class="kicker">SUPPORT THIS PROJECT</p>
+    <h2>Free and open source, always</h2>
+    <ul class="support-list">
+      <li><strong>Use it, star it, file an issue.</strong> Honestly the best support an open-source project can get. → <a href="https://github.com/mdostal/coin-finder">github.com/mdostal/coin-finder</a></li>
+      <li><strong>Hire me.</strong> Fractional-CTO and consulting work — fixing and scaling tech stacks. → <a href="https://mdostal.com/contact">mdostal.com/contact</a></li>
+      <li><strong>Buy me a coffee</strong> if it saved you time. → <a href="https://www.buymeacoffee.com/mdostal">buymeacoffee.com/mdostal</a></li>
+      <li><strong>More tools like this</strong> → <a href="https://tools.mdostal.com">tools.mdostal.com</a></li>
+      <li><strong>What we're building at Firefly Events</strong> — event discovery, 8,000+ events/day → <a href="https://ff.events">ff.events</a></li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="fine">Built by <a href="https://mdostal.com">Mathew Dostal</a> — fractional CTO, Dostal Technology. <em>Specialization is for insects.</em></div>
+    <div class="fine"><a href="https://github.com/mdostal/coin-finder">GitHub</a> · <a href="https://github.com/mdostal/coin-finder/releases">Releases</a> · <a href="https://github.com/mdostal/coin-finder/issues">Issues</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

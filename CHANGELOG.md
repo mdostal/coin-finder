@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-08-14
+
+### Added
+
+- **GitHub Pages landing page** (`docs/index.html`) -- a public, "ready to
+  advertise" page for the project: what it finds (20 supported
+  cryptocurrencies), the safety guarantees (offline-by-default, file-only
+  secrets, once-only results, no unverifiable binaries), the full 15-tool
+  toolkit, and an install snippet. Uses the same dark/teal/gold palette and
+  the new Loupe & Coin icon as the app itself. Enabled to serve from
+  `main`/`docs`.
+- **README "Support this project" section** rewritten with the standardized
+  copy used across the author's other open-source projects.
+
 ## [0.23.0] - 2026-08-14
 
 ### Added
