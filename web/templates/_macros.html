@@ -1,3 +1,11 @@
 {% macro status_pill(status) %}
 <span class="status-pill status-{{ status }}">{{ status }}</span>
 {% endmacro %}
+
+{% macro path_input(label, name, mode="file", value="", required=False, placeholder="") %}
+<label>{{ label }}</label>
+<div class="path-input-row">
+  <input type="text" name="{{ name }}" id="path-{{ name }}" value="{{ value }}" placeholder="{{ placeholder }}"{{ " required" if required }}>
+  <button type="button" class="browse-btn btn-secondary" data-target="path-{{ name }}" data-mode="{{ mode }}">Browse&hellip;</button>
+</div>
+{% endmacro %}

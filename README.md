@@ -592,6 +592,10 @@ still works standalone for scripting/automation.
   an app bound to anything else -- this app handles local wallet files and
   (in a later story) real unlock candidates, and must never be reachable
   beyond this machine.
+- **Every path field has a "Browse…" button** that opens the real OS file
+  picker (Finder on macOS, `zenity` on Linux) and fills the field for you --
+  typing a path by hand still works everywhere too. Backed by
+  `web/native_dialogs.py` + `/api/pick-path`.
 - **What's here so far:** pick a directory on the form at `/`, submit it, and
   it runs the same default pipeline as `run_pipeline.py` (search -> analyze
   -> check balances -> filter -> relationship graph) plus

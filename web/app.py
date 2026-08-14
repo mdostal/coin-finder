@@ -23,6 +23,7 @@ from web.findings import archive, archive_all_zero_balance, list_findings, recor
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
 from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
+from web.native_dialogs import pick_path
 from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -93,6 +94,15 @@ def create_app(host="127.0.0.1"):
             return jsonify({"error": f"Could not list directory: {e}"}), 400
 
         return jsonify({"path": str(target), "subdirectories": subdirectories})
+
+    @app.route("/api/pick-path", methods=["POST"])
+    def api_pick_path():
+        mode = request.form.get("mode") or "file"
+        try:
+            path = pick_path(mode=mode)
+        except RuntimeError as e:
+            return jsonify({"error": str(e)}), 400
+        return jsonify({"path": path})
 
     @app.route("/scan", methods=["POST"])
     def start_scan():

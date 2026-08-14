@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-08-14
+
+### Added
+
+- **Native file/folder pickers ("Browse…") on every path input.** Direct
+  follow-up to feedback that typing full paths by hand doesn't fit a tool
+  meant for anyone to use. Every path field across Scan, Unlock, Extract
+  Key, Drive, Targets, and the deeper on-demand tools now has a "Browse…"
+  button that opens the real OS file picker (Finder on macOS via
+  `osascript`; `zenity` on Linux, e.g. Dolphin-desktop users) and fills the
+  field with the chosen path -- typing the path is still fully supported,
+  this is a convenience on top, not a replacement. New `web/native_dialogs.py`
+  + `/api/pick-path`.
+
 ## [0.21.0] - 2026-08-14
 
 ### Added

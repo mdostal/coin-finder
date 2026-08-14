@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}coin-finder -- Google Drive{% endblock %}
 {% block content %}
 <h2>Scan Google Drive</h2>
@@ -17,8 +18,7 @@ instead -- once mounted, point the regular <a href="{{ url_for('index') }}">scan
 
 <div class="card">
   <form method="post" action="{{ url_for('drive_scan') }}">
-    <label>Local output directory (downloaded files land here)</label>
-    <input type="text" name="output_dir" required>
+    {{ m.path_input("Local output directory (downloaded files land here)", "output_dir", mode="directory", required=True) }}
 
     <label>Optional Drive API query (leave blank for everything not trashed)</label>
     <input type="text" name="query">

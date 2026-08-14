@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}coin-finder -- extract private key{% endblock %}
 {% block content %}
 <h2>Extract a private key</h2>
@@ -32,8 +33,7 @@
 
 <div class="card">
   <form method="post" action="{{ url_for('item_extract_key') }}">
-    <label>Wallet file (must be unencrypted)</label>
-    <input type="text" name="wallet_path" required>
+    {{ m.path_input("Wallet file (must be unencrypted)", "wallet_path", mode="file", required=True) }}
 
     <label>Address to extract the key for</label>
     <input type="text" name="address" required>
