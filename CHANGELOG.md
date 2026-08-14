@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-08-14
+
+### Added
+
+- **Real app icon.** The web UI now ships a proper favicon/touch-icon
+  ("Loupe & Coin": a magnifying glass beside a gold coin, rendered with
+  Gemini 2.5 Flash Image) instead of an emoji placeholder --
+  `web/static/icon/` has the generated `favicon.ico` + PNG sizes.
+  `assets/icon/icon-1024.png` holds the 1024x1024 master source for the
+  future Tauri packaging step (`cargo tauri icon assets/icon/icon-1024.png`
+  generates the full platform icon set from it directly).
+
 ## [0.22.0] - 2026-08-14
 
 ### Added
