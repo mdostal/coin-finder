@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}coin-finder{% endblock %}
 {% block content %}
 {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
@@ -31,8 +32,7 @@ looks like a hidden/encrypted volume.</p>
 
 <div class="card">
   <form method="post" action="{{ url_for('start_scan') }}">
-    <label>Directory to scan</label>
-    <input type="text" name="input_dir" placeholder="/path/to/drive-or-directory" required>
+    {{ m.path_input("Directory to scan", "input_dir", mode="directory", placeholder="/path/to/drive-or-directory", required=True) }}
     <button type="submit">Scan</button>
   </form>
 </div>

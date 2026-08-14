@@ -159,6 +159,10 @@ button.btn-secondary:hover {
   color: var(--text);
 }
 
+.path-input-row { display: flex; gap: 0.5rem; align-items: stretch; margin-bottom: 1rem; }
+.path-input-row input[type=text] { flex: 1; margin-bottom: 0; }
+.path-input-row button { flex-shrink: 0; white-space: nowrap; }
+
 form.inline-form {
   border-top: 1px solid var(--border);
   padding-top: 1.1rem;

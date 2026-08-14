@@ -57,8 +57,7 @@
     <p class="subtle">Run one of the deeper, on-demand tools against something found above.</p>
 
     <form class="inline-form" method="post" action="{{ url_for('item_scan_wallet_dat') }}">
-      <label>Full wallet.dat scan -- path</label>
-      <input type="text" name="wallet_path">
+      {{ m.path_input("Full wallet.dat scan -- path", "wallet_path", mode="file") }}
       <button type="submit">Run</button>
     </form>
 
@@ -75,20 +74,17 @@
     </form>
 
     <form class="inline-form" method="post" action="{{ url_for('item_find_seed_phrases') }}">
-      <label>Find seed phrases -- directory or file</label>
-      <input type="text" name="target_path">
+      {{ m.path_input("Find seed phrases -- directory or file", "target_path", mode="directory") }}
       <button type="submit">Run</button>
     </form>
 
     <form class="inline-form" method="post" action="{{ url_for('item_match_seed_phrases') }}">
-      <label>Match seed phrases -- existing candidates file</label>
-      <input type="text" name="phrases_file">
+      {{ m.path_input("Match seed phrases -- existing candidates file", "phrases_file", mode="file") }}
       <button type="submit">Run</button>
     </form>
 
     <form class="inline-form" method="post" action="{{ url_for('item_stage') }}">
-      <label>Stage a file for backup/recovery (copy only, original untouched) -- path</label>
-      <input type="text" name="file_path">
+      {{ m.path_input("Stage a file for backup/recovery (copy only, original untouched) -- path", "file_path", mode="file") }}
       <button type="submit">Stage</button>
     </form>
 
