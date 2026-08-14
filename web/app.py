@@ -19,6 +19,7 @@ from tools.match_seed_phrases import load_phrases_from_file, match_phrases, rend
 from tools.scan_google_drive import get_drive_service, scan_drive_for_wallets
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
 from tools.extract_private_key import extract_wif_for_address
+from web.findings import archive, archive_all_zero_balance, list_findings, record_finding, unarchive
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
 from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
@@ -62,11 +63,14 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/")
     def index():
+        findings = list_findings()
         return render_template(
             "index.html",
             error=request.args.get("error"),
             targets=list_targets(),
             volumes=list_mounted_volumes(),
+            findings_count=len(findings),
+            findings_needs_review_count=sum(1 for f in findings if f["balance"] != 0.0),
         )
 
     @app.route("/api/browse")
@@ -280,6 +284,26 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("extract_key_result.html", job_id=job_id, job=job)
 
+    @app.route("/findings")
+    def findings_page():
+        include_archived = request.args.get("include_archived") == "1"
+        return render_template("findings.html", findings=list_findings(include_archived=include_archived), include_archived=include_archived)
+
+    @app.route("/findings/archive", methods=["POST"])
+    def findings_archive():
+        archive(request.form.get("coin"), request.form.get("address"))
+        return redirect(url_for("findings_page"))
+
+    @app.route("/findings/unarchive", methods=["POST"])
+    def findings_unarchive():
+        unarchive(request.form.get("coin"), request.form.get("address"))
+        return redirect(url_for("findings_page", include_archived="1"))
+
+    @app.route("/findings/archive-all-zero", methods=["POST"])
+    def findings_archive_all_zero():
+        archive_all_zero_balance()
+        return redirect(url_for("findings_page"))
+
     @app.route("/item/stage", methods=["POST"])
     def item_stage():
         file_path = (request.form.get("file_path") or "").strip()
@@ -430,6 +454,9 @@ def _run_scan_wallet_dat_job(wallet_path, job_id):
     for entry in significant:
         lines.append(f"- {entry['address']}: {entry['balance']}")
 
+    for entry in checked["results"]:
+        record_finding("Bitcoin", entry["address"], entry.get("balance"), source_path=wallet_path, source_label="scan_wallet_dat")
+
     return {
         "report": "\n".join(lines),
         "encrypted_key_count": scan["encrypted_key_count"],
@@ -453,11 +480,19 @@ def _run_crawl_job(addresses):
     finally:
         Path(temp_path).unlink(missing_ok=True)
 
+    for address, info in results.items():
+        record_finding("Bitcoin", address, info.get("balance"), source_label="crawl_transaction_graph")
+
     return {"report": render_cluster_report(results), "results": results}
 
 
 def _run_fork_coins_job(addresses):
     results = check_fork_coins_for_addresses(addresses)
+
+    for address, coin_balances in results.items():
+        for coin, balance in coin_balances.items():
+            record_finding(coin, address, balance, source_label="check_fork_coins")
+
     return {"report": render_fork_coin_report(results), "results": results}
 
 
@@ -542,6 +577,14 @@ def _run_scan_job(input_dir, job_id):
     )
 
     hidden_volumes = scan_for_hidden_volumes(input_dir)
+
+    balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
+    balances = _read_json(balances_path)
+    if balances:
+        for file_path, crypto_wallets in balances.items():
+            for coin, addresses in crypto_wallets.items():
+                for address, balance in addresses.items():
+                    record_finding(coin, address, balance, source_path=file_path, source_label="scan")
 
     return {
         "output_dir": output_dir,

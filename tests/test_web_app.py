@@ -1,4 +1,6 @@
+import json
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -83,6 +85,36 @@ def test_scan_job_lifecycle_reaches_done(mock_pipeline, mock_hidden, client, tmp
     assert job["status"] == "done"
     mock_pipeline.main.assert_called_once()
     mock_hidden.assert_called_once_with(str(tmp_path))
+
+
+@patch("web.app.record_finding")
+@patch("web.app.scan_for_hidden_volumes")
+@patch("web.app.run_pipeline")
+def test_scan_job_records_balances_into_the_findings_store(mock_pipeline, mock_hidden, mock_record, client, tmp_path):
+    balances_data = {"walletA.dat": {"Bitcoin": {"1abc": 0.5}}}
+
+    def fake_main(input_dir, output_dir, progress_callback=None):
+        checks_dir = Path(output_dir) / "checks"
+        checks_dir.mkdir(parents=True, exist_ok=True)
+        with open(checks_dir / "wallet_balances.json", "w") as f:
+            json.dump(balances_data, f)
+
+    mock_pipeline.main.side_effect = fake_main
+    mock_hidden.return_value = []
+
+    resp = client.post("/scan", data={"input_dir": str(tmp_path)}, follow_redirects=False)
+    job_id = resp.headers["Location"].rstrip("/").split("/")[-1]
+
+    job = None
+    for _ in range(100):
+        status_resp = client.get(f"/api/jobs/{job_id}")
+        job = status_resp.get_json()
+        if job["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    assert job["status"] == "done"
+    mock_record.assert_called_once_with("Bitcoin", "1abc", 0.5, source_path="walletA.dat", source_label="scan")
 
 
 @patch("web.app.scan_for_hidden_volumes")

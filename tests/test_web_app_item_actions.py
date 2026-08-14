@@ -79,6 +79,23 @@ def test_scan_wallet_dat_action_reports_progress(mock_scan, mock_check, client, 
     assert job["progress"] == {"current": 1, "total": 1, "message": "1abc"}
 
 
+@patch("web.app.record_finding")
+@patch("web.app.check_addresses_balances")
+@patch("web.app.scan_wallet_for_addresses")
+def test_scan_wallet_dat_action_records_findings(mock_scan, mock_check, mock_record, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"not a real wallet")
+
+    mock_scan.return_value = {"addresses": [{"address": "1abc", "source": "key"}], "encrypted_key_count": 0, "unparsed_record_types": {}}
+    mock_check.return_value = {"results": [{"address": "1abc", "source": "key", "balance": 0.3}], "limited": False, "total_available": 1}
+
+    resp = client.post("/item/scan-wallet-dat", data={"wallet_path": str(wallet_file)}, follow_redirects=False)
+    job = _wait_for_job(client, _job_id_from_redirect(resp))
+
+    assert job["status"] == "done"
+    mock_record.assert_called_once_with("Bitcoin", "1abc", 0.3, source_path=str(wallet_file), source_label="scan_wallet_dat")
+
+
 def test_scan_wallet_dat_rejects_missing_file(client, tmp_path):
     resp = client.post("/item/scan-wallet-dat", data={"wallet_path": str(tmp_path / "nope.dat")})
     assert resp.status_code == 400
@@ -108,6 +125,31 @@ def test_fork_coins_action(mock_check, client):
 
     assert job["status"] == "done"
     mock_check.assert_called_once_with(["1abc"])
+
+
+@patch("web.app.record_finding")
+@patch("web.app.crawl_wallet_cluster")
+def test_crawl_action_records_findings(mock_crawl, mock_record, client):
+    mock_crawl.return_value = {"1abc": {"confidence": "seed", "generation": 0, "balance": 2.5}}
+
+    resp = client.post("/item/crawl", data={"addresses": "1abc"}, follow_redirects=False)
+    job = _wait_for_job(client, _job_id_from_redirect(resp))
+
+    assert job["status"] == "done"
+    mock_record.assert_called_once_with("Bitcoin", "1abc", 2.5, source_label="crawl_transaction_graph")
+
+
+@patch("web.app.record_finding")
+@patch("web.app.check_fork_coins_for_addresses")
+def test_fork_coins_action_records_findings(mock_check, mock_record, client):
+    mock_check.return_value = {"1abc": {"Bitcoin Cash": 0.0, "Bitcoin Gold": 1.2}}
+
+    resp = client.post("/item/fork-coins", data={"addresses": "1abc"}, follow_redirects=False)
+    job = _wait_for_job(client, _job_id_from_redirect(resp))
+
+    assert job["status"] == "done"
+    mock_record.assert_any_call("Bitcoin Cash", "1abc", 0.0, source_label="check_fork_coins")
+    mock_record.assert_any_call("Bitcoin Gold", "1abc", 1.2, source_label="check_fork_coins")
 
 
 @patch("web.app.scan_directory")

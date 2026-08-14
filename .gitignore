@@ -11,6 +11,7 @@
 /ui_output/
 /web/bound_targets.json
 /web/mounts_state.json
+/web/findings.db
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -218,6 +219,8 @@ cython_debug/
 !.pHive/epics/bsv-and-feathercoin-support/**
 !.pHive/epics/web-ui-wizard-and-mounting/
 !.pHive/epics/web-ui-wizard-and-mounting/**
+!.pHive/epics/findings-dashboard/
+!.pHive/epics/findings-dashboard/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

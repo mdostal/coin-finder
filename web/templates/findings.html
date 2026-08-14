@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- findings{% endblock %}
+{% block content %}
+<h2>Findings</h2>
+<p>Every wallet/address/balance ever found across every scan, in one place --
+persists across restarts, so it accumulates across a multi-day, multi-session
+crawl instead of vanishing when a job finishes.</p>
+
+<div class="card">
+  <form method="post" action="{{ url_for('findings_archive_all_zero') }}" style="display:inline">
+    <button type="submit">Archive all zero-balance findings</button>
+  </form>
+  {% if include_archived %}
+  <a href="{{ url_for('findings_page') }}" class="subtle">Hide archived</a>
+  {% else %}
+  <a href="{{ url_for('findings_page', include_archived='1') }}" class="subtle">Show archived</a>
+  {% endif %}
+</div>
+
+{% if findings %}
+<table>
+  <thead>
+    <tr><th>Coin</th><th>Address</th><th>Balance</th><th>Source</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for f in findings %}
+    <tr>
+      <td>{{ f.coin }}</td>
+      <td>{{ f.address }}</td>
+      <td>{% if f.balance is none %}<span class="subtle">inconclusive</span>{% else %}{{ f.balance }}{% endif %}</td>
+      <td>{{ f.source_label or "" }}{% if f.source_path %} ({{ f.source_path }}){% endif %}</td>
+      <td>{{ f.status }}</td>
+      <td>
+        {% if f.status == "archived" %}
+        <form method="post" action="{{ url_for('findings_unarchive') }}" style="display:inline">
+          <input type="hidden" name="coin" value="{{ f.coin }}">
+          <input type="hidden" name="address" value="{{ f.address }}">
+          <button type="submit" class="btn-secondary">Unarchive</button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('findings_archive') }}" style="display:inline">
+          <input type="hidden" name="coin" value="{{ f.coin }}">
+          <input type="hidden" name="address" value="{{ f.address }}">
+          <button type="submit" class="btn-secondary">Archive</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No findings yet -- run a scan first.</p>
+{% endif %}
+{% endblock %}

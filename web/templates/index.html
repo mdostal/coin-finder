@@ -11,6 +11,18 @@
 </div>
 {% endif %}
 
+{% if findings_count and findings_count > 0 %}
+<div class="card">
+  <a href="{{ url_for('findings_page') }}" style="text-decoration:none">
+    <strong style="color:var(--text)">{{ findings_count }}</strong> finding{{ "s" if findings_count != 1 else "" }} recorded
+    {% if findings_needs_review_count %}
+    &mdash; <strong style="color:var(--accent)">{{ findings_needs_review_count }}</strong> still worth a look
+    {% endif %}
+    &rarr;
+  </a>
+</div>
+{% endif %}
+
 <h2>Scan a drive or directory</h2>
 <p>Point this at a directory (a mounted old drive, a backup folder, anything)
 and it will run the full wallet-discovery pipeline against it: search,

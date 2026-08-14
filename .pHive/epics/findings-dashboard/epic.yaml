@@ -1,0 +1,44 @@
+name: findings-dashboard
+title: Persistent Findings Dashboard
+description: >
+  A persistent, aggregated inventory (SQLite-backed) of every wallet/
+  address/balance ever found across every scan this project runs, plus a
+  /findings dashboard page to review, sort, and archive zero-balance
+  entries. Direct response to a real gap: every scan's results have only
+  ever lived in an in-memory job, gone on server restart, with no
+  aggregation across scans. Explicitly motivated by the upcoming
+  multi-session Google Drive and physical-drive crawls.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, frontend, new-dependency]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "New web/findings.py storage module, sqlite3 (Python stdlib -- no new external dependency)."
+    frontend: "New /findings dashboard page."
+    new-dependency: "None -- sqlite3 is Python's standard library."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as every prior epic this session.
+      Condensed design-discussion-only planning (no separate H/V ceremony)
+      given the epic's small, well-understood scope -- consistent with
+      this session's treatment of similarly-sized epics.
+
+stories:
+  - id: fd-01-findings-store
+    title: SQLite-backed findings store + wiring into existing scan jobs
+    complexity: medium
+    depends_on: []
+
+  - id: fd-02-findings-dashboard-page
+    title: /findings dashboard page with sort/filter/archive
+    complexity: medium
+    depends_on: [fd-01-findings-store]
