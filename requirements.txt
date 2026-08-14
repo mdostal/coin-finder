@@ -6,4 +6,3 @@ bip_utils
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
-portunus>=0.13.1
