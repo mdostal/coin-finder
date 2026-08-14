@@ -13,6 +13,10 @@
 /web/mounts_state.json
 /web/findings.db
 
+# Portunus-unavailable fallback vault (plaintext local store) -- never commit
+/web/vault_fallback.env
+/web/vault_fallback_meta.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

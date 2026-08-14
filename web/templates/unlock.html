@@ -37,7 +37,20 @@
     </select>
 
     <label>Candidate passwords/phrases (one per line)</label>
-    <textarea name="candidates" rows="6" required></textarea>
+    <textarea name="candidates" rows="6"></textarea>
+
+    {% if vault_entries %}
+    <label>Saved vault entries to try</label>
+    <div class="card" style="margin-bottom:1rem">
+      {% for entry in vault_entries %}
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:normal">
+        <input type="checkbox" name="vault_entries" value="{{ entry.name }}" style="width:auto;margin-top:0.2rem">
+        <span><strong>{{ entry.name }}</strong>{% if entry.description %} -- {{ entry.description }}{% endif %}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <p class="subtle">Manage saved passwords in the <a href="{{ url_for('vault_page') }}">vault</a>.</p>
 
     {% if network_status != "OFFLINE" %}
     <label style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:1rem">

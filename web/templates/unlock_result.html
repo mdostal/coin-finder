@@ -10,6 +10,9 @@ reload or come back to this page.
 {% if job.status == "error" %}
 <div class="banner error">{{ job.error }}</div>
 {% elif job.result %}
+{% if job.result.vault_label %}
+<div class="banner">Matches saved vault entry <strong>{{ job.result.vault_label }}</strong>.</div>
+{% endif %}
 <div class="card">
 <pre>{{ job.result.stdout }}</pre>
 {% if job.result.stderr %}

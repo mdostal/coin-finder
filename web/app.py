@@ -23,6 +23,7 @@ from web.findings import archive, archive_all_zero_balance, list_findings, recor
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
 from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
+from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "ui_output"
@@ -178,7 +179,7 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/item/unlock", methods=["GET"])
     def item_unlock_form():
-        return render_template("unlock.html", network_status=check_network_status(), error=None)
+        return render_template("unlock.html", network_status=check_network_status(), vault_entries=list_vault_entries(), error=None)
 
     @app.route("/item/unlock", methods=["POST"])
     def item_unlock():
@@ -195,6 +196,7 @@ def create_app(host="127.0.0.1"):
                 render_template(
                     "unlock.html",
                     network_status=network_status,
+                    vault_entries=list_vault_entries(),
                     error=(
                         f"Network status is {network_status}, not OFFLINE. Testing real passwords "
                         "against a real wallet is safest with network disabled. Disconnect and try "
@@ -208,23 +210,34 @@ def create_app(host="127.0.0.1"):
         target_path = (request.form.get("target_path") or "").strip()
         candidates = request.form.get("candidates") or ""
         kind = request.form.get("kind") or "btcrecover"
+        vault_names = request.form.getlist("vault_entries")
 
         if not target_path or not Path(target_path).is_file():
-            return render_template("unlock.html", network_status=network_status, error=f"Not a file: {target_path}"), 400
-        if not candidates.strip():
+            return render_template("unlock.html", network_status=network_status, vault_entries=list_vault_entries(), error=f"Not a file: {target_path}"), 400
+        if not candidates.strip() and not vault_names:
             return (
-                render_template("unlock.html", network_status=network_status, error="Enter at least one candidate password/phrase."),
+                render_template(
+                    "unlock.html",
+                    network_status=network_status,
+                    vault_entries=list_vault_entries(),
+                    error="Enter at least one candidate password/phrase, or select a saved vault entry to try.",
+                ),
                 400,
             )
 
-        # Written to a local temp file server-side -- never placed in the
-        # URL/query string, matching the CLI tools' file-only-candidates rule.
+        # Free-text candidates and resolved vault values are combined into
+        # one local file -- never placed in the URL/query string, matching
+        # the CLI tools' file-only-candidates rule. vault_pairs is kept only
+        # in memory, for this job's own after-the-fact "which label matched"
+        # comparison -- never written to disk.
+        vault_pairs = resolve_vault_entries_with_values(vault_names) if vault_names else []
+        lines = _split_lines(candidates) + [value for _, value in vault_pairs]
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
-            f.write(candidates)
+            f.write("\n".join(lines))
             candidates_path = f.name
 
         job_fn = _run_exodus_unlock_job if kind == "exodus" else _run_btcrecover_unlock_job
-        job_id = run_job(job_fn, target_path, candidates_path, allow_online, secret=True)
+        job_id = run_job(job_fn, target_path, candidates_path, allow_online=allow_online, vault_pairs=vault_pairs, secret=True)
         return redirect(url_for("item_unlock_status", job_id=job_id))
 
     @app.route("/item/unlock-status/<job_id>")
@@ -419,6 +432,37 @@ def create_app(host="127.0.0.1"):
         add_target(remote_name, mount_point, kind)
         return redirect(url_for("targets_page"))
 
+    @app.route("/vault")
+    def vault_page():
+        return render_template("vault.html", entries=list_vault_entries(), error=None)
+
+    @app.route("/vault/add", methods=["POST"])
+    def vault_add():
+        name = (request.form.get("name") or "").strip()
+        value = request.form.get("value") or ""
+        description = (request.form.get("description") or "").strip()
+
+        if not name or not value:
+            return render_template("vault.html", entries=list_vault_entries(), error="Enter both a label and a value."), 400
+
+        # Written to a local temp file server-side, then handed to Portunus
+        # by path -- the raw value never travels as a CLI argument or in
+        # this route's own memory beyond this call.
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write(value)
+            value_path = f.name
+
+        try:
+            add_vault_entry(name, value_path, description=description)
+        finally:
+            Path(value_path).unlink(missing_ok=True)
+        return redirect(url_for("vault_page"))
+
+    @app.route("/vault/revoke", methods=["POST"])
+    def vault_revoke():
+        revoke_vault_entry((request.form.get("name") or "").strip())
+        return redirect(url_for("vault_page"))
+
     @app.route("/wizard")
     def wizard_start():
         return render_template("wizard_start.html")
@@ -539,20 +583,43 @@ def _run_match_seed_phrases_job(phrases_file):
     return {"report": render_match_report(results), "phrase_count": len(phrases)}
 
 
-def _run_btcrecover_unlock_job(wallet_path, candidates_path, allow_online=False):
+def _match_vault_label(stdout, vault_pairs):
+    """
+    Ephemeral, in-memory-only comparison against the vault values resolved
+    for this run -- never persisted, matching the once-only-secret result
+    discipline. Lets the once-only result page say "this was your saved
+    'password-1'" without us keeping any password/match history on disk.
+    """
+    for name, value in vault_pairs or []:
+        if value and value in stdout:
+            return name
+    return None
+
+
+def _run_btcrecover_unlock_job(wallet_path, candidates_path, allow_online=False, vault_pairs=None):
     try:
         result = run_unlock(wallet_path, candidates_path, allow_online=allow_online)
     finally:
         Path(candidates_path).unlink(missing_ok=True)
-    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
+    return {
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "returncode": result.returncode,
+        "vault_label": _match_vault_label(result.stdout, vault_pairs),
+    }
 
 
-def _run_exodus_unlock_job(seed_seco_path, candidates_path, allow_online=False):
+def _run_exodus_unlock_job(seed_seco_path, candidates_path, allow_online=False, vault_pairs=None):
     try:
         result = run_exodus_unlock(seed_seco_path, candidates_path, allow_online=allow_online)
     finally:
         Path(candidates_path).unlink(missing_ok=True)
-    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
+    return {
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "returncode": result.returncode,
+        "vault_label": _match_vault_label(result.stdout, vault_pairs),
+    }
 
 
 def _run_install_rclone_job(job_id):
