@@ -12,13 +12,16 @@ contents only when something actually needs to read it.</p>
   {% if rclone_installed %}
   <p>&#x2713; rclone is installed.</p>
   {% else %}
-  <p>Not installed yet. Open a terminal in this project and run:</p>
-  <pre>./scripts/install_rclone.sh</pre>
-  <p class="subtle">This installs <a href="https://rclone.org/">rclone</a>
-  (does the actual attaching) and macFUSE (a macOS component rclone needs).
+  <p>Not installed yet.</p>
+  <form method="post" action="{{ url_for('mounts_install_rclone') }}">
+    <button type="submit">Install now</button>
+  </form>
+  <p class="subtle">Installs <a href="https://rclone.org/">rclone</a> (does
+  the actual attaching) and macFUSE (a macOS component rclone needs).
   <strong>macOS will ask you to approve macFUSE in System Settings -&gt;
-  Privacy &amp; Security</strong> -- this one step can't be automated, the
-  installer will tell you exactly what to click.</p>
+  Privacy &amp; Security</strong> -- that one step can't be automated by
+  anything, this button included; you'll see exactly what to do on the
+  result page.</p>
   {% endif %}
 </div>
 

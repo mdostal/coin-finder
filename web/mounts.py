@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -20,6 +21,72 @@ def _save_state(state_path, state):
     state_path.parent.mkdir(parents=True, exist_ok=True)
     with open(state_path, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def is_rclone_installed():
+    return shutil.which("rclone") is not None
+
+
+def install_rclone(progress_callback=None):
+    """
+    Installs rclone + macFUSE via Homebrew, driven entirely from the app --
+    a packaged, click-to-run app's users must never be told to open a
+    terminal and run a shell script. `scripts/install_rclone.sh` remains
+    for the git-clone/developer path (documented in the README); this is
+    the same two commands, run directly so the web UI can show real
+    progress and a real pass/fail result instead of "go run this
+    yourself."
+
+    Requires Homebrew itself to already be present -- bootstrapping
+    Homebrew from a packaged app is out of scope here (a stated limitation,
+    not a silent one); that belongs to the eventual native packaging step
+    (Tauri/installer), which can bundle or install Homebrew as part of
+    first-run setup.
+
+    macFUSE's own OS-level security approval (System Settings -> Privacy &
+    Security, often a restart) still cannot be automated by anything --
+    that limitation is inherent to macOS, not to how this is invoked.
+
+    :param progress_callback: optional callable(current, total, message).
+    :return: {"ok": bool, "report": str}
+    """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
+    if shutil.which("brew") is None:
+        return {
+            "ok": False,
+            "report": "Homebrew is required and wasn't found. Install it from https://brew.sh first, then try again.",
+        }
+
+    steps = [
+        ("Installing rclone", ["brew", "install", "rclone"]),
+        ("Installing macFUSE", ["brew", "install", "--cask", "macfuse"]),
+    ]
+
+    lines = []
+    ok = True
+    for i, (label, command) in enumerate(steps, start=1):
+        progress_callback(i, len(steps), label)
+        result = subprocess.run(command, capture_output=True, text=True)
+        lines.append(f"## {label}")
+        lines.append(result.stdout.strip())
+        if result.stderr.strip():
+            lines.append(result.stderr.strip())
+        if result.returncode != 0:
+            ok = False
+            lines.append(f"FAILED (exit code {result.returncode})")
+            break
+
+    if ok:
+        lines.append(
+            "\nIMPORTANT: macOS will likely show a security prompt (System Settings -> "
+            "Privacy & Security) asking you to approve the macFUSE system extension -- "
+            "this cannot be automated. Approve it there (and restart if macOS asks you "
+            "to) before mounting will actually work."
+        )
+
+    return {"ok": ok, "report": "\n".join(lines)}
 
 
 def list_remotes():
