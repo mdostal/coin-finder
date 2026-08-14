@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-08-14
+
+### Added
+
+- **Password vault, backed by [Portunus](https://github.com/mdostal/portunus).**
+  Save known/guessed passwords once under a label ("password-1", "grandpa's
+  laptop guess"), then pick saved entries from a checklist on the Unlock
+  page instead of retyping them every run. New `/vault` page to add/list/
+  revoke entries -- metadata only (label, description, state), never a
+  value. The unlock flow resolves selected entries to their real values
+  entirely in local memory/temp files (same file-only-secrets discipline as
+  everywhere else in this project), and the once-only unlock result page
+  now says which saved label matched, if any, without ever storing that
+  match anywhere. If Portunus isn't installed, a local `.env`-based
+  fallback store is used automatically so the feature still works;
+  `portunus` is now a bundled dependency (`requirements.txt`).
+
 ## [0.20.0] - 2026-08-14
 
 ### Changed

@@ -634,6 +634,16 @@ still works standalone for scripting/automation.
   everywhere else in this app deliberately never carries this result, so a
   found password can't leak through a background poll before you've
   actually looked at the page.
+- **Password vault** (`/vault`) -- save known/guessed passwords once under a
+  label, then pick them from a checklist on `/item/unlock` instead of
+  retyping them every run. Backed by
+  [Portunus](https://github.com/mdostal/portunus): the vault page only ever
+  shows metadata (label, description, state), never a value. Selected
+  entries are resolved to their real values only in local memory/temp files
+  at unlock time, and the once-only unlock result page names which saved
+  label matched (if any) without persisting that match anywhere. If
+  Portunus isn't installed, a local `.env`-based fallback store is used
+  automatically so the feature still works without it.
 - **Stage a file** -- copies (never moves) a found file into a local staging
   directory (`ui_output/staged/` by default) so you can gather recovery
   candidates in one place without touching the original drive. Refuses to
