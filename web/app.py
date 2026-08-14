@@ -19,6 +19,7 @@ from tools.match_seed_phrases import load_phrases_from_file, match_phrases, rend
 from tools.scan_google_drive import get_drive_service, scan_drive_for_wallets
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
 from tools.extract_private_key import extract_wif_for_address
+from web.findings import record_finding
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
 from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
@@ -430,6 +431,9 @@ def _run_scan_wallet_dat_job(wallet_path, job_id):
     for entry in significant:
         lines.append(f"- {entry['address']}: {entry['balance']}")
 
+    for entry in checked["results"]:
+        record_finding("Bitcoin", entry["address"], entry.get("balance"), source_path=wallet_path, source_label="scan_wallet_dat")
+
     return {
         "report": "\n".join(lines),
         "encrypted_key_count": scan["encrypted_key_count"],
@@ -453,11 +457,19 @@ def _run_crawl_job(addresses):
     finally:
         Path(temp_path).unlink(missing_ok=True)
 
+    for address, info in results.items():
+        record_finding("Bitcoin", address, info.get("balance"), source_label="crawl_transaction_graph")
+
     return {"report": render_cluster_report(results), "results": results}
 
 
 def _run_fork_coins_job(addresses):
     results = check_fork_coins_for_addresses(addresses)
+
+    for address, coin_balances in results.items():
+        for coin, balance in coin_balances.items():
+            record_finding(coin, address, balance, source_label="check_fork_coins")
+
     return {"report": render_fork_coin_report(results), "results": results}
 
 
@@ -542,6 +554,14 @@ def _run_scan_job(input_dir, job_id):
     )
 
     hidden_volumes = scan_for_hidden_volumes(input_dir)
+
+    balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
+    balances = _read_json(balances_path)
+    if balances:
+        for file_path, crypto_wallets in balances.items():
+            for coin, addresses in crypto_wallets.items():
+                for address, balance in addresses.items():
+                    record_finding(coin, address, balance, source_path=file_path, source_label="scan")
 
     return {
         "output_dir": output_dir,

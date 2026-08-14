@@ -11,6 +11,7 @@
 /ui_output/
 /web/bound_targets.json
 /web/mounts_state.json
+/web/findings.db
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
