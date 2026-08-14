@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-08-13
+
+### Fixed
+
+- **`find_seed_phrases.py` now skips binary files before the expensive
+  checksum pass.** Discovered live during a real stress-test scan of this
+  machine (a multi-hour run against ~85GB of mixed personal/dev files) --
+  the per-word-window BIP39 checksum check was running against every
+  file's content regardless of whether it could possibly contain a real
+  phrase. A cheap pre-filter (null byte in the first 8KB -- the same
+  signal `git`/`grep -I` use) skips binary files (photos, video, compiled
+  binaries, archives) before tokenization/checksum work starts. Directly
+  motivated by the upcoming much larger Google Drive and physical-drive
+  crawls, where this would otherwise scale from hours to potentially
+  weeks.
+
 ## [0.17.0] - 2026-08-13
 
 ### Added

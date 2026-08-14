@@ -40,11 +40,31 @@ def find_candidate_phrases(text):
     return candidates
 
 
+def _looks_like_text(sample_bytes):
+    """
+    Cheap binary-vs-text pre-filter: a null byte anywhere in a sample is
+    the standard signal a file is binary (the same heuristic git and
+    `grep -I` use) -- a real seed phrase (space-separated lowercase
+    wordlist words) cannot meaningfully appear in true binary data, so
+    binary files are skipped entirely before the much more expensive
+    tokenize + per-window BIP39 checksum pass runs.
+
+    This matters at scale: scanning a large drive means most bytes belong
+    to files (images, video, compiled binaries, archives) that could never
+    contain a real candidate, and the checksum check is comparatively
+    expensive -- skipping them here is a real, measured throughput win, not
+    a correctness trade-off (no text file this project cares about
+    legitimately contains a null byte).
+    """
+    return b"\x00" not in sample_bytes
+
+
 def scan_directory(start_path, max_file_size=DEFAULT_MAX_FILE_SIZE):
     """
-    Walk start_path, running find_candidate_phrases() against every file's
-    text content (read with errors="ignore"). Files above max_file_size are
-    skipped via a size check before any read.
+    Walk start_path, running find_candidate_phrases() against every
+    text-looking file's content (read with errors="ignore"). Files above
+    max_file_size, and files that look binary (see _looks_like_text), are
+    skipped before any expensive tokenization/checksum work.
 
     :return: {file_path: [candidate phrase dicts]} -- files with zero
         candidates are omitted.
@@ -56,6 +76,10 @@ def scan_directory(start_path, max_file_size=DEFAULT_MAX_FILE_SIZE):
             file_path = os.path.join(root, file)
             try:
                 if os.path.getsize(file_path) > max_file_size:
+                    continue
+                with open(file_path, "rb") as f:
+                    sample = f.read(8192)
+                if not _looks_like_text(sample):
                     continue
                 with open(file_path, "r", errors="ignore") as f:
                     text = f.read()

@@ -241,6 +241,13 @@ by nearly all modern wallets -- Electrum, Exodus, hardware wallets, and more).
 - **Scope (v1)**: plain text files only. Images (e.g. photographed handwritten
   backups) aren't scanned -- that would need OCR, which is a separate,
   not-yet-built capability.
+- **Skips binary files before the expensive part.** A cheap check (a null
+  byte in the first 8KB -- the same signal `git`/`grep -I` use) skips files
+  that can't meaningfully contain a real seed phrase before the much more
+  expensive per-word-window BIP39 checksum pass runs on them. This matters
+  a lot at real drive scale: most bytes on an old drive belong to files
+  (photos, video, compiled binaries, archives) that could never contain a
+  plaintext phrase.
 - **Usage**:
   ```bash
   python tools/find_seed_phrases.py <start_path> <output_file>
