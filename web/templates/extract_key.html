@@ -6,8 +6,11 @@
 <div class="banner {{ '' if network_status == 'OFFLINE' else 'warning' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
   Network status right now: <strong style="color:inherit">{{ network_status }}</strong>.
   {% if network_status != "OFFLINE" %}
-  This must read OFFLINE before a real extraction is allowed -- disconnect
-  network access and reload this page.
+  <strong>Recommended:</strong> disconnect network access and reload this
+  page before extracting a real private key -- key material should ideally
+  never be produced on a network-connected machine. You can still choose to
+  extract it online (see the checkbox below) if you understand and accept
+  that risk.
   {% else %}
   Safe to extract a real key.
   {% endif %}
@@ -34,6 +37,14 @@
 
     <label>Address to extract the key for</label>
     <input type="text" name="address" required>
+
+    {% if network_status != "OFFLINE" %}
+    <label style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:1rem">
+      <input type="checkbox" name="allow_online" value="1" style="width:auto;margin-top:0.2rem">
+      <span>I understand the risk and want to extract this <strong>while online</strong> anyway.
+      Recommended path is still OFFLINE (see above) -- this is your choice to make, not a hard requirement.</span>
+    </label>
+    {% endif %}
 
     <button type="submit">Extract</button>
   </form>

@@ -184,18 +184,22 @@ def create_app(host="127.0.0.1"):
     def item_unlock():
         # Re-checked here, at the moment of the actual request -- never
         # trusted from the GET page load or from anything the client sent.
-        # This is the real gate; a disabled-looking button is just a UX
-        # nicety on top of it.
+        # Default behavior (checkbox unchecked) still refuses when online --
+        # but the user can explicitly choose to proceed anyway. This is an
+        # informed-choice override, not a silent bypass: we ask, they decide.
         network_status = check_network_status()
-        if network_status != "OFFLINE":
+        allow_online = request.form.get("allow_online") == "1"
+
+        if network_status != "OFFLINE" and not allow_online:
             return (
                 render_template(
                     "unlock.html",
                     network_status=network_status,
                     error=(
-                        f"Refusing to run: network status is {network_status}, not OFFLINE. "
-                        "Testing real passwords against a real wallet must happen with network "
-                        "disabled -- disconnect and try again."
+                        f"Network status is {network_status}, not OFFLINE. Testing real passwords "
+                        "against a real wallet is safest with network disabled. Disconnect and try "
+                        'again, or check "run anyway" below if you understand the risk and want to '
+                        "proceed online."
                     ),
                 ),
                 409,
@@ -220,7 +224,7 @@ def create_app(host="127.0.0.1"):
             candidates_path = f.name
 
         job_fn = _run_exodus_unlock_job if kind == "exodus" else _run_btcrecover_unlock_job
-        job_id = run_job(job_fn, target_path, candidates_path, secret=True)
+        job_id = run_job(job_fn, target_path, candidates_path, allow_online, secret=True)
         return redirect(url_for("item_unlock_status", job_id=job_id))
 
     @app.route("/item/unlock-status/<job_id>")
@@ -244,16 +248,21 @@ def create_app(host="127.0.0.1"):
     @app.route("/item/extract-key", methods=["POST"])
     def item_extract_key():
         # Re-checked here, at the moment of the actual request -- same
-        # discipline as /item/unlock. Never trusted from the GET page load.
+        # discipline as /item/unlock, including the same informed-choice
+        # override: default (checkbox unchecked) still refuses, an explicit
+        # opt-in is honored.
         network_status = check_network_status()
-        if network_status != "OFFLINE":
+        allow_online = request.form.get("allow_online") == "1"
+
+        if network_status != "OFFLINE" and not allow_online:
             return (
                 render_template(
                     "extract_key.html",
                     network_status=network_status,
                     error=(
-                        f"Refusing to extract a private key: network status is {network_status}, not OFFLINE. "
-                        "Handling real key material must happen with network disabled -- disconnect and try again."
+                        f"Network status is {network_status}, not OFFLINE. Extracting a real private "
+                        "key is safest with network disabled. Disconnect and try again, or check "
+                        '"run anyway" below if you understand the risk and want to proceed online.'
                     ),
                 ),
                 409,
@@ -267,7 +276,7 @@ def create_app(host="127.0.0.1"):
         if not address:
             return render_template("extract_key.html", network_status=network_status, error="Enter the address to extract a key for."), 400
 
-        job_id = run_job(extract_wif_for_address, wallet_path, address, secret=True)
+        job_id = run_job(extract_wif_for_address, wallet_path, address, allow_online=allow_online, secret=True)
         return redirect(url_for("item_extract_key_status", job_id=job_id))
 
     @app.route("/item/extract-key-status/<job_id>")
@@ -530,17 +539,17 @@ def _run_match_seed_phrases_job(phrases_file):
     return {"report": render_match_report(results), "phrase_count": len(phrases)}
 
 
-def _run_btcrecover_unlock_job(wallet_path, candidates_path):
+def _run_btcrecover_unlock_job(wallet_path, candidates_path, allow_online=False):
     try:
-        result = run_unlock(wallet_path, candidates_path)
+        result = run_unlock(wallet_path, candidates_path, allow_online=allow_online)
     finally:
         Path(candidates_path).unlink(missing_ok=True)
     return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
 
 
-def _run_exodus_unlock_job(seed_seco_path, candidates_path):
+def _run_exodus_unlock_job(seed_seco_path, candidates_path, allow_online=False):
     try:
-        result = run_exodus_unlock(seed_seco_path, candidates_path)
+        result = run_exodus_unlock(seed_seco_path, candidates_path, allow_online=allow_online)
     finally:
         Path(candidates_path).unlink(missing_ok=True)
     return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}

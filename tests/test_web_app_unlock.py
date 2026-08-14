@@ -72,6 +72,32 @@ def test_post_unlock_refused_when_status_unknown(mock_status, mock_run_unlock, c
 
 @patch("web.app.run_unlock")
 @patch("web.app.check_network_status")
+def test_post_unlock_with_allow_online_checkbox_proceeds_while_online(mock_status, mock_run_unlock, client, tmp_path):
+    """
+    Informed-choice override: the user may explicitly choose to run online
+    by checking "run anyway" -- the default (checkbox unchecked) still
+    refuses, but an explicit opt-in is honored, not silently blocked.
+    """
+    mock_status.return_value = "ONLINE"
+    mock_run_unlock.return_value = SimpleNamespace(stdout="No password found.", stderr="", returncode=1)
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+
+    resp = client.post(
+        "/item/unlock",
+        data={"target_path": str(wallet_file), "candidates": "hunter2\n", "kind": "btcrecover", "allow_online": "1"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    job_id = _job_id_from_redirect(resp)
+    job = _wait_for_terminal(client, job_id)
+    assert job["status"] == "done"
+    assert mock_run_unlock.call_args.kwargs.get("allow_online") is True
+
+
+@patch("web.app.run_unlock")
+@patch("web.app.check_network_status")
 def test_post_unlock_writes_candidates_to_temp_file_not_raw_arg(mock_status, mock_run_unlock, client, tmp_path):
     mock_status.return_value = "OFFLINE"
     mock_run_unlock.return_value = SimpleNamespace(stdout="No password found.", stderr="", returncode=1)
