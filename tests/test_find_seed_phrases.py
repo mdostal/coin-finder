@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-from tools.find_seed_phrases import extract_words, find_candidate_phrases, scan_directory
+from tools.find_seed_phrases import _looks_like_text, extract_words, find_candidate_phrases, scan_directory
 
 # Well-known PUBLIC BIP39 test vector -- a standard fixture used throughout
 # BIP39 tooling and documentation, not a real wallet. Safe to use in tests.
@@ -62,6 +62,36 @@ def test_scan_directory_skips_files_above_max_file_size(tmp_path):
     results = scan_directory(str(tmp_path), max_file_size=10)
 
     assert results == {}
+
+
+def test_looks_like_text_true_for_plain_text():
+    assert _looks_like_text(b"just some ordinary ASCII text, nothing special here.") is True
+
+
+def test_looks_like_text_false_for_data_containing_a_null_byte():
+    # A null byte in the first chunk is the standard binary-file signal
+    # (the same heuristic git and `grep -I` use) -- a real seed phrase
+    # (space-separated lowercase words) cannot contain one.
+    assert _looks_like_text(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR") is False
+
+
+def test_looks_like_text_true_for_empty_sample():
+    assert _looks_like_text(b"") is True
+
+
+def test_scan_directory_skips_binary_files_without_reading_their_full_content(tmp_path):
+    # A "binary" file containing the test vector's bytes embedded after a
+    # null byte -- must be skipped entirely (never tokenized/checksum-
+    # checked) purely because of the null byte, proving the skip happens
+    # before candidate-phrase logic runs, not because the phrase itself
+    # is somehow unreadable.
+    binary_file = tmp_path / "image.png"
+    binary_file.write_bytes(b"\x89PNG\x00\x00\x00" + TEST_VECTOR.encode())
+    (tmp_path / "notes.txt").write_text(f"backup phrase: {TEST_VECTOR}")
+
+    results = scan_directory(str(tmp_path))
+
+    assert list(results.keys()) == [str(tmp_path / "notes.txt")]
 
 
 def test_cli_never_prints_phrase_text_to_stdout_but_writes_it_to_output_file(tmp_path):
