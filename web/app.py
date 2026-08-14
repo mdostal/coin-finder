@@ -18,6 +18,7 @@ from tools.find_seed_phrases import find_candidate_phrases, scan_directory
 from tools.match_seed_phrases import load_phrases_from_file, match_phrases, render_match_report
 from tools.scan_google_drive import get_drive_service, scan_drive_for_wallets
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
+from tools.extract_private_key import extract_wif_for_address
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
 from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
@@ -231,6 +232,53 @@ def create_app(host="127.0.0.1"):
         if job is None:
             abort(404)
         return render_template("unlock_result.html", job_id=job_id, job=job)
+
+    @app.route("/item/extract-key", methods=["GET"])
+    def item_extract_key_form():
+        return render_template("extract_key.html", network_status=check_network_status(), error=None)
+
+    @app.route("/item/extract-key", methods=["POST"])
+    def item_extract_key():
+        # Re-checked here, at the moment of the actual request -- same
+        # discipline as /item/unlock. Never trusted from the GET page load.
+        network_status = check_network_status()
+        if network_status != "OFFLINE":
+            return (
+                render_template(
+                    "extract_key.html",
+                    network_status=network_status,
+                    error=(
+                        f"Refusing to extract a private key: network status is {network_status}, not OFFLINE. "
+                        "Handling real key material must happen with network disabled -- disconnect and try again."
+                    ),
+                ),
+                409,
+            )
+
+        wallet_path = (request.form.get("wallet_path") or "").strip()
+        address = (request.form.get("address") or "").strip()
+
+        if not wallet_path or not Path(wallet_path).is_file():
+            return render_template("extract_key.html", network_status=network_status, error=f"Not a file: {wallet_path}"), 400
+        if not address:
+            return render_template("extract_key.html", network_status=network_status, error="Enter the address to extract a key for."), 400
+
+        job_id = run_job(extract_wif_for_address, wallet_path, address, secret=True)
+        return redirect(url_for("item_extract_key_status", job_id=job_id))
+
+    @app.route("/item/extract-key-status/<job_id>")
+    def item_extract_key_status(job_id):
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
+        return render_template("extract_key_status.html", job_id=job_id, job=job)
+
+    @app.route("/item/extract-key-result/<job_id>")
+    def item_extract_key_result(job_id):
+        job = consume_job_result(job_id)
+        if job is None:
+            abort(404)
+        return render_template("extract_key_result.html", job_id=job_id, job=job)
 
     @app.route("/item/stage", methods=["POST"])
     def item_stage():

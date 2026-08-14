@@ -524,6 +524,11 @@ first.
   python tools/extract_private_key.py <wallet_path> <address> <output_file>
   ```
   Refuses with an error (no file written) unless the machine reads OFFLINE.
+- **Also available in the [local web UI](#local-web-ui-webapppy)** at
+  `/item/extract-key` -- same offline gate (enforced server-side on every
+  submission), and the extracted key is shown to you exactly once on a
+  dedicated result page, then permanently deleted from server memory --
+  same once-only delivery discipline as the web unlock flow.
 
 **Real bugs this tool's own development caught** (documented because they're
 the actual evidence this code is trustworthy, not just that its tests

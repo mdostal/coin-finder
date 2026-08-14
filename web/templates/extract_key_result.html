@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- extracted key{% endblock %}
+{% block content %}
+<h2>Extracted key</h2>
+<div class="banner warning">
+This is shown once. It is not saved anywhere and will not reappear if you
+reload or come back to this page. Copy it now.
+</div>
+
+{% if job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% elif job.result %}
+<div class="card">
+<pre>{{ job.result }}</pre>
+</div>
+<p class="subtle">Import this into <a href="https://electrum.org/">Electrum</a>
+("Wallet" -&gt; "Private keys" -&gt; "Import"), then use Electrum's own
+<strong>sweep</strong> function to move the entire balance to a fresh
+address you control long-term.</p>
+{% endif %}
+
+<a class="back-link" href="{{ url_for('index') }}">&laquo; back</a>
+{% endblock %}
