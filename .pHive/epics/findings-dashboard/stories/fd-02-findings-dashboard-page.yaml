@@ -1,7 +1,9 @@
 id: fd-02-findings-dashboard-page
 epic: findings-dashboard
 title: /findings dashboard page with sort/filter/archive
-status: complete
+status: shipped
+shipped_at: "2026-08-14T00:00:00Z"
+release_id: "v0.19.0"
 complexity: medium
 methodology: tdd
 depends_on: [fd-01-findings-store]

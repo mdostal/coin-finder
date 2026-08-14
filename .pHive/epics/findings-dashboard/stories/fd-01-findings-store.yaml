@@ -1,7 +1,9 @@
 id: fd-01-findings-store
 epic: findings-dashboard
 title: SQLite-backed findings store + wiring into existing scan jobs
-status: complete
+status: shipped
+shipped_at: "2026-08-14T00:00:00Z"
+release_id: "v0.19.0"
 complexity: medium
 methodology: tdd
 depends_on: []
