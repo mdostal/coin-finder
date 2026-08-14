@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-08-14
+
+### Added
+
+- **In-app update check** (`/update`) -- compares the running version
+  (from CHANGELOG.md) against the latest GitHub release and, one click,
+  fast-forwards the local checkout to it (`git fetch` + `git merge
+  --ff-only`, so it refuses rather than clobbers if you've got local
+  changes). Doesn't restart the app for you -- re-run `python web/app.py`
+  after updating.
+- **One-shot local installer** (`scripts/install.sh`) -- creates a `.venv`
+  and installs `requirements.txt` into it, run from an already-cloned
+  checkout (deliberately not a `curl | bash` -- this tool handles private
+  keys, so it gets the same "read it first" treatment the README asks of
+  every third-party wallet tool). Verified end-to-end in a throwaway clone.
+
+### Fixed
+
+- **`requirements.txt` no longer references a broken `portunus` pin.**
+  The real Portunus (this project's optional password-vault backend) isn't
+  published to public PyPI -- the `portunus` package that *is* on PyPI is
+  an unrelated project, so `pip install -r requirements.txt` failed for
+  literally every install except this author's own machine (which has it
+  installed as a local editable checkout). Portunus integration was always
+  optional with a working local fallback (`web/vault.py`); the
+  `requirements.txt` entry was simply wrong. Removed, with a README note
+  on installing Portunus yourself if you want it.
+
 ## [0.24.0] - 2026-08-14
 
 ### Added

@@ -24,6 +24,7 @@ from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
 from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
 from web.native_dialogs import pick_path
+from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -492,6 +493,15 @@ def create_app(host="127.0.0.1"):
     def wizard_cloud():
         kind = request.args.get("kind", "gdrive")
         return render_template("wizard_cloud.html", kind=kind, rclone_installed=is_rclone_installed(), remotes=list_remotes())
+
+    @app.route("/update")
+    def update_page():
+        return render_template("update.html", status=check_for_update(), result=None)
+
+    @app.route("/update/run", methods=["POST"])
+    def update_run():
+        result = perform_update()
+        return render_template("update.html", status=check_for_update(), result=result)
 
     return app
 
