@@ -615,12 +615,17 @@ still works standalone for scripting/automation.
 - **Unlock a wallet** (`/item/unlock`) -- web-safe version of
   `unlock_wallet.py`/`unlock_exodus_wallet.py`. Shows the machine's current
   network status live; the offline gate is re-checked server-side on every
-  submission (not just at page load, and not just a disabled button) and
-  refuses with HTTP 409 -- no subprocess is invoked at all -- unless the
-  machine reads OFFLINE. Candidate passwords/phrases are written to a local
-  temp file server-side before the tool runs (never placed in a URL/query
-  string), and that file is deleted the moment the job finishes, success or
-  not.
+  submission (not just at page load, and not just a disabled button).
+  **OFFLINE is the recommended, default path, not a hard requirement** --
+  if the machine is online, submitting refuses by default (HTTP 409, no
+  subprocess invoked), but a checkbox lets you explicitly choose to proceed
+  online anyway if you understand and accept that risk. This is a
+  deliberate choice, not a silent bypass: the default protects you, an
+  informed opt-in respects that it's your call to make. The same applies
+  to `/item/extract-key`. Candidate passwords/phrases are written to a
+  local temp file server-side before the tool runs (never placed in a
+  URL/query string), and that file is deleted the moment the job finishes,
+  success or not.
 
   **The result (whether a password was found, and what it was) is shown
   exactly once**, on a dedicated result page, and is then permanently

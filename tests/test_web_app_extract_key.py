@@ -51,6 +51,24 @@ def test_extract_key_refused_when_online(mock_status, mock_extract, client, tmp_
 
 @patch("web.app.extract_wif_for_address")
 @patch("web.app.check_network_status")
+def test_extract_key_with_allow_online_checkbox_proceeds_while_online(mock_status, mock_extract, client, tmp_path):
+    mock_status.return_value = "ONLINE"
+    mock_extract.return_value = "5JsomeRealLookingWIFStringHere1234567890abcd"
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+
+    resp = client.post(
+        "/item/extract-key",
+        data={"wallet_path": str(wallet_file), "address": "1abc", "allow_online": "1"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    mock_extract.assert_called_once_with(str(wallet_file), "1abc", allow_online=True)
+
+
+@patch("web.app.extract_wif_for_address")
+@patch("web.app.check_network_status")
 def test_extract_key_result_delivered_once_then_gone(mock_status, mock_extract, client, tmp_path):
     mock_status.return_value = "OFFLINE"
     mock_extract.return_value = "5JsomeRealLookingWIFStringHere1234567890abcd"
@@ -80,7 +98,7 @@ def test_extract_key_result_delivered_once_then_gone(mock_status, mock_extract, 
 
 @patch("web.app.extract_wif_for_address")
 @patch("web.app.check_network_status")
-def test_extract_key_calls_offline_only_never_allow_online(mock_status, mock_extract, client, tmp_path):
+def test_extract_key_defaults_allow_online_false_when_checkbox_unchecked(mock_status, mock_extract, client, tmp_path):
     mock_status.return_value = "OFFLINE"
     mock_extract.return_value = "5Jwif"
     wallet_file = tmp_path / "wallet.dat"
@@ -90,7 +108,7 @@ def test_extract_key_calls_offline_only_never_allow_online(mock_status, mock_ext
     job_id = _job_id_from_redirect(resp)
     _wait_for_terminal(client, job_id)
 
-    mock_extract.assert_called_once_with(str(wallet_file), "1abc")
+    mock_extract.assert_called_once_with(str(wallet_file), "1abc", allow_online=False)
 
 
 def test_extract_key_rejects_missing_wallet_file(client, tmp_path):

@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-08-14
+
+### Changed
+
+- **`/item/unlock` and `/item/extract-key` no longer hard-block running
+  online -- they offer an informed choice instead.** Direct correction of
+  an earlier decision: this project's own stated direction has always been
+  to let the user choose between offline-only and online operation with
+  full transparency about the tradeoff, not to force a hard refusal.
+  OFFLINE remains the strongly recommended default (submitting without
+  opting in still refuses with HTTP 409, unchanged), but an explicit,
+  clearly-labeled checkbox now lets you proceed online anyway if you
+  understand and accept the risk. `run_unlock`/`run_exodus_unlock`/
+  `extract_wif_for_address` already supported this via their own
+  `allow_online` parameter -- the web UI simply never exposed the choice
+  until now.
+
 ## [0.19.1] - 2026-08-14
 
 ### Fixed
