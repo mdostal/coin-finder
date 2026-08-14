@@ -218,6 +218,8 @@ cython_debug/
 !.pHive/epics/bsv-and-feathercoin-support/**
 !.pHive/epics/web-ui-wizard-and-mounting/
 !.pHive/epics/web-ui-wizard-and-mounting/**
+!.pHive/epics/findings-dashboard/
+!.pHive/epics/findings-dashboard/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
