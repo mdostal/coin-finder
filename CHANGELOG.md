@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-08-14
+
+### Fixed
+
+- **rclone/macFUSE install is now click-to-run in the app**, not a
+  "open a terminal and run this script" instruction. Real product-direction
+  correction: this project is heading toward a packaged, installable
+  application for non-technical users, and a shell script never fit that.
+  New `web.mounts.install_rclone()` runs the same two `brew install`
+  commands directly, with real progress shown via the existing job
+  infrastructure, triggered by an "Install now" button on `/mounts` and in
+  the setup wizard. `scripts/install_rclone.sh` remains for the git-clone/
+  developer path (documented, not primary). The one step that genuinely
+  cannot be automated -- macOS's manual macFUSE security approval -- is
+  unchanged either way and is explained on the result page.
+
 ## [0.19.0] - 2026-08-14
 
 ### Added

@@ -658,11 +658,17 @@ this app is a separate, later effort outside this project's own scope.
   Drive (or a GCS bucket) too large to fully download first,
   [rclone](https://rclone.org/) can mount it as a local-looking directory
   instead; the existing scan tools then just work against it like any other
-  drive, no separate cloud-aware scanning code needed. Setup:
-  1. `scripts/install_rclone.sh` -- installs rclone plus macFUSE (required
-     for `rclone mount` on macOS). **macFUSE requires manual approval in
-     System Settings -> Privacy & Security** (and often a restart) -- this
-     one step cannot be scripted, the installer prints exactly what to do.
+  drive, no separate cloud-aware scanning code needed. Setup, entirely
+  click-to-run in the app -- no terminal needed:
+  1. On `/mounts` or in the setup wizard, click **Install now**. This
+     installs rclone plus macFUSE (required for `rclone mount` on macOS)
+     directly, with real progress shown in the app.
+     (`scripts/install_rclone.sh` does the same two commands and remains
+     available for anyone working from a git clone rather than the
+     packaged app -- not the primary path.) **macFUSE requires manual
+     approval in System Settings -> Privacy & Security** (and often a
+     restart) -- that one step cannot be automated by anything, in-app
+     button or script; the result page tells you exactly what to do.
   2. `rclone config` -- sets up a remote (interactive: opens a browser for
      Google Drive OAuth, or asks for a GCS service-account key).
   3. On the `/mounts` page, pick the configured remote and a local mount

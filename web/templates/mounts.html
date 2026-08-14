@@ -8,11 +8,22 @@ directory (via <a href="https://rclone.org/">rclone</a>) instead of
 downloading it first -- once mounted, scan it exactly like any local
 drive. Mounts are always read-only.</p>
 
-<p class="subtle">First time? Run <code>scripts/install_rclone.sh</code>,
-then <code>rclone config</code> to set up a remote -- see the README's
-"Mounting Google Drive for Multi-Terabyte Drives" section.</p>
-
 {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+{% if not rclone_installed %}
+<div class="card">
+  <h3 style="margin-top:0">First time here?</h3>
+  <p>rclone isn't installed yet.</p>
+  <form method="post" action="{{ url_for('mounts_install_rclone') }}">
+    <button type="submit">Install now</button>
+  </form>
+  <p class="subtle">Then <code>rclone config</code> to set up a remote (opens
+  a browser for Google sign-in, or asks for a GCS service-account key) --
+  that step is interactive by design and can't be automated. See the setup
+  wizard, or the README's "Mounting Google Drive for Multi-Terabyte
+  Drives" section, for the walkthrough.</p>
+</div>
+{% endif %}
 
 <div class="card">
   <h3 style="margin-top:0">Active mounts</h3>

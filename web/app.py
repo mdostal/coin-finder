@@ -10,7 +10,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 
 import run_pipeline
 from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
-from web.mounts import is_mounted, list_mounts, list_remotes, mount, unmount
+from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addresses, render_cluster_report
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
@@ -366,7 +366,13 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/mounts")
     def mounts_page():
-        return render_template("mounts.html", remotes=list_remotes(), mounts=list_mounts(), error=None)
+        return render_template("mounts.html", remotes=list_remotes(), mounts=list_mounts(), rclone_installed=is_rclone_installed(), error=None)
+
+    @app.route("/mounts/install-rclone", methods=["POST"])
+    def mounts_install_rclone():
+        job_id = create_job()
+        start_job(job_id, _run_install_rclone_job, job_id)
+        return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/mounts/mount", methods=["POST"])
     def mounts_mount():
@@ -422,13 +428,9 @@ def create_app(host="127.0.0.1"):
     @app.route("/wizard/cloud")
     def wizard_cloud():
         kind = request.args.get("kind", "gdrive")
-        return render_template("wizard_cloud.html", kind=kind, rclone_installed=_is_rclone_installed(), remotes=list_remotes())
+        return render_template("wizard_cloud.html", kind=kind, rclone_installed=is_rclone_installed(), remotes=list_remotes())
 
     return app
-
-
-def _is_rclone_installed():
-    return shutil.which("rclone") is not None
 
 
 def _split_lines(raw):
@@ -542,6 +544,10 @@ def _run_exodus_unlock_job(seed_seco_path, candidates_path):
     finally:
         Path(candidates_path).unlink(missing_ok=True)
     return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
+
+
+def _run_install_rclone_job(job_id):
+    return install_rclone(progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message))
 
 
 def _run_drive_scan_job(output_dir, query):

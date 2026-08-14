@@ -67,3 +67,13 @@ def test_mounts_bind_refuses_when_not_actually_mounted(mock_is_mounted, mock_add
 
     assert resp.status_code == 409
     mock_add_target.assert_not_called()
+
+
+@patch("web.app.install_rclone")
+def test_mounts_install_rclone_starts_a_job(mock_install, client):
+    mock_install.return_value = {"ok": True, "report": "installed rclone and macfuse"}
+
+    resp = client.post("/mounts/install-rclone", follow_redirects=False)
+
+    assert resp.status_code == 302
+    assert "/item-result/" in resp.headers["Location"]

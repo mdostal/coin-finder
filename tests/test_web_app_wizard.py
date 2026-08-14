@@ -37,7 +37,7 @@ def test_wizard_choose_gdrive_hands_off_to_cloud_explainer(client):
 
 
 @patch("web.app.list_remotes")
-@patch("web.app._is_rclone_installed")
+@patch("web.app.is_rclone_installed")
 def test_wizard_cloud_page_surfaces_install_step_when_rclone_not_set_up(mock_installed, mock_remotes, client):
     mock_installed.return_value = False
     mock_remotes.return_value = []
@@ -45,11 +45,12 @@ def test_wizard_cloud_page_surfaces_install_step_when_rclone_not_set_up(mock_ins
     resp = client.get("/wizard/cloud?kind=gdrive")
 
     assert resp.status_code == 200
-    assert b"install_rclone.sh" in resp.data
+    assert b"Install now" in resp.data
+    assert b"/mounts/install-rclone" in resp.data
 
 
 @patch("web.app.list_remotes")
-@patch("web.app._is_rclone_installed")
+@patch("web.app.is_rclone_installed")
 def test_wizard_cloud_page_links_to_mounts_when_remotes_exist(mock_installed, mock_remotes, client):
     mock_installed.return_value = True
     mock_remotes.return_value = ["gdrive"]

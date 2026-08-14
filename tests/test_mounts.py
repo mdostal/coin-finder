@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from web.mounts import is_mounted, list_mounts, list_remotes, mount, unmount
+from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, unmount
 
 
 @patch("web.mounts.subprocess.run")
@@ -90,3 +90,68 @@ def test_list_mounts_reflects_is_mounted_health(mock_popen, mock_kill, mock_list
     assert len(mounts) == 1
     assert mounts[0]["remote_name"] == "gdrive"
     assert mounts[0]["is_mounted"] is True
+
+
+@patch("web.mounts.shutil.which")
+def test_is_rclone_installed_true_when_binary_on_path(mock_which):
+    mock_which.return_value = "/opt/homebrew/bin/rclone"
+    assert is_rclone_installed() is True
+
+
+@patch("web.mounts.shutil.which")
+def test_is_rclone_installed_false_when_not_on_path(mock_which):
+    mock_which.return_value = None
+    assert is_rclone_installed() is False
+
+
+@patch("web.mounts.shutil.which")
+@patch("web.mounts.subprocess.run")
+def test_install_rclone_requires_homebrew(mock_run, mock_which):
+    mock_which.return_value = None  # no brew
+
+    result = install_rclone()
+
+    assert result["ok"] is False
+    assert "Homebrew" in result["report"]
+    mock_run.assert_not_called()
+
+
+@patch("web.mounts.shutil.which")
+@patch("web.mounts.subprocess.run")
+def test_install_rclone_runs_both_brew_installs(mock_run, mock_which):
+    mock_which.side_effect = lambda name: "/opt/homebrew/bin/brew" if name == "brew" else None
+    mock_run.return_value = MagicMock(returncode=0, stdout="installed", stderr="")
+
+    result = install_rclone()
+
+    assert result["ok"] is True
+    calls = [c.args[0] for c in mock_run.call_args_list]
+    assert ["brew", "install", "rclone"] in calls
+    assert ["brew", "install", "--cask", "macfuse"] in calls
+    assert "macFUSE" in result["report"]
+    assert "System Settings" in result["report"]
+
+
+@patch("web.mounts.shutil.which")
+@patch("web.mounts.subprocess.run")
+def test_install_rclone_reports_failure_without_raising(mock_run, mock_which):
+    mock_which.side_effect = lambda name: "/opt/homebrew/bin/brew" if name == "brew" else None
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="some brew error")
+
+    result = install_rclone()
+
+    assert result["ok"] is False
+    assert "some brew error" in result["report"]
+
+
+@patch("web.mounts.shutil.which")
+@patch("web.mounts.subprocess.run")
+def test_install_rclone_reports_progress(mock_run, mock_which):
+    mock_which.side_effect = lambda name: "/opt/homebrew/bin/brew" if name == "brew" else None
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    calls = []
+    install_rclone(progress_callback=lambda current, total, message="": calls.append((current, total, message)))
+
+    assert len(calls) == 2
+    assert calls[0][0] == 1 and calls[1][0] == 2
