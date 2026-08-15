@@ -51,6 +51,32 @@ echo "$APPS" | while IFS= read -r app; do
         echo "post-build.sh: WARNING -- codesign --verify still failing for $app" >&2
     fi
 
+    # `tauri build` bundles the .dmg from the .app BEFORE this script ever
+    # runs, so without this step a shipped .dmg would silently contain the
+    # pre-sign .app -- caught for real by downloading and installing a
+    # built .dmg end-to-end, not assumed. Rebuild the sibling .dmg (if any)
+    # from the now-signed .app, keeping tauri's own filename.
+    bundle_dir=$(CDPATH= cd -- "$(dirname -- "$app")/.." && pwd)
+    dmg_dir="$bundle_dir/dmg"
+    if [ -d "$dmg_dir" ]; then
+        existing_dmg=$(find "$dmg_dir" -maxdepth 1 -name "*.dmg" | head -n1)
+        if [ -n "$existing_dmg" ]; then
+            echo "post-build.sh: rebuilding $existing_dmg from the signed .app"
+            rm -f "$existing_dmg"
+            volname=$(basename "$app" .app)
+            # Stage the .app plus an /Applications symlink (same drag-to-install
+            # layout tauri's own dmg used) in a scratch dir, rather than
+            # hdiutil-ing the .app directly -- otherwise the rebuilt dmg loses
+            # the Applications shortcut a real install expects.
+            stage_dir=$(mktemp -d)
+            cp -R "$app" "$stage_dir/"
+            ln -s /Applications "$stage_dir/Applications"
+            hdiutil create -volname "$volname" -fs HFS+ -srcfolder "$stage_dir" -ov -format UDZO "$existing_dmg" >/dev/null
+            rm -rf "$stage_dir"
+            echo "post-build.sh: rebuilt $existing_dmg"
+        fi
+    fi
+
     echo "post-build.sh: reminder -- ad-hoc signing does NOT bypass Gatekeeper for a" \
          "quarantined copy. See README.md for the real fix (xattr -d com.apple.quarantine)."
 done
