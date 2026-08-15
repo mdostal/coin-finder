@@ -4,7 +4,9 @@ import sys
 import time
 from pathlib import Path
 
-DEFAULT_STORE_PATH = Path(__file__).resolve().parent / "bound_targets.json"
+from web.paths import app_data_dir
+
+DEFAULT_STORE_PATH = app_data_dir() / "bound_targets.json"
 VOLUMES_ROOT = "/Volumes"
 
 # Common macOS boot-volume names -- excluded from list_mounted_volumes() so

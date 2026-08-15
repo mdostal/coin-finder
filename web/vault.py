@@ -6,6 +6,8 @@ from pathlib import Path
 
 from dotenv import get_key, set_key
 
+from web.paths import app_data_dir
+
 PROJECT = "coin-finder"
 GROUP = "coin-finder/candidates"
 
@@ -13,8 +15,8 @@ GROUP = "coin-finder/candidates"
 # fresh install that hasn't set it up yet. Deliberately dumb (plaintext
 # local .env + a metadata sidecar): Portunus is the real vault; this exists
 # so the app still works, not to replace it.
-FALLBACK_ENV_PATH = Path(__file__).resolve().parent / "vault_fallback.env"
-FALLBACK_META_PATH = Path(__file__).resolve().parent / "vault_fallback_meta.json"
+FALLBACK_ENV_PATH = app_data_dir() / "vault_fallback.env"
+FALLBACK_META_PATH = app_data_dir() / "vault_fallback_meta.json"
 
 
 def _portunus_available():

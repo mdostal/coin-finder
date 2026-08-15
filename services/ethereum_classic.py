@@ -1,12 +1,12 @@
 import requests
-from . import WalletService
+from . import REQUEST_TIMEOUT_SECONDS, WalletService
 
 class EthereumClassicService(WalletService):
     def check_balance(self, address):
         try:
             # Blockscout API endpoint for Ethereum Classic
             url = f"https://blockscout.com/etc/mainnet/api?module=account&action=balance&address={address}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
             data = response.json()

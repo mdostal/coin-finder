@@ -5,7 +5,9 @@ import subprocess
 import time
 from pathlib import Path
 
-DEFAULT_STATE_PATH = Path(__file__).resolve().parent / "mounts_state.json"
+from web.paths import app_data_dir
+
+DEFAULT_STATE_PATH = app_data_dir() / "mounts_state.json"
 
 
 def _load_state(state_path):

@@ -1,11 +1,11 @@
 import requests
-from . import WalletService
+from . import REQUEST_TIMEOUT_SECONDS, WalletService
 
 class FeathercoinService(WalletService):
     def check_balance(self, address):
         try:
             url = f"https://explorer.feathercoin.com/api/v2/address/{address}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
             data = response.json()

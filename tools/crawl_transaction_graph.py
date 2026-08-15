@@ -7,6 +7,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from services import REQUEST_TIMEOUT_SECONDS
 from services.bitcoin import BitcoinService
 
 MAX_FETCH_RETRIES = 3
@@ -24,7 +25,7 @@ def fetch_address_transactions(address, max_retries=MAX_FETCH_RETRIES, backoff_s
     url = f"https://blockstream.info/api/address/{address}/txs"
     for attempt in range(1, max_retries + 1):
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code == 200:
                 return response.json()
         except requests.RequestException as e:
