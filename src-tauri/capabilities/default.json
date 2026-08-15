@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window. Grants permission to execute the bundled coin-finder sidecar (by its registered externalBin name, sidecar-scoped, with a fixed argument list) plus Tauri's own default core permissions (window/event/webview management etc). No filesystem plugin, no HTTP/network plugin beyond the sidecar itself, no shell access beyond this one named command, no updater, no analytics/telemetry.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "coin-finder-sidecar",
+          "sidecar": true,
+          "args": ["5050", "127.0.0.1"]
+        }
+      ]
+    }
+  ]
+}

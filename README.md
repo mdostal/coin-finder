@@ -732,6 +732,58 @@ this app is a separate, later effort outside this project's own scope.
 
 ---
 
+## Desktop App (macOS)
+
+A real double-clickable app ("Coin Finder.app" / a `.dmg`), not just
+`git clone` + a script -- a [Tauri](https://tauri.app/) shell wraps the
+same Flask app above (frozen to a standalone binary with
+[PyInstaller](https://pyinstaller.org/), no Python install required on the
+end user's machine) as a background process and shows it in a native
+window.
+
+**Build it yourself:**
+```bash
+pip install pyinstaller
+pyinstaller packaging/pyinstaller/coin_finder_ui.spec --distpath packaging/dist --workpath packaging/build
+rm -rf src-tauri/resources/coin-finder-onedir
+mkdir -p src-tauri/resources/coin-finder-onedir
+cp -R packaging/dist/coin-finder-onedir/. src-tauri/resources/coin-finder-onedir/
+npm install
+npm run tauri:build
+```
+The `.app`/`.dmg` land under `src-tauri/target/release/bundle/`.
+`npm run tauri:build` also ad-hoc-codesigns the result
+(`packaging/tauri/post-build.sh`) -- see the warning below before that
+matters to you.
+
+> ⚠ **This build is unsigned.** A downloaded/AirDropped/copied `.app` or
+> `.dmg` will show *"'Coin Finder' is damaged and can't be opened. You
+> should move it to the Trash"* -- there is no right-click → Open bypass.
+> Ad-hoc codesigning produces a technically valid signature but does
+> **not** clear that dialog for a quarantined copy; only removing the
+> quarantine flag does:
+> ```bash
+> xattr -d com.apple.quarantine "Coin Finder.app"   # or the .dmg you downloaded
+> ```
+> Run this **before the first time you open it** -- it must be the first
+> launch attempt. If you already hit the "damaged" dialog once on a given
+> copy, removing the attribute afterward doesn't reliably un-stick it;
+> get/copy a fresh one and run `xattr -d` on that copy before opening it.
+> Windows/Linux desktop builds aren't packaged yet -- macOS only for now.
+
+**How it works, if you're curious:** `packaging/pyinstaller/` freezes
+`web/app.py` into a `--onedir` build (a directory, not a single file) --
+deliberately, not `--onefile`: a onedir build's reported process ID *is*
+the real Flask/Werkzeug process, so the desktop shell's kill-on-quit
+reliably frees port 5050 every time. `src-tauri/` spawns that as a
+sidecar, polls its `/healthz` route (`frontend/loading.html`) until it
+responds, then hands the window to the real UI. Verified for real before
+shipping: built, launched, confirmed (via `lsof`) that the process bound
+to the port is the actual Flask process and not a bootloader wrapping it,
+and confirmed a normal quit frees the port immediately.
+
+---
+
 ## Pipeline Overview
 
 ```mermaid

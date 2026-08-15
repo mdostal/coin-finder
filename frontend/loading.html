@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Coin Finder</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        background: #0f1115;
+        color: #e6e9ef;
+      }
+      .panel { text-align: center; max-width: 420px; padding: 2rem; }
+      .spinner {
+        width: 36px;
+        height: 36px;
+        margin: 0 auto 1.25rem;
+        border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.15);
+        border-top-color: #2dd4a7;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.4rem; }
+      p { font-size: 0.9rem; color: #9aa3b2; margin: 0; line-height: 1.4; }
+      #error { display: none; }
+      #error h1 { color: #f0575d; }
+      .error-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+    </style>
+  </head>
+  <body>
+    <div class="panel" id="loading">
+      <div class="spinner"></div>
+      <h1>Starting Coin Finder&hellip;</h1>
+      <p id="status-detail">Waiting for the local service to come up.</p>
+    </div>
+    <div class="panel" id="error">
+      <div class="error-icon">&#9888;&#65039;</div>
+      <h1 id="error-title">Coin Finder failed to start</h1>
+      <p id="error-detail"></p>
+    </div>
+
+    <script>
+      (function () {
+        // Contract: bundled with the Tauri app (NOT served by the Flask
+        // sidecar) and shown before the sidecar process has necessarily
+        // even been spawned. Polls the sidecar's cheap /healthz route
+        // (see web/app.py) and, once healthy, hands the window off to the
+        // real Flask UI by navigating there directly.
+        var HOST = "127.0.0.1";
+        var PORT = 5050;
+        var HEALTHZ_URL = "http://" + HOST + ":" + PORT + "/healthz";
+        var APP_URL = "http://" + HOST + ":" + PORT + "/";
+        var POLL_INTERVAL_MS = 400;
+        var TIMEOUT_MS = 20000;
+
+        var loadingEl = document.getElementById("loading");
+        var errorEl = document.getElementById("error");
+        var errorTitleEl = document.getElementById("error-title");
+        var errorDetailEl = document.getElementById("error-detail");
+
+        function showError(title, detail) {
+          loadingEl.style.display = "none";
+          errorEl.style.display = "block";
+          if (title) errorTitleEl.textContent = title;
+          errorDetailEl.textContent = detail || "";
+        }
+
+        // Contract with lib.rs's `navigate_to_error`: it force-navigates
+        // the webview to `tauri://localhost/loading.html?error=<reason>`.
+        // `reason` is "exited" (the sidecar died while the app was open)
+        // or "spawn_failed" (never managed to start it).
+        var params = new URLSearchParams(window.location.search);
+        var errorReason = params.get("error");
+        if (errorReason === "exited") {
+          showError(
+            "Coin Finder stopped unexpectedly",
+            "The background service exited while the app was running. Quit and relaunch Coin Finder to try again."
+          );
+          return;
+        }
+        if (errorReason === "spawn_failed") {
+          showError(
+            "Coin Finder could not start",
+            "The background service failed to launch. Quit and relaunch Coin Finder to try again."
+          );
+          return;
+        }
+
+        var startedAt = Date.now();
+
+        function poll() {
+          if (Date.now() - startedAt > TIMEOUT_MS) {
+            showError(
+              "Coin Finder is taking too long to start",
+              "Waited " + Math.round(TIMEOUT_MS / 1000) + "s for the local service to respond. Quit and relaunch to try again."
+            );
+            return;
+          }
+
+          // mode: "no-cors" is deliberate: this page is served from the
+          // tauri://localhost origin, and Flask's /healthz sends no
+          // Access-Control-Allow-Origin header -- a normal "cors" mode
+          // fetch would always reject/be unreadable regardless of server
+          // health. In "no-cors" mode the response is opaque, but the
+          // promise only resolves if the request actually round-tripped
+          // -- connection-refused (not listening yet) still rejects it.
+          fetch(HEALTHZ_URL, { cache: "no-store", mode: "no-cors" })
+            .then(function () {
+              window.location.replace(APP_URL);
+            })
+            .catch(function () {
+              window.setTimeout(poll, POLL_INTERVAL_MS);
+            });
+        }
+
+        poll();
+      })();
+    </script>
+  </body>
+</html>

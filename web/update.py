@@ -12,8 +12,17 @@ _VERSION_HEADING = re.compile(r"^## \[(\d+\.\d+\.\d+)\]", re.MULTILINE)
 
 
 def get_current_version(changelog_path=DEFAULT_CHANGELOG_PATH):
-    """CHANGELOG.md is this project's only version record -- the first `## [X.Y.Z]` heading (skipping `## [Unreleased]`) is the running version."""
-    text = Path(changelog_path).read_text()
+    """
+    CHANGELOG.md is this project's only version record -- the first
+    `## [X.Y.Z]` heading (skipping `## [Unreleased]`) is the running
+    version. A frozen desktop build doesn't bundle CHANGELOG.md (it isn't
+    part of the app's own runtime data), so a missing file is expected
+    there, not an error -- returns None rather than raising.
+    """
+    try:
+        text = Path(changelog_path).read_text()
+    except OSError:
+        return None
     match = _VERSION_HEADING.search(text)
     return match.group(1) if match else None
 
@@ -34,7 +43,7 @@ def check_for_update(changelog_path=DEFAULT_CHANGELOG_PATH):
     except Exception as e:
         return {"current": current, "latest": None, "update_available": False, "error": str(e)}
 
-    return {"current": current, "latest": latest, "update_available": latest != current}
+    return {"current": current, "latest": latest, "update_available": current is not None and latest != current}
 
 
 def perform_update():
@@ -45,8 +54,20 @@ def perform_update():
     running app -- the caller is responsible for telling the user to do
     that themselves.
 
+    Only applies to a real git checkout (the source-install path). A
+    frozen desktop build has no `.git` directory to pull into -- its
+    update path is downloading a newer build from GitHub Releases, not
+    `git pull`, so this refuses cleanly instead of shelling out to `git`
+    against a directory that was never a checkout.
+
     :return: {"ok": bool, "output": str}
     """
+    if not (REPO_ROOT / ".git").exists():
+        return {
+            "ok": False,
+            "output": "Not a git checkout -- this build can't self-update. Download the latest release from GitHub instead.",
+        }
+
     fetch = subprocess.run(["git", "fetch", "origin", "main"], cwd=REPO_ROOT, capture_output=True, text=True)
     if fetch.returncode != 0:
         return {"ok": False, "output": fetch.stdout + fetch.stderr}

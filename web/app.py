@@ -50,6 +50,16 @@ def create_app(host="127.0.0.1"):
 
     app = Flask(__name__)
 
+    @app.route("/healthz")
+    def healthz():
+        """
+        Deliberately cheap liveness check -- zero I/O, not a repurposing of
+        `/` (which loads targets/volumes/findings). Exists so the desktop
+        app shell (src-tauri/) can cheaply poll "is the sidecar up yet"
+        without that poll itself being slow.
+        """
+        return jsonify({"status": "ok"})
+
     @app.route("/api/status")
     def api_status():
         status = check_network_status()
