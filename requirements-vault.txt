@@ -1,0 +1,4 @@
+# Optional: only needed if you want the password vault (/vault) backed by
+# the real Portunus instead of its local .env fallback. Pinned to a tagged
+# release, not a moving branch.
+git+https://github.com/mdostal/portunus.git@v0.16.1

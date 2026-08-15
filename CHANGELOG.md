@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-08-14
+
+### Fixed
+
+- **The real Portunus is installable again -- correctly this time.**
+  `github.com/mdostal/portunus` is public now, so
+  `requirements-vault.txt` (`pip install -r requirements-vault.txt`) pulls
+  it directly from GitHub, pinned to `v0.16.1`, instead of the broken PyPI
+  pin removed in 0.25.0. Still fully optional -- `/vault` works with its
+  local fallback either way.
+
 ## [0.25.0] - 2026-08-14
 
 ### Added

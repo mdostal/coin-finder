@@ -646,10 +646,11 @@ still works standalone for scripting/automation.
   entries are resolved to their real values only in local memory/temp files
   at unlock time, and the once-only unlock result page names which saved
   label matched (if any) without persisting that match anywhere. Portunus is
-  optional and not installed by `requirements.txt` (it isn't the same
-  package as the unrelated `portunus` on PyPI) -- install it yourself from
-  [its repo](https://github.com/mdostal/portunus) if you want it. If it
-  isn't installed, a local `.env`-based fallback store is used automatically
+  optional and not installed by the base `requirements.txt` (it isn't the
+  same package as the unrelated `portunus` on PyPI -- it's
+  [github.com/mdostal/portunus](https://github.com/mdostal/portunus)). Want
+  it? `pip install -r requirements-vault.txt`. If it isn't installed, a
+  local `.env`-based fallback store is used automatically
   so the feature still works without it.
 - **Stage a file** -- copies (never moves) a found file into a local staging
   directory (`ui_output/staged/` by default) so you can gather recovery
