@@ -42,11 +42,12 @@ Run the app:
 
 Then open http://127.0.0.1:5050
 
-Optional, only if you need them (each is its own opt-in script, not run
-automatically -- read them first, they fetch third-party GPL tools):
-  scripts/install_btcrecover.sh    -- wallet password recovery (unlock)
-  scripts/install_exodus_tools.sh  -- Exodus seed.seco password recovery
-  scripts/install_rclone.sh        -- mount Google Drive/GCS as a local drive
+Optional, only if you need them (each is its own opt-in step, not run
+automatically -- read them first):
+  scripts/install_btcrecover.sh          -- wallet password recovery (unlock)
+  scripts/install_exodus_tools.sh        -- Exodus seed.seco password recovery
+  scripts/install_rclone.sh              -- mount Google Drive/GCS as a local drive
+  pip install -r requirements-vault.txt  -- real Portunus-backed password vault
 
 To keep the app itself up to date later, use the "Update" page in the app
 (or `git pull` from the repo root).
