@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- Google Drive{% endblock %}
 {% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
 <h2>Scan Google Drive</h2>
 <p>Slow-crawls your Google Drive for wallet-like files and downloads matches
 directly to a local directory -- the same

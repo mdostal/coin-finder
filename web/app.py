@@ -67,10 +67,10 @@ def create_app(host="127.0.0.1"):
     @app.context_processor
     def inject_active_nav_group():
         # Which of the 4 top-level nav groups (base.html) the current page
-        # belongs to, so its group toggle can render as active -- purely
-        # presentational, computed from the endpoint so no route needs to
-        # pass this explicitly.
-        return {"active_nav_group": _NAV_GROUP_BY_ENDPOINT.get(request.endpoint)}
+        # belongs to, so its group link and in-page tab strip can render
+        # active -- purely presentational, computed from the endpoint so
+        # no route needs to pass this explicitly.
+        return {"active_nav_group": _NAV_GROUP_BY_ENDPOINT.get(request.endpoint), "nav_groups": _NAV_GROUPS}
 
     @app.route("/healthz")
     def healthz():
@@ -550,6 +550,19 @@ def create_app(host="127.0.0.1"):
     return app
 
 
+# Single source of truth for both the top nav (base.html, one link per
+# group, pointing at the group's first tab) and each grouped page's own
+# in-page tab strip (_macros.html's group_tabs()) -- one list to keep in
+# sync instead of two. Update is listed before Network on purpose (top of
+# About): the two used to be a dropdown where the "About" link and the
+# "Network" item landed on the same page, which read as pointless -- real
+# on-page tabs plus a deliberate order fixes both complaints at once.
+_NAV_GROUPS = {
+    "sources": {"label": "Sources", "tabs": [("Manage", "targets_page"), ("Cloud — Mounts", "mounts_page"), ("Cloud — Google Drive", "drive_form"), ("Scan", "index")]},
+    "unlock": {"label": "Unlock", "tabs": [("Try", "item_unlock_form"), ("Vault", "vault_page"), ("Extract Key", "item_extract_key_form")]},
+    "about": {"label": "About", "tabs": [("Update", "update_page"), ("Network", "network_page")]},
+}
+
 _NAV_GROUP_BY_ENDPOINT = {
     # Sources -- everything about acquiring/choosing what to scan, plus the scan action itself.
     "index": "sources",
@@ -581,12 +594,12 @@ _NAV_GROUP_BY_ENDPOINT = {
     "vault_page": "unlock",
     "vault_add": "unlock",
     "vault_revoke": "unlock",
-    # Findings -- standalone, not a dropdown group.
+    # Findings -- standalone, no tab strip.
     "findings_page": "findings",
     "findings_archive": "findings",
     "findings_unarchive": "findings",
     "findings_archive_all_zero": "findings",
-    # About -- network transparency + update mechanics.
+    # About -- update mechanics + network transparency.
     "network_page": "about",
     "update_page": "about",
     "update_run": "about",

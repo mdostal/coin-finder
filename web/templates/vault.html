@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- vault{% endblock %}
 {% block content %}
+{{ m.group_tabs('unlock') }}
 <h2>Password vault</h2>
 <p>Save known/guessed passwords once, label them ("password-1", "grandpa's
 laptop guess"), then pick them from a list when unlocking a wallet instead of

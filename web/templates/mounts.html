@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- mounts{% endblock %}
 {% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
 <h2>Mounts</h2>
 <p>Attach a multi-terabyte Google Drive or GCS bucket as a local-looking
 directory (via <a href="https://rclone.org/">rclone</a>) instead of

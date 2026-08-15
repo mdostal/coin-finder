@@ -14,32 +14,10 @@
   <div class="page">
     <a class="brand" href="{{ url_for('index') }}">coin<span>-finder</span></a>
     <nav class="topnav">
-      <div class="nav-group">
-        <a href="{{ url_for('targets_page') }}" class="nav-group-toggle{{ ' active' if active_nav_group == 'sources' }}">Sources</a>
-        <div class="nav-dropdown">
-          <a href="{{ url_for('targets_page') }}">Manage</a>
-          <a href="{{ url_for('mounts_page') }}">Cloud &mdash; Mounts</a>
-          <a href="{{ url_for('drive_form') }}">Cloud &mdash; Google Drive</a>
-          <a href="{{ url_for('index') }}">Scan</a>
-          <a href="{{ url_for('wizard_start') }}" class="subtle-link">Guided setup</a>
-        </div>
-      </div>
-      <div class="nav-group">
-        <a href="{{ url_for('item_unlock_form') }}" class="nav-group-toggle{{ ' active' if active_nav_group == 'unlock' }}">Unlock</a>
-        <div class="nav-dropdown">
-          <a href="{{ url_for('item_unlock_form') }}">Try</a>
-          <a href="{{ url_for('vault_page') }}">Vault</a>
-          <a href="{{ url_for('item_extract_key_form') }}" class="subtle-link">Extract a private key</a>
-        </div>
-      </div>
+      <a href="{{ url_for('targets_page') }}" class="nav-single{{ ' active' if active_nav_group == 'sources' }}">Sources</a>
+      <a href="{{ url_for('item_unlock_form') }}" class="nav-single{{ ' active' if active_nav_group == 'unlock' }}">Unlock</a>
       <a href="{{ url_for('findings_page') }}" class="nav-single{{ ' active' if active_nav_group == 'findings' }}">Findings</a>
-      <div class="nav-group">
-        <a href="{{ url_for('network_page') }}" class="nav-group-toggle{{ ' active' if active_nav_group == 'about' }}">About</a>
-        <div class="nav-dropdown">
-          <a href="{{ url_for('network_page') }}">Network</a>
-          <a href="{{ url_for('update_page') }}">Update</a>
-        </div>
-      </div>
+      <a href="{{ url_for('update_page') }}" class="nav-single{{ ' active' if active_nav_group == 'about' }}">About</a>
       <a href="{{ url_for('jobs_page') }}" class="jobs-chip" title="Background jobs -- survives navigating away">
         <span class="dot{{ ' idle' if running_jobs_count == 0 }}"></span>{{ running_jobs_count }} running
       </a>

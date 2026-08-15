@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- scan {{ job_id }}{% endblock %}
 
 {% macro table(rows) %}

@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- update{% endblock %}
 {% block content %}
+{{ m.group_tabs('about') }}
 <h2>Update</h2>
 <p>Checks the latest published release on GitHub and, if you're behind,
 fast-forwards this local checkout to it -- refuses rather than overwrites
