@@ -2,6 +2,7 @@ import json
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -22,7 +23,7 @@ from tools.extract_private_key import extract_wif_for_address
 from web.findings import archive, archive_all_zero_balance, list_findings, record_finding, unarchive
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
-from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
+from web.jobs import consume_job_result, create_job, get_job, list_jobs, report_progress, run_job, running_jobs_count, start_job
 from web.native_dialogs import pick_path
 from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
@@ -54,6 +55,22 @@ def create_app(host="127.0.0.1"):
         )
 
     app = Flask(__name__)
+    app.jinja_env.filters["timestamp_to_local"] = lambda ts: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+
+    @app.context_processor
+    def inject_running_jobs_count():
+        # Powers the always-visible "N running" header chip on every page
+        # (base.html) -- the fix for a background job looking "cancelled"
+        # just because you navigated away from its own status page.
+        return {"running_jobs_count": running_jobs_count()}
+
+    @app.context_processor
+    def inject_active_nav_group():
+        # Which of the 4 top-level nav groups (base.html) the current page
+        # belongs to, so its group toggle can render as active -- purely
+        # presentational, computed from the endpoint so no route needs to
+        # pass this explicitly.
+        return {"active_nav_group": _NAV_GROUP_BY_ENDPOINT.get(request.endpoint)}
 
     @app.route("/healthz")
     def healthz():
@@ -126,7 +143,7 @@ def create_app(host="127.0.0.1"):
         if not input_dir or not Path(input_dir).is_dir():
             return render_template("index.html", error=f"Not a directory: {input_dir}"), 400
 
-        job_id = create_job()
+        job_id = create_job(kind="scan", label=input_dir)
         start_job(job_id, _run_scan_job, input_dir, job_id)
         return redirect(url_for("scan_status", job_id=job_id))
 
@@ -156,7 +173,7 @@ def create_app(host="127.0.0.1"):
         if not wallet_path or not Path(wallet_path).is_file():
             return render_template("index.html", error=f"Not a file: {wallet_path}"), 400
 
-        job_id = create_job()
+        job_id = create_job(kind="scan-wallet-dat", label=wallet_path)
         start_job(job_id, _run_scan_wallet_dat_job, wallet_path, job_id)
         return redirect(url_for("item_result", job_id=job_id))
 
@@ -166,7 +183,7 @@ def create_app(host="127.0.0.1"):
         if not addresses:
             return render_template("index.html", error="Enter at least one address."), 400
 
-        job_id = run_job(_run_crawl_job, addresses)
+        job_id = run_job(_run_crawl_job, addresses, kind="crawl", label=f"{len(addresses)} address(es)")
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item/fork-coins", methods=["POST"])
@@ -175,7 +192,7 @@ def create_app(host="127.0.0.1"):
         if not addresses:
             return render_template("index.html", error="Enter at least one address."), 400
 
-        job_id = run_job(_run_fork_coins_job, addresses)
+        job_id = run_job(_run_fork_coins_job, addresses, kind="fork-coins", label=f"{len(addresses)} address(es)")
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item/find-seed-phrases", methods=["POST"])
@@ -184,7 +201,7 @@ def create_app(host="127.0.0.1"):
         if not target_path or not Path(target_path).exists():
             return render_template("index.html", error=f"Not found: {target_path}"), 400
 
-        job_id = run_job(_run_find_seed_phrases_job, target_path)
+        job_id = run_job(_run_find_seed_phrases_job, target_path, kind="find-seed-phrases", label=target_path)
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item/match-seed-phrases", methods=["POST"])
@@ -193,7 +210,7 @@ def create_app(host="127.0.0.1"):
         if not phrases_file or not Path(phrases_file).is_file():
             return render_template("index.html", error=f"Not a file: {phrases_file}"), 400
 
-        job_id = run_job(_run_match_seed_phrases_job, phrases_file)
+        job_id = run_job(_run_match_seed_phrases_job, phrases_file, kind="match-seed-phrases", label=phrases_file)
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item-result/<job_id>")
@@ -263,7 +280,9 @@ def create_app(host="127.0.0.1"):
             candidates_path = f.name
 
         job_fn = _run_exodus_unlock_job if kind == "exodus" else _run_btcrecover_unlock_job
-        job_id = run_job(job_fn, target_path, candidates_path, allow_online=allow_online, vault_pairs=vault_pairs, secret=True)
+        job_id = run_job(
+            job_fn, target_path, candidates_path, allow_online=allow_online, vault_pairs=vault_pairs, secret=True, kind="unlock", label=target_path
+        )
         return redirect(url_for("item_unlock_status", job_id=job_id))
 
     @app.route("/item/unlock-status/<job_id>")
@@ -315,7 +334,9 @@ def create_app(host="127.0.0.1"):
         if not address:
             return render_template("extract_key.html", network_status=network_status, error="Enter the address to extract a key for."), 400
 
-        job_id = run_job(extract_wif_for_address, wallet_path, address, allow_online=allow_online, secret=True)
+        job_id = run_job(
+            extract_wif_for_address, wallet_path, address, allow_online=allow_online, secret=True, kind="extract-key", label=f"{address} ({wallet_path})"
+        )
         return redirect(url_for("item_extract_key_status", job_id=job_id))
 
     @app.route("/item/extract-key-status/<job_id>")
@@ -388,7 +409,7 @@ def create_app(host="127.0.0.1"):
         if not output_dir:
             return render_template("drive.html", error="Enter a local output directory."), 400
 
-        job_id = run_job(_run_drive_scan_job, output_dir, query)
+        job_id = run_job(_run_drive_scan_job, output_dir, query, kind="drive-scan", label=output_dir)
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/targets")
@@ -418,7 +439,7 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/mounts/install-rclone", methods=["POST"])
     def mounts_install_rclone():
-        job_id = create_job()
+        job_id = create_job(kind="install-rclone", label="rclone")
         start_job(job_id, _run_install_rclone_job, job_id)
         return redirect(url_for("item_result", job_id=job_id))
 
@@ -509,6 +530,10 @@ def create_app(host="127.0.0.1"):
         kind = request.args.get("kind", "gdrive")
         return render_template("wizard_cloud.html", kind=kind, rclone_installed=is_rclone_installed(), remotes=list_remotes())
 
+    @app.route("/jobs")
+    def jobs_page():
+        return render_template("jobs.html", jobs=list_jobs(), status_endpoint=_job_status_endpoint)
+
     @app.route("/network")
     def network_page():
         return render_template("network.html", network_status=check_network_status())
@@ -523,6 +548,60 @@ def create_app(host="127.0.0.1"):
         return render_template("update.html", status=check_for_update(), result=result)
 
     return app
+
+
+_NAV_GROUP_BY_ENDPOINT = {
+    # Sources -- everything about acquiring/choosing what to scan, plus the scan action itself.
+    "index": "sources",
+    "wizard_start": "sources",
+    "wizard_choose": "sources",
+    "wizard_cloud": "sources",
+    "targets_page": "sources",
+    "targets_add": "sources",
+    "targets_remove": "sources",
+    "mounts_page": "sources",
+    "mounts_install_rclone": "sources",
+    "mounts_mount": "sources",
+    "mounts_unmount": "sources",
+    "mounts_bind": "sources",
+    "drive_form": "sources",
+    "drive_scan": "sources",
+    "start_scan": "sources",
+    "scan_status": "sources",
+    "item_scan_wallet_dat": "sources",
+    # Unlock -- testing/saving passwords, extracting keys.
+    "item_unlock_form": "unlock",
+    "item_unlock": "unlock",
+    "item_unlock_status": "unlock",
+    "item_unlock_result": "unlock",
+    "item_extract_key_form": "unlock",
+    "item_extract_key": "unlock",
+    "item_extract_key_status": "unlock",
+    "item_extract_key_result": "unlock",
+    "vault_page": "unlock",
+    "vault_add": "unlock",
+    "vault_revoke": "unlock",
+    # Findings -- standalone, not a dropdown group.
+    "findings_page": "findings",
+    "findings_archive": "findings",
+    "findings_unarchive": "findings",
+    "findings_archive_all_zero": "findings",
+    # About -- network transparency + update mechanics.
+    "network_page": "about",
+    "update_page": "about",
+    "update_run": "about",
+}
+
+_STATUS_ENDPOINT_BY_KIND = {
+    "scan": "scan_status",
+    "unlock": "item_unlock_status",
+    "extract-key": "item_extract_key_status",
+}
+
+
+def _job_status_endpoint(kind):
+    """Every job kind not listed here shares the generic item_result status page -- true for scan-wallet-dat, crawl, fork-coins, find/match-seed-phrases, drive-scan, and install-rclone."""
+    return _STATUS_ENDPOINT_BY_KIND.get(kind, "item_result")
 
 
 def _split_lines(raw):

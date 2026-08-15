@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-08-15
+
+### Added
+
+- **Real navigation redesign.** 10 flat top-level nav items collapsed to 4
+  (Sources / Unlock / Findings / About), chosen from a multi-agent design
+  pass (4 independent concepts, 3-judge critique, synthesized into 3 final
+  options) -- picked the tightest of the three. Wizard, Targets, Mounts,
+  and Drive now live as tabs under **Sources**; Vault and Extract Key now
+  live under **Unlock** alongside Try; **Findings** is unchanged;
+  Network and Update merge into **About**.
+- **`/jobs` -- a real, durable page listing every background job** (scan,
+  unlock, drive crawl, install) across every kind, with live status and a
+  link back to each job's own detail page. Direct fix for "a scan looks
+  cancelled once I navigate away from it": the truth about a job now lives
+  somewhere with a fixed address, not just on the tab that started it. A
+  small always-visible "N running" chip sits in the header on every page,
+  linking here.
+
 ## [0.28.0] - 2026-08-15
 
 ### Fixed
