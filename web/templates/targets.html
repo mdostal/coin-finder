@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- targets{% endblock %}
 {% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
 <h2>Scan targets</h2>
 <p>Save a drive or directory once, then scan it with one click next time --
 useful when you're coming back to the same target across a multi-day

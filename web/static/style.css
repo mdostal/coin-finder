@@ -84,44 +84,34 @@ nav.topnav a:hover {
   border-bottom-color: var(--accent-dim);
 }
 
-.nav-single.active, .nav-group-toggle.active {
+.nav-single.active {
   color: var(--text);
   border-bottom-color: var(--accent);
 }
 
-.nav-group { position: relative; }
-.nav-group-toggle { cursor: pointer; }
-
-.nav-dropdown {
-  display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 0.6rem;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.4rem;
-  min-width: 200px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  z-index: 20;
-}
-.nav-group:hover .nav-dropdown,
-.nav-group:focus-within .nav-dropdown {
+/* In-page tab strip (_macros.html's group_tabs()) -- shown at the top of
+   every page within a nav group (Sources/Unlock/About), so switching
+   between e.g. Manage/Cloud/Scan is a real page-level tab, not a hover
+   dropdown that duplicates the top nav link's destination. */
+.page-tabs {
   display: flex;
-  flex-direction: column;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.6rem;
+  padding-bottom: 0;
 }
-.nav-dropdown a {
+.page-tabs a {
   color: var(--text-dim);
   text-decoration: none;
   font-size: 0.86rem;
-  padding: 0.45rem 0.6rem;
-  border-radius: 5px;
-  border-bottom: none;
-  white-space: nowrap;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
 }
-.nav-dropdown a:hover { color: var(--text); background: var(--bg-inset); border-bottom: none; }
-.nav-dropdown a.subtle-link { color: var(--text-dim); font-size: 0.8rem; border-top: 1px solid var(--border); margin-top: 0.3rem; padding-top: 0.55rem; }
+.page-tabs a:hover { color: var(--text); }
+.page-tabs a.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.page-tabs a.subtle { color: var(--text-dim); font-size: 0.8rem; margin-left: auto; }
 
 .jobs-chip {
   display: inline-flex;

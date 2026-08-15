@@ -13,18 +13,28 @@ _VERSION_HEADING = re.compile(r"^## \[(\d+\.\d+\.\d+)\]", re.MULTILINE)
 
 def get_current_version(changelog_path=DEFAULT_CHANGELOG_PATH):
     """
-    CHANGELOG.md is this project's only version record -- the first
-    `## [X.Y.Z]` heading (skipping `## [Unreleased]`) is the running
-    version. A frozen desktop build doesn't bundle CHANGELOG.md (it isn't
-    part of the app's own runtime data), so a missing file is expected
-    there, not an error -- returns None rather than raising.
+    CHANGELOG.md's first `## [X.Y.Z]` heading (skipping `## [Unreleased]`)
+    is the primary, real source of truth for a source install. A frozen
+    desktop build doesn't bundle CHANGELOG.md (it isn't part of the app's
+    own runtime data) -- previously this just returned None there
+    ("Couldn't determine the running version in this build"), so it falls
+    back to web._version.VERSION, a plain committed module PyInstaller
+    bundles automatically along with the rest of the source.
     """
     try:
         text = Path(changelog_path).read_text()
+        match = _VERSION_HEADING.search(text)
+        if match:
+            return match.group(1)
     except OSError:
+        pass
+
+    try:
+        from web._version import VERSION
+
+        return VERSION
+    except ImportError:
         return None
-    match = _VERSION_HEADING.search(text)
-    return match.group(1) if match else None
 
 
 def check_for_update(changelog_path=DEFAULT_CHANGELOG_PATH):

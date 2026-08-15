@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-08-15
+
+### Changed
+
+- **Nav groups (Sources/Unlock/About) now use real on-page tab strips**
+  instead of hover dropdowns -- a dropdown made "About" and its "Network"
+  item feel pointless since both landed on the same page. Tabs also fixed
+  that directly: About's own tab order now puts Update first ("top of
+  About"), so the About link and the Network tab go to different places.
+- **The desktop build can now report its own version.** `/update` used to
+  say "Couldn't determine the running version in this build" in the
+  packaged app, since it has no `CHANGELOG.md` to read -- new
+  `web/_version.py`, a plain committed module PyInstaller bundles
+  automatically, is the fallback version source when the changelog isn't
+  present.
+
 ## [0.29.0] - 2026-08-15
 
 ### Added

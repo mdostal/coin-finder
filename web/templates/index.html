@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder{% endblock %}
 {% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
 {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
 {% if staged %}<div class="banner warning">Staged to {{ staged }}.</div>{% endif %}
 

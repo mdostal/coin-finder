@@ -2,6 +2,19 @@
 <span class="status-pill status-{{ status }}">{{ status }}</span>
 {% endmacro %}
 
+{% macro group_tabs(group_key, extra=None) %}
+<div class="page-tabs">
+  {% for label, endpoint in nav_groups[group_key].tabs %}
+  <a href="{{ url_for(endpoint) }}"{{ ' class="active"' | safe if request.endpoint == endpoint }}>{{ label }}</a>
+  {% endfor %}
+  {% if extra %}
+  {% for label, endpoint in extra %}
+  <a href="{{ url_for(endpoint) }}" class="subtle">{{ label }}</a>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endmacro %}
+
 {% macro path_input(label, name, mode="file", value="", required=False, placeholder="") %}
 <label>{{ label }}</label>
 <div class="path-input-row">

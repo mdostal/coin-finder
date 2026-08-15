@@ -65,8 +65,10 @@ def test_perform_update_reports_failure_without_raising(mock_run):
     assert "fast-forward" in result["output"]
 
 
-def test_get_current_version_returns_none_when_changelog_missing(tmp_path):
-    assert get_current_version(changelog_path=tmp_path / "does-not-exist.md") is None
+def test_get_current_version_falls_back_to_bundled_version_when_changelog_missing(tmp_path):
+    from web._version import VERSION
+
+    assert get_current_version(changelog_path=tmp_path / "does-not-exist.md") == VERSION
 
 
 @patch("web.update.subprocess.run")

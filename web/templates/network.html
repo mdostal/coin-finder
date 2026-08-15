@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- network{% endblock %}
 {% block content %}
+{{ m.group_tabs('about') }}
 <h2>What actually touches the network</h2>
 <p>Every network call this app can make, in full -- not a vague "be careful,"
 the real list, sourced from the code itself. Nothing here is hidden or
