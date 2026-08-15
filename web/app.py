@@ -504,6 +504,10 @@ def create_app(host="127.0.0.1"):
         kind = request.args.get("kind", "gdrive")
         return render_template("wizard_cloud.html", kind=kind, rclone_installed=is_rclone_installed(), remotes=list_remotes())
 
+    @app.route("/network")
+    def network_page():
+        return render_template("network.html", network_status=check_network_status())
+
     @app.route("/update")
     def update_page():
         return render_template("update.html", status=check_for_update(), result=None)

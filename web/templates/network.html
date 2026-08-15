@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- network{% endblock %}
+{% block content %}
+<h2>What actually touches the network</h2>
+<p>Every network call this app can make, in full -- not a vague "be careful,"
+the real list, sourced from the code itself. Nothing here is hidden or
+approximate.</p>
+
+<div class="banner {{ '' if network_status == 'OFFLINE' else 'warning' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
+  Right now this machine looks: <strong style="color:inherit">{{ network_status }}</strong>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">1. The connectivity check itself</h3>
+  <p>Opens a bare TCP connection (no data sent -- just the handshake, then
+  closes it) to three public DNS resolvers: <code>8.8.8.8</code>,
+  <code>1.1.1.1</code>, <code>9.9.9.9</code> on port 53. That's it -- this
+  is purely "is there a network at all," not a request that carries any
+  information about you, your wallet, or your coins.
+  (<code>tools/unlock_wallet.py</code>, <code>check_network_status</code>)</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">2. Balance checks -- sends a public address, nothing else</h3>
+  <p>When you check a balance, the address (e.g. <code>1abc...</code>) --
+  public by definition, meant to be looked up on-chain by anyone -- goes to
+  a public blockchain explorer API (Blockstream for BTC, Blockchair,
+  Etherscan, etc., one per coin -- see the
+  <a href="https://github.com/mdostal/coin-finder#supported-cryptocurrencies">full
+  list in the README</a>). There's no way to check a live balance without
+  asking a blockchain explorer -- this is unavoidable and it's the same
+  public information a block explorer website shows anyone who types the
+  address in. Nothing else about the wallet file goes with it: no private
+  keys, no passwords, no seed phrases, no filenames.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">3. Unlock &amp; Extract Key -- never sends anything, period</h3>
+  <p>Candidate passwords, extracted private keys, and seed phrases never
+  travel over the network in any code path in this project -- they only
+  ever touch local temp files. The offline-by-default gate on these two
+  pages exists for a different, local reason: if the machine itself were
+  ever compromised (malware, a keylogger, anything), being online during
+  the brief window an unlock attempt runs means a candidate password list
+  and the real wallet file are sitting together on a machine that can talk
+  to the outside world. Offline removes that risk category entirely for
+  those couple of minutes -- the same reasoning
+  <a href="https://github.com/3rdIteration/btcrecover">BTCRecover</a>
+  itself and hardware-wallet vendors give for the same recommendation.
+  It's a precaution against the machine being compromised, not a claim
+  that this app itself would ever send a key anywhere -- and it's fully
+  your call: one checkbox overrides it, every time, no exceptions.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">4. Google Drive scan -- only your own files, via your own OAuth token</h3>
+  <p>Only runs if you set it up. Talks to Google's own Drive API using a
+  token you authorize yourself, only lists/downloads files already in your
+  own Drive. Nothing wallet-related is sent to Google -- it's the same as
+  browsing your own Drive in a file manager.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">5. Update check -- a version number, nothing else</h3>
+  <p>The <a href="{{ url_for('update_page') }}">Update</a> page checks
+  GitHub's public releases API for the latest version tag. No wallet data
+  involved.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">6. Password vault -- local only</h3>
+  <p>The <a href="{{ url_for('vault_page') }}">vault</a> resolves saved
+  passwords via a local subprocess to local files (Portunus, or its local
+  fallback store) -- no network call at all.</p>
+</div>
+
+<p class="subtle">That's the complete list. If you find a network call this
+page doesn't mention, that's a bug worth reporting.</p>
+{% endblock %}
