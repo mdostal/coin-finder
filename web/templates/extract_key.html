@@ -7,11 +7,12 @@
 <div class="banner {{ '' if network_status == 'OFFLINE' else 'warning' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
   Network status right now: <strong style="color:inherit">{{ network_status }}</strong>.
   {% if network_status != "OFFLINE" %}
-  <strong>Recommended:</strong> disconnect network access and reload this
-  page before extracting a real private key -- key material should ideally
-  never be produced on a network-connected machine. You can still choose to
-  extract it online (see the checkbox below) if you understand and accept
-  that risk.
+  The extracted key never gets sent anywhere by this app -- offline is
+  recommended for a local reason: if this machine were ever compromised,
+  producing key material while online means it exists on a machine that
+  can reach the outside world during that window. Full details:
+  <a href="{{ url_for('network_page') }}">what actually touches the
+  network</a>. Your call either way -- see the checkbox below.
   {% else %}
   Safe to extract a real key.
   {% endif %}

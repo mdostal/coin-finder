@@ -7,11 +7,14 @@
 <div class="banner {{ 'warning' if network_status != 'OFFLINE' else '' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
   Network status right now: <strong style="color:inherit">{{ network_status }}</strong>.
   {% if network_status != "OFFLINE" %}
-  <strong>Recommended:</strong> disconnect network access and reload this
-  page before testing real passwords against a real wallet -- a candidate
-  list and a real wallet should ideally never sit together on a
-  network-connected machine. You can still choose to run this online (see
-  the checkbox below) if you understand and accept that risk.
+  Nothing in this app ever sends a password, key, or seed phrase over the
+  network -- the reason offline is recommended here is local, not remote:
+  if this machine were ever compromised, being online during an unlock
+  attempt means a candidate list and the real wallet file sit together on
+  a machine that can reach the outside world. Offline removes that risk
+  category. Full details on exactly what this app does and doesn't send
+  anywhere: <a href="{{ url_for('network_page') }}">what actually touches
+  the network</a>. Your call either way -- see the checkbox below.
   {% else %}
   Safe to test candidates against a real wallet.
   {% endif %}

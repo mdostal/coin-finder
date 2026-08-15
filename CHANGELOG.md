@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-08-15
+
+### Added
+
+- **`/network` -- a real, complete answer to "what does this app send over
+  the network."** Every network call this codebase makes, in full, sourced
+  from the actual code: the offline-status check itself (a bare TCP
+  handshake to public DNS resolvers, no payload), balance checks (public
+  address only, never key material), Google Drive scan (your own OAuth
+  token, your own files), the update check (a version tag), and the
+  vault (local only) -- plus an explicit statement that Unlock and Extract
+  Key never send anything, ever, regardless of network status.
+
+### Changed
+
+- **Unlock/Extract Key's offline banners now explain the actual reasoning**
+  instead of just saying "disconnect network" with no context: the offline
+  recommendation is about *local* compromise risk (a candidate list and
+  the real wallet file sitting together on a machine that can reach the
+  outside world, if that machine were ever compromised), not a claim that
+  this app would send anything anywhere. Links to `/network` for the full
+  picture.
+
 ## [0.26.0] - 2026-08-15
 
 ### Added
