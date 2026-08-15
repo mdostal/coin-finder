@@ -2,6 +2,21 @@
 <span class="status-pill status-{{ status }}">{{ status }}</span>
 {% endmacro %}
 
+{% macro table(rows) %}
+  {% if rows %}
+  <table>
+    <thead><tr>{% for key in rows[0].keys() %}<th>{{ key }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">none</p>
+  {% endif %}
+{% endmacro %}
+
 {% macro group_tabs(group_key, extra=None) %}
 <div class="page-tabs">
   {% for label, endpoint in nav_groups[group_key].tabs %}

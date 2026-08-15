@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-08-15
+
+### Added
+
+- **Scanning is now two independent stages: Find, then Check Balances.**
+  Find (search + analyze) is fast -- no network calls -- and now shows real
+  results immediately: files found, and a per-coin address-instance count,
+  with a note that a huge count for a loosely-matching coin (OKCash,
+  DigiByte, Ripple) usually means false positives, not real addresses.
+  Check Balances (the slow part -- one real network call per address, with
+  retries) only runs when you explicitly click "Check balances now," as
+  its own background job -- so you can kick off another Find against a
+  different drive while a previous Check Balances grinds through overnight.
+  Direct fix for a scan that looked like it would "take 2 days" with zero
+  visibility into what it had already found.
+
+### Fixed
+
+- **The balances/inconclusive/filtered results tables could 500 on real
+  (non-empty) data.** `_load_scan_results` was handing `web/templates/
+  _macros.html`'s `table()` macro a 3-level-nested dict
+  (`{file: {coin: {address: balance}}}`); the macro expects a flat list of
+  row dicts and indexes it like one (`rows[0]`), which raises on a real
+  dict. Caught live, not by a unit test -- ran an actual scan through the
+  UI. New `_flatten_balance_dict`/`_flatten_inconclusive_dict` fix it.
+
 ## [0.30.0] - 2026-08-15
 
 ### Changed

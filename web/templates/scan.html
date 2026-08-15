@@ -2,55 +2,56 @@
 {% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- scan {{ job_id }}{% endblock %}
 
-{% macro table(rows) %}
-  {% if rows %}
-  <table>
-    <thead><tr>{% for key in rows[0].keys() %}<th>{{ key }}</th>{% endfor %}</tr></thead>
-    <tbody>
-      {% for row in rows %}
-      <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty">none</p>
-  {% endif %}
-{% endmacro %}
-
 {% block content %}
-<h2>Scan results</h2>
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
+<h2>Find results</h2>
 <p>{{ m.status_pill(job.status) }}</p>
 
 {% if job.status == "running" %}
-<div class="card"><p>Scanning -- this page will refresh automatically.</p><div id="job-progress"></div></div>
+<div class="card"><p>Searching &amp; analyzing -- fast, no network calls. This page will refresh automatically.</p><div id="job-progress"></div></div>
 {% elif job.status == "error" %}
 <div class="banner error">{{ job.error }}</div>
-{% elif results %}
+{% elif job.result %}
   <div class="card">
-    <h3 style="margin-top:0">Balances</h3>
-    {{ table(results.balances) }}
+    <h3 style="margin-top:0">What was found</h3>
+    <p><strong>{{ job.result.files_found }}</strong> file(s) with wallet-shaped content,
+    <strong>{{ job.result.total_address_instances }}</strong> address instance(s) matched across them.</p>
 
-    {% if results.inconclusive %}
-    <h3>Inconclusive balances (recheck later)</h3>
-    {{ table(results.inconclusive) }}
+    {% if job.result.coin_counts %}
+    <table>
+      <thead><tr><th>Coin (pattern matched)</th><th>Address instances</th></tr></thead>
+      <tbody>
+        {% for coin, count in job.result.coin_counts.items() | sort(attribute="1", reverse=True) %}
+        <tr><td>{{ coin }}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="subtle">These are pattern matches, not verified wallets -- a large count for a
+    loosely-matching coin (OKCash, DigiByte, Ripple) against a directory full of source/doc text
+    usually means false positives, not real addresses. Skim the numbers before committing to the
+    slow stage below.</p>
+    {% else %}
+    <p class="empty">No wallet-shaped files found.</p>
     {% endif %}
 
-    <h3>Filtered (non-zero / interesting) wallets</h3>
-    {{ table(results.filtered) }}
-
-    <h3>File analysis</h3>
-    {{ table(results.analysis) }}
-
-    {% if results.relationships_report %}
-    <h3>Relationship graph</h3>
-    <pre>{{ results.relationships_report }}</pre>
-    {% endif %}
-
-    {% if results.hidden_volumes_report %}
+    {% if job.result.hidden_volumes_report %}
     <h3>Hidden/encrypted volume detection</h3>
-    <pre>{{ results.hidden_volumes_report }}</pre>
+    <pre>{{ job.result.hidden_volumes_report }}</pre>
     {% endif %}
   </div>
+
+  {% if job.result.total_address_instances %}
+  <div class="card">
+    <h3 style="margin-top:0">Next: check balances</h3>
+    <p>The slow part -- one real network call per address instance above, with retries. Can take
+    minutes to days depending on how much was found. Runs as its own background job, so you can
+    kick off another Find against a different drive/directory while this one grinds through
+    overnight.</p>
+    <form method="post" action="{{ url_for('scan_check_balances', job_id=job_id) }}">
+      <button type="submit">Check balances now</button>
+    </form>
+  </div>
+  {% endif %}
 
   <div class="card">
     <h3 style="margin-top:0">More actions</h3>

@@ -143,8 +143,11 @@ def create_app(host="127.0.0.1"):
         if not input_dir or not Path(input_dir).is_dir():
             return render_template("index.html", error=f"Not a directory: {input_dir}"), 400
 
-        job_id = create_job(kind="scan", label=input_dir)
-        start_job(job_id, _run_scan_job, input_dir, job_id)
+        # Stage 1 only (search + analyze) -- fast, no network calls. See
+        # scan_check_balances() for the slow stage, kicked off separately
+        # once you've seen what stage 1 actually found.
+        job_id = create_job(kind="find", label=input_dir)
+        start_job(job_id, _run_find_job, input_dir, job_id)
         return redirect(url_for("scan_status", job_id=job_id))
 
     @app.route("/scan/<job_id>")
@@ -152,13 +155,30 @@ def create_app(host="127.0.0.1"):
         job = get_job(job_id)
         if job is None:
             abort(404)
+        return render_template("scan.html", job_id=job_id, job=job)
+
+    @app.route("/scan/<job_id>/check-balances", methods=["POST"])
+    def scan_check_balances(job_id):
+        job = get_job(job_id)
+        if job is None or job.get("kind") != "find" or job["status"] != "done":
+            abort(404)
+
+        output_dir = job["result"]["output_dir"]
+        balances_job_id = create_job(kind="check-balances", label=job["label"])
+        start_job(balances_job_id, _run_check_balances_job, output_dir, balances_job_id)
+        return redirect(url_for("scan_balances_status", job_id=balances_job_id))
+
+    @app.route("/scan/balances/<job_id>")
+    def scan_balances_status(job_id):
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
 
         results = None
         if job["status"] == "done":
             results = _load_scan_results(job["result"]["output_dir"])
-            results["hidden_volumes_report"] = job["result"]["hidden_volumes_report"]
 
-        return render_template("scan.html", job_id=job_id, job=job, results=results)
+        return render_template("scan_balances.html", job_id=job_id, job=job, results=results)
 
     @app.route("/api/jobs/<job_id>")
     def job_status(job_id):
@@ -581,6 +601,8 @@ _NAV_GROUP_BY_ENDPOINT = {
     "drive_scan": "sources",
     "start_scan": "sources",
     "scan_status": "sources",
+    "scan_check_balances": "sources",
+    "scan_balances_status": "sources",
     "item_scan_wallet_dat": "sources",
     # Unlock -- testing/saving passwords, extracting keys.
     "item_unlock_form": "unlock",
@@ -606,7 +628,8 @@ _NAV_GROUP_BY_ENDPOINT = {
 }
 
 _STATUS_ENDPOINT_BY_KIND = {
-    "scan": "scan_status",
+    "find": "scan_status",
+    "check-balances": "scan_balances_status",
     "unlock": "item_unlock_status",
     "extract-key": "item_extract_key_status",
 }
@@ -775,21 +798,27 @@ def _run_drive_scan_job(output_dir, query):
     return {"report": "\n".join(lines), "manifest": manifest, "output_dir": output_dir}
 
 
-def _run_scan_job(input_dir, job_id):
+def _run_find_job(input_dir, job_id):
     """
-    Runs the existing default pipeline (search -> analyze -> check_balances
-    -> filter -> graph) plus the hidden-volume detector, exactly the same
-    functions the CLI tools call -- this job is a thin wrapper, not a
-    reimplementation.
+    Stage 1 -- search + analyze + hidden-volume detection. Fast: no
+    network calls. Deliberately does NOT run check_wallet_balances --
+    that's _run_check_balances_job, a separate job kicked off only once
+    you've seen these results and decided it's worth the slow stage.
     """
     output_dir = str(DEFAULT_OUTPUT_ROOT / Path(input_dir).name)
-    run_pipeline.main(
-        input_dir,
+    summary = run_pipeline.find(input_dir, output_dir)
+
+    hidden_volumes = scan_for_hidden_volumes(input_dir)
+    summary["hidden_volumes_report"] = render_hidden_volumes_report(hidden_volumes)
+    return summary
+
+
+def _run_check_balances_job(output_dir, job_id):
+    """Stage 2 -- the slow part. Requires _run_find_job to have already populated output_dir."""
+    run_pipeline.check_balances(
         output_dir,
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
     )
-
-    hidden_volumes = scan_for_hidden_volumes(input_dir)
 
     balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
     balances = _read_json(balances_path)
@@ -799,10 +828,7 @@ def _run_scan_job(input_dir, job_id):
                 for address, balance in addresses.items():
                     record_finding(coin, address, balance, source_path=file_path, source_label="scan")
 
-    return {
-        "output_dir": output_dir,
-        "hidden_volumes_report": render_hidden_volumes_report(hidden_volumes),
-    }
+    return {"output_dir": output_dir}
 
 
 def _read_json(path):
@@ -812,16 +838,41 @@ def _read_json(path):
     return None
 
 
+def _flatten_balance_dict(data):
+    """
+    balances/filtered are shaped {file: {coin: {address: balance}}} --
+    m.table() (web/templates/_macros.html) needs a flat list of row dicts,
+    not a 3-level-nested one. Caught live: rendering a real (non-empty)
+    balances dict through the old unflattened template 500'd with
+    "dict object has no element 0" -- table() indexed it like a list.
+    """
+    rows = []
+    for file_path, coins in (data or {}).items():
+        for coin, addresses in coins.items():
+            for address, balance in addresses.items():
+                rows.append({"file": file_path, "coin": coin, "address": address, "balance": balance})
+    return rows
+
+
+def _flatten_inconclusive_dict(data):
+    """Same shape problem as _flatten_balance_dict, but inconclusive's leaves are address lists, not {address: balance}."""
+    rows = []
+    for file_path, coins in (data or {}).items():
+        for coin, addresses in coins.items():
+            for address in addresses:
+                rows.append({"file": file_path, "coin": coin, "address": address})
+    return rows
+
+
 def _load_scan_results(output_dir):
     output_dir = Path(output_dir)
     checks_dir = output_dir / "checks"
     relationships_report_path = output_dir / "wallet_relationships.md"
 
     return {
-        "analysis": _read_json(checks_dir / "wallet_analysis.json"),
-        "balances": _read_json(checks_dir / "wallet_balances.json"),
-        "inconclusive": _read_json(checks_dir / "inconclusive_balances.json"),
-        "filtered": _read_json(output_dir / "filtered_wallets.json"),
+        "balances": _flatten_balance_dict(_read_json(checks_dir / "wallet_balances.json")),
+        "inconclusive": _flatten_inconclusive_dict(_read_json(checks_dir / "inconclusive_balances.json")),
+        "filtered": _flatten_balance_dict(_read_json(output_dir / "filtered_wallets.json")),
         "relationships_report": relationships_report_path.read_text()
         if relationships_report_path.exists()
         else None,
