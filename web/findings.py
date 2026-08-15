@@ -2,7 +2,9 @@ import sqlite3
 import time
 from pathlib import Path
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent / "findings.db"
+from web.paths import app_data_dir
+
+DEFAULT_DB_PATH = app_data_dir() / "findings.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS findings (

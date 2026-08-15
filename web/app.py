@@ -24,11 +24,16 @@ from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
 from web.jobs import consume_job_result, create_job, get_job, report_progress, run_job, start_job
 from web.native_dialogs import pick_path
+from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "ui_output"
+# Unchanged (REPO_ROOT/ui_output) for a source install -- only a frozen
+# desktop build's output moves to the persistent app-data dir, since only
+# that case has the "gets wiped on every reinstall" problem app_data_dir()
+# exists to fix.
+DEFAULT_OUTPUT_ROOT = (app_data_dir() if is_frozen() else REPO_ROOT) / "ui_output"
 DEFAULT_STAGING_DIR = DEFAULT_OUTPUT_ROOT / "staged"
 ALLOWED_HOSTS = ("127.0.0.1", "localhost")
 

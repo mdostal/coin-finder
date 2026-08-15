@@ -1,5 +1,5 @@
 import requests
-from . import WalletService
+from . import REQUEST_TIMEOUT_SECONDS, WalletService
 
 class MoneroService(WalletService):
     def check_balance(self, address):
@@ -7,7 +7,7 @@ class MoneroService(WalletService):
             # Monero often uses private nodes or wallets for querying balances
             # Replace `YOUR_NODE_URL` with your Monero node API endpoint
             url = f"https://moneroblocks.info/api/get_address_info/{address}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
             data = response.json()

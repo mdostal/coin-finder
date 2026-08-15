@@ -1,12 +1,12 @@
 import requests
-from . import WalletService
+from . import REQUEST_TIMEOUT_SECONDS, WalletService
 
 class DogecoinService(WalletService):
     def check_balance(self, address):
         try:
             # Blockchair API endpoint for Dogecoin
             url = f"https://api.blockchair.com/dogecoin/dashboards/address/{address}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
             data = response.json()

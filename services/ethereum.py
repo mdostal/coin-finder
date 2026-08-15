@@ -1,6 +1,6 @@
 import os
 import requests
-from . import WalletService
+from . import REQUEST_TIMEOUT_SECONDS, WalletService
 
 class EthereumService(WalletService):
     def __init__(self):
@@ -12,7 +12,7 @@ class EthereumService(WalletService):
     def check_balance(self, address):
         try:
             url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest&apikey={self.api_key}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
             data = response.json()

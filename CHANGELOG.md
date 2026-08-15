@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-08-15
+
+### Fixed
+
+- **Balance checks could hang forever, making a scan look "cancelled."**
+  None of the 21 coin-service modules (`services/*.py`) passed a
+  `timeout=` to `requests.get()` -- Python's `requests` has no default
+  timeout, so a slow/unresponsive blockchain-explorer API could block that
+  call indefinitely. This silently defeated
+  `tools/check_wallet_balances.py`'s existing retry/inconclusive-balance
+  handling, since a hung call never returns or raises for the retry loop
+  to react to -- the scan just sat there with zero progress and zero
+  error, forever. Caught for real: a live scan against a real directory
+  sat unchanged for 30+ minutes with almost no CPU growth. Every
+  `requests` call in `services/`, `tools/`, and `web/` now has a 15s
+  timeout (`services.REQUEST_TIMEOUT_SECONDS`); a new test
+  (`test_no_unbounded_network_calls.py`) statically checks every
+  `requests.*()` call in the codebase for this so it can't regress.
+- **Persistent app data (findings, saved targets, mount state, the vault
+  fallback store, scan output) was being written inside the desktop app's
+  own bundle**, which gets wholesale replaced on every reinstall/update --
+  confirmed by finding `findings.db` and real scan output living under
+  `Coin Finder.app/Contents/Resources/.../_internal/`, a location any
+  future update silently wipes. New `web/paths.py` resolves persistent
+  state to the OS's standard per-user app-data directory
+  (`~/Library/Application Support/coin-finder/` on macOS) for a frozen
+  desktop build, unchanged (`web/`) for a source install.
+
 ## [0.27.0] - 2026-08-15
 
 ### Added

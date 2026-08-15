@@ -1,6 +1,6 @@
 import requests
 import os
-from . import WalletService
+from . import REQUEST_TIMEOUT_SECONDS, WalletService
 
 class CardanoService(WalletService):
     
@@ -14,7 +14,7 @@ class CardanoService(WalletService):
         try:
             url = f"https://cardano-mainnet.blockfrost.io/api/v0/addresses/{address}"
             headers = {"project_id": self.API_KEY}
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
             data = response.json()
