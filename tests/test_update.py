@@ -63,3 +63,17 @@ def test_perform_update_reports_failure_without_raising(mock_run):
 
     assert result["ok"] is False
     assert "fast-forward" in result["output"]
+
+
+def test_get_current_version_returns_none_when_changelog_missing(tmp_path):
+    assert get_current_version(changelog_path=tmp_path / "does-not-exist.md") is None
+
+
+@patch("web.update.subprocess.run")
+def test_perform_update_refuses_outside_a_git_checkout(mock_run, tmp_path):
+    with patch("web.update.REPO_ROOT", tmp_path):
+        result = perform_update()
+
+    assert result["ok"] is False
+    assert "git checkout" in result["output"]
+    mock_run.assert_not_called()

@@ -1,0 +1,13 @@
+{
+  "name": "coin-finder-desktop",
+  "private": true,
+  "version": "0.25.1",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:build": "tauri build && sh packaging/tauri/post-build.sh"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

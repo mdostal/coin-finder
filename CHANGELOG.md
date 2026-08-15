@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-08-15
+
+### Added
+
+- **Real macOS desktop app ("Coin Finder.app"), not just a clone-and-run
+  script.** A Tauri v2 shell (`src-tauri/`) wraps the existing Flask app
+  (frozen to a standalone binary via PyInstaller, `packaging/pyinstaller/`
+  -- no Python install required) as a background sidecar and shows it in
+  a native window. `frontend/loading.html` polls the new `/healthz` route
+  until the sidecar is up, then hands the window off to the real UI.
+  Quitting the app cleanly kills the sidecar and frees its port --
+  verified directly (`lsof`) that the process the app spawns *is* the
+  real Flask/Werkzeug process, not a bootloader wrapping it, so a normal
+  quit (or a forced one) always frees port 5050. Built, ad-hoc signed,
+  launched for real, and screenshotted showing the actual app UI (not
+  stuck on the loading screen) before shipping -- see the release notes
+  for the Gatekeeper caveat on an unsigned build.
+- `web/app.py`: new `/healthz` route (zero I/O, just confirms the server
+  is up) -- what the desktop shell polls.
+- `web/update.py`: `get_current_version`/`perform_update` are now
+  resilient to running outside a git checkout (a frozen desktop build has
+  no `CHANGELOG.md` or `.git` to read) instead of 500ing -- caught by
+  actually running the frozen sidecar standalone before wiring up Tauri,
+  not assumed.
+
 ## [0.25.1] - 2026-08-14
 
 ### Fixed

@@ -21,14 +21,19 @@ and re-run <code>python web/app.py</code> afterward to pick up the update.</p>
 {% endif %}
 
 <div class="card">
+  {% if status.current %}
   <p>Running: <strong>v{{ status.current }}</strong></p>
+  {% else %}
+  <p class="subtle">Couldn't determine the running version in this build.</p>
+  {% endif %}
   {% if status.latest %}
-  <p>Latest release: <strong>v{{ status.latest }}</strong></p>
+  <p>Latest release: <strong>v{{ status.latest }}</strong>
+    (<a href="https://github.com/mdostal/coin-finder/releases/latest">view on GitHub</a>)</p>
   {% if status.update_available %}
   <form method="post" action="{{ url_for('update_run') }}">
     <button type="submit">Update now</button>
   </form>
-  {% else %}
+  {% elif status.current %}
   <p class="subtle">You're up to date.</p>
   {% endif %}
   {% endif %}
