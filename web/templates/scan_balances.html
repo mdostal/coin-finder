@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- balance check {{ job_id }}{% endblock %}
+
+{% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
+<h2>Balance check</h2>
+<p>{{ m.status_pill(job.status) }}</p>
+<p class="subtle">Target: <code>{{ job.label }}</code></p>
+
+{% if job.status == "running" %}
+<div class="card"><p>Checking balances -- one real network call per address, with retries. This can
+take a long time; this page will refresh automatically. Feel free to kick off another Find against
+a different drive/directory in the meantime -- this runs as its own independent background job.</p>
+<div id="job-progress"></div></div>
+{% elif job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% elif results %}
+  <div class="card">
+    <h3 style="margin-top:0">Balances</h3>
+    {{ m.table(results.balances) }}
+
+    {% if results.inconclusive %}
+    <h3>Inconclusive balances (recheck later)</h3>
+    {{ m.table(results.inconclusive) }}
+    {% endif %}
+
+    <h3>Filtered (non-zero / interesting) wallets</h3>
+    {{ m.table(results.filtered) }}
+
+    {% if results.relationships_report %}
+    <h3>Relationship graph</h3>
+    <pre>{{ results.relationships_report }}</pre>
+    {% endif %}
+  </div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}"></script>
+{% endblock %}

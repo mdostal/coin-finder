@@ -5,6 +5,14 @@ from unittest.mock import patch
 import run_pipeline
 
 
+def _fake_analyze(analysis_data):
+    def _write(input_file, output_file):
+        with open(output_file, "w") as f:
+            json.dump(analysis_data, f)
+
+    return _write
+
+
 def test_pipeline_wires_relationship_graph_from_scan_output(tmp_path):
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
@@ -21,6 +29,7 @@ def test_pipeline_wires_relationship_graph_from_scan_output(tmp_path):
          patch("run_pipeline.build_relationship_graph") as mock_build_graph, \
          patch("run_pipeline.render_graph_report") as mock_render_report:
 
+        mock_analyze.side_effect = _fake_analyze({"walletA.dat": {"Bitcoin": ["1abc"]}})
         mock_build_graph.return_value = graph
         mock_render_report.return_value = report_text
 
@@ -50,11 +59,13 @@ def test_pipeline_forwards_progress_callback_to_check_wallet_balances(tmp_path):
     scan_data = {}
 
     with patch("run_pipeline.search_for_wallets"), \
-         patch("run_pipeline.analyze_wallets"), \
+         patch("run_pipeline.analyze_wallets") as mock_analyze, \
          patch("run_pipeline.check_wallet_balances") as mock_check, \
          patch("run_pipeline.filter_wallet_balances"), \
          patch("run_pipeline.build_relationship_graph", return_value={"nodes": {}, "edges": {}, "signals": {}}), \
          patch("run_pipeline.render_graph_report", return_value=""):
+
+        mock_analyze.side_effect = _fake_analyze({})
 
         def fake_check(input_file, output_file, progress_callback=None):
             with open(output_file, "w") as f:
@@ -66,3 +77,46 @@ def test_pipeline_forwards_progress_callback_to_check_wallet_balances(tmp_path):
         run_pipeline.main(str(input_dir), str(output_dir), progress_callback=sentinel_callback)
 
     assert mock_check.call_args.kwargs["progress_callback"] is sentinel_callback
+
+
+def test_find_returns_summary_without_checking_balances(tmp_path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets") as mock_search, \
+         patch("run_pipeline.analyze_wallets") as mock_analyze, \
+         patch("run_pipeline.check_wallet_balances") as mock_check:
+        mock_analyze.side_effect = _fake_analyze(
+            {"walletA.dat": {"Bitcoin": ["1abc", "1def"]}, "walletB.dat": {"Bitcoin": ["1ghi"], "Litecoin": ["Labc"]}}
+        )
+
+        summary = run_pipeline.find(str(input_dir), str(output_dir))
+
+    mock_search.assert_called_once()
+    mock_analyze.assert_called_once()
+    mock_check.assert_not_called()
+    assert summary == {
+        "output_dir": str(output_dir),
+        "files_found": 2,
+        "coin_counts": {"Bitcoin": 3, "Litecoin": 1},
+        "total_address_instances": 4,
+    }
+    assert (output_dir / "checks" / "wallet_analysis.json").exists()
+
+
+def test_check_balances_requires_a_prior_find(tmp_path):
+    output_dir = tmp_path / "output"
+    (output_dir / "checks").mkdir(parents=True)  # what a prior find() call would have left behind
+
+    with patch("run_pipeline.check_wallet_balances") as mock_check, \
+         patch("run_pipeline.filter_wallet_balances"), \
+         patch("run_pipeline.build_relationship_graph", return_value={"nodes": {}, "edges": {}, "signals": {}}), \
+         patch("run_pipeline.render_graph_report", return_value=""):
+        mock_check.side_effect = lambda input_file, output_file, progress_callback=None: open(output_file, "w").write("{}")
+
+        run_pipeline.check_balances(str(output_dir))
+
+    mock_check.assert_called_once()
+    called_analyze_input = mock_check.call_args[0][0]
+    assert called_analyze_input == str(output_dir / "checks" / "wallet_analysis.json")
