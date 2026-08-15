@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}coin-finder -- jobs{% endblock %}
+{% block content %}
+<h2>Jobs</h2>
+<p>Every background job this app has run, across every page -- a scan, an
+unlock attempt, a drive crawl. This page has a fixed address, so a job
+started from anywhere is still checkable here even after you've navigated
+away from wherever you started it.</p>
+
+<div class="card">
+  {% if jobs %}
+  <table>
+    <thead><tr><th>Kind</th><th>Target</th><th>Status</th><th>Started</th><th></th></tr></thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td><code>{{ job.kind }}</code></td>
+        <td>{{ job.label or "--" }}</td>
+        <td>{{ m.status_pill(job.status) }}</td>
+        <td>{{ job.started_at | int | timestamp_to_local }}</td>
+        <td><a href="{{ url_for(status_endpoint(job.kind), job_id=job.job_id) }}">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No jobs yet this session.</p>
+  {% endif %}
+</div>
+
+{% if jobs | selectattr("status", "equalto", "running") | list %}
+<script>
+  setTimeout(function () { window.location.reload(); }, 5000);
+</script>
+{% endif %}
+{% endblock %}
