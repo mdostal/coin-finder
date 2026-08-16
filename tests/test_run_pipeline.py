@@ -6,7 +6,7 @@ import run_pipeline
 
 
 def _fake_analyze(analysis_data):
-    def _write(input_file, output_file):
+    def _write(input_file, output_file, index_db_path=None):
         with open(output_file, "w") as f:
             json.dump(analysis_data, f)
 

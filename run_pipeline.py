@@ -22,7 +22,7 @@ def _paths(output_dir):
     }
 
 
-def find(input_dir, output_dir):
+def find(input_dir, output_dir, index_db_path=None):
     """
     Stage 1 -- search + analyze only. No network calls, so it's fast
     regardless of how many addresses turn up. Returns a summary (files
@@ -33,6 +33,9 @@ def find(input_dir, output_dir):
     tens of thousands of garbage "address" matches, and there's no way to
     tell without seeing the count first.
 
+    :param index_db_path: optional -- see tools.analyze_wallets.analyze_wallets().
+        None (default) skips a file already analyzed in a prior scan
+        (elsewhere, at any path) from being re-analyzed here.
     :return: {"output_dir", "files_found", "coin_counts", "total_address_instances"}
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -43,7 +46,7 @@ def find(input_dir, output_dir):
     search_for_wallets(input_dir, paths["search_output"])
 
     print("Running wallet analysis...")
-    analyze_wallets(paths["search_output"], paths["analyze_output"])
+    analyze_wallets(paths["search_output"], paths["analyze_output"], index_db_path=index_db_path)
 
     with open(paths["analyze_output"]) as f:
         analysis = json.load(f)
