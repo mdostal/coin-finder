@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-08-16
+
+### Added
+
+- **"Try unlock" right from Findings.** Every found wallet row now has a
+  direct "Try unlock" link that jumps straight to auto-unlock scoped to
+  that one wallet -- no more digging for a hidden all-wallets page and
+  needing to already know the file's path. The scoped run tries only that
+  wallet against your saved vault passwords.
+
 ## [0.45.2] - 2026-08-16
 
 ### Fixed

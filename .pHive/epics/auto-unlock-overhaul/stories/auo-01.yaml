@@ -1,7 +1,7 @@
 id: auo-01
 epic: auto-unlock-overhaul
 title: Show the real matched password in a clean results table
-status: pending
+status: complete
 complexity: small
 methodology: tdd
 depends_on: []
@@ -78,3 +78,14 @@ references:
   - web/app.py:1169 (_run_auto_unlock_job)
   - web/templates/unlock_result.html (existing precedent for showing a
     real matched value)
+addendum:
+  - >
+    Extended beyond the original acceptance criteria per direct, repeated
+    live feedback ("I keep saying I want to click the things I found and
+    then say try unlock -- not dig for it and memorize paths"): findings.html
+    rows with a source_path now render a "Try unlock" link straight to
+    /auto-unlock?wallet_path=<path>, which scopes the auto-unlock form (and
+    the job it starts) to that single wallet. auto_unlock_form() reads
+    ?wallet_path=, auto_unlock_submit() carries it through via a hidden POST
+    field, and _run_auto_unlock_job(wallet_paths=...) now accepts an
+    explicit list instead of always resolving every known wallet.
