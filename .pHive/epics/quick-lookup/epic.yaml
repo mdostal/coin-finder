@@ -1,0 +1,33 @@
+name: quick-lookup
+title: Quick Single-Address Balance Lookup
+description: >
+  A fast path that skips the file-scan pipeline entirely: paste an
+  address, pick the coin, get the balance -- reusing the existing
+  load_service()/_check_balance_with_retries() balance-check building
+  blocks directly.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, flask-ui]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Python/Flask, same as every prior epic."
+    flask-ui: "One new route pair + template, reusing item_result.html's existing generic report rendering."
+  confidence: high
+  gate_decisions:
+    note: >
+      No live multi-agent dispatch -- same adaptation as every prior epic
+      this session. Small scope, single story.
+
+stories:
+  - id: ql-01-quick-lookup
+    title: Quick single-address lookup form + job
+    complexity: low
+    depends_on: []
