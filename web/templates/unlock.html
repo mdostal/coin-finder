@@ -69,5 +69,7 @@
 </div>
 
 <p class="subtle">Wallet already unencrypted (no password needed)?
-Use <a href="{{ url_for('item_extract_key_form') }}">Extract a private key</a> instead.</p>
+Use <a href="{{ url_for('item_extract_key_form') }}">Extract a private key</a> instead.
+Have several wallets and want to try every saved password against all of
+them at once? See <a href="{{ url_for('auto_unlock_form') }}">Auto-unlock</a>.</p>
 {% endblock %}

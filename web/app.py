@@ -352,6 +352,72 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("unlock_result.html", job_id=job_id, job=job)
 
+    @app.route("/auto-unlock", methods=["GET"])
+    def auto_unlock_form():
+        return render_template(
+            "auto_unlock.html",
+            network_status=check_network_status(),
+            wallet_paths=_known_wallet_paths(),
+            vault_count=len(list_vault_entries()),
+            error=None,
+        )
+
+    @app.route("/auto-unlock", methods=["POST"])
+    def auto_unlock_submit():
+        # Same re-check, at the moment of the actual request, as
+        # item_unlock() -- never trusted from the GET page load. Default
+        # (checkbox unchecked) still refuses when online; an explicit
+        # allow_online=1 is an informed-choice override, not a bypass.
+        network_status = check_network_status()
+        allow_online = request.form.get("allow_online") == "1"
+
+        if network_status != "OFFLINE" and not allow_online:
+            return (
+                render_template(
+                    "auto_unlock.html",
+                    network_status=network_status,
+                    wallet_paths=_known_wallet_paths(),
+                    vault_count=len(list_vault_entries()),
+                    error=(
+                        f"Network status is {network_status}, not OFFLINE. Testing real passwords "
+                        "against real wallets is safest with network disabled. Disconnect and try "
+                        'again, or check "run anyway" below if you understand the risk and want to '
+                        "proceed online."
+                    ),
+                ),
+                409,
+            )
+
+        vault_entries = list_vault_entries()
+        if not vault_entries:
+            return (
+                render_template(
+                    "auto_unlock.html",
+                    network_status=network_status,
+                    wallet_paths=_known_wallet_paths(),
+                    vault_count=0,
+                    error="No enabled vault entries to try. Save at least one password in the vault first.",
+                ),
+                400,
+            )
+
+        job_id = run_job(_run_auto_unlock_job, allow_online=allow_online, secret=True, kind="auto-unlock", label="all known wallets")
+        return redirect(url_for("auto_unlock_status", job_id=job_id))
+
+    @app.route("/auto-unlock/status/<job_id>")
+    def auto_unlock_status(job_id):
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
+        return render_template("auto_unlock_status.html", job_id=job_id, job=job)
+
+    @app.route("/auto-unlock/result/<job_id>")
+    def auto_unlock_result(job_id):
+        job = consume_job_result(job_id)
+        if job is None:
+            abort(404)
+        return render_template("auto_unlock_result.html", job_id=job_id, job=job)
+
     @app.route("/item/extract-key", methods=["GET"])
     def item_extract_key_form():
         return render_template("extract_key.html", network_status=check_network_status(), error=None)
@@ -750,6 +816,10 @@ _NAV_GROUP_BY_ENDPOINT = {
     "item_unlock": "unlock",
     "item_unlock_status": "unlock",
     "item_unlock_result": "unlock",
+    "auto_unlock_form": "unlock",
+    "auto_unlock_submit": "unlock",
+    "auto_unlock_status": "unlock",
+    "auto_unlock_result": "unlock",
     "item_extract_key_form": "unlock",
     "item_extract_key": "unlock",
     "item_extract_key_status": "unlock",
@@ -938,6 +1008,46 @@ def _run_exodus_unlock_job(seed_seco_path, candidates_path, allow_online=False, 
         "returncode": result.returncode,
         "vault_label": _match_vault_label(result.stdout, vault_pairs),
     }
+
+
+def _known_wallet_paths():
+    """Every distinct, still-existing source_path recorded on a finding --
+    the "known wallet files" set for a batch auto-unlock run. Archived
+    findings are included: archived means "reviewed," not "not a real
+    wallet file."""
+    paths = {f["source_path"] for f in list_findings(include_archived=True) if f.get("source_path")}
+    return sorted(p for p in paths if Path(p).is_file())
+
+
+def _run_auto_unlock_job(allow_online=False):
+    """
+    Batch unlock: every enabled vault entry tried against every known
+    wallet file, in one job. Deliberately does NOT reuse
+    _run_btcrecover_unlock_job/_run_exodus_unlock_job -- those each delete
+    their own candidates file after one use, correct for a single-wallet
+    job but wrong here, where the same candidates file (built once from
+    every vault entry) must be reused across every wallet in the batch.
+    Calls run_unlock/run_exodus_unlock directly instead, unmodified, and
+    owns its own single cleanup after the whole loop -- same file-only-
+    secrets discipline as item_unlock(), just batched.
+    """
+    wallet_paths = _known_wallet_paths()
+    vault_pairs = resolve_vault_entries_with_values([e["name"] for e in list_vault_entries()])
+
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write("\n".join(value for _, value in vault_pairs))
+        candidates_path = f.name
+
+    results = {}
+    try:
+        for i, wallet_path in enumerate(wallet_paths, start=1):
+            runner = run_exodus_unlock if wallet_path.endswith(".seco") else run_unlock
+            result = runner(wallet_path, candidates_path, allow_online=allow_online)
+            results[wallet_path] = _match_vault_label(result.stdout, vault_pairs)
+    finally:
+        Path(candidates_path).unlink(missing_ok=True)
+
+    return {"results": results}
 
 
 def _run_install_rclone_job(job_id):
