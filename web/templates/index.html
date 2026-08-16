@@ -34,9 +34,19 @@ looks like a hidden/encrypted volume.</p>
 <div class="card">
   <form method="post" action="{{ url_for('start_scan') }}">
     {{ m.path_input("Directory to scan", "input_dir", mode="directory", placeholder="/path/to/drive-or-directory", required=True) }}
+    <label class="radio-row"><input type="checkbox" name="dedup_index" value="1" checked> Skip files identical to ones already scanned before (recommended for multi-drive/backup scans)</label>
     <button type="submit">Scan</button>
   </form>
 </div>
+
+{% if scan_index_count %}
+<div class="card">
+  <p class="subtle" style="margin:0 0 0.5rem">{{ scan_index_count }} file{{ "s" if scan_index_count != 1 else "" }} in the dedup index -- content already analyzed once, skipped on future scans regardless of which drive it's found on again.</p>
+  <form method="post" action="{{ url_for('scan_index_clear') }}" style="display:inline" onsubmit="return confirm('Clear the dedup index? Future scans will re-analyze every file from scratch -- your findings are not affected, only skip a previously deep-scanned wallet.');">
+    <button type="submit" class="btn-secondary">Clear dedup index</button>
+  </form>
+</div>
+{% endif %}
 
 {% if targets %}
 <div class="card">
@@ -51,6 +61,7 @@ looks like a hidden/encrypted volume.</p>
         <td>
           <form method="post" action="{{ url_for('start_scan') }}" style="display:inline">
             <input type="hidden" name="input_dir" value="{{ t.path }}">
+            <input type="hidden" name="dedup_index" value="1">
             <button type="submit">Scan</button>
           </form>
         </td>

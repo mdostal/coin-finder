@@ -144,7 +144,7 @@ def test_check_balances_records_findings_and_flows_progress(mock_pipeline, mock_
     output_dir = tmp_path / "out"
     balances_data = {"walletA.dat": {"Bitcoin": {"1abc": 0.5}}}
 
-    def fake_find(input_dir, out_dir):
+    def fake_find(input_dir, out_dir, index_db_path=None):
         return {"output_dir": out_dir, "files_found": 1, "coin_counts": {"Bitcoin": 1}, "total_address_instances": 1}
 
     def fake_check_balances(out_dir, progress_callback=None):
@@ -155,7 +155,7 @@ def test_check_balances_records_findings_and_flows_progress(mock_pipeline, mock_
         with open(checks_dir / "wallet_balances.json", "w") as f:
             json.dump(balances_data, f)
 
-    mock_pipeline.find.side_effect = lambda input_dir, out_dir: fake_find(input_dir, out_dir)
+    mock_pipeline.find.side_effect = fake_find
     mock_pipeline.check_balances.side_effect = fake_check_balances
 
     with patch("web.app.scan_for_hidden_volumes", return_value=[]):
@@ -186,7 +186,7 @@ def test_check_balances_404s_while_find_job_still_running(mock_pipeline, mock_hi
     started = threading.Event()
     release = threading.Event()
 
-    def slow_find(input_dir, out_dir):
+    def slow_find(input_dir, out_dir, index_db_path=None):
         started.set()
         release.wait(timeout=2)
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}

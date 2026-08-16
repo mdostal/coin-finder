@@ -30,6 +30,7 @@ from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
 from web.crawl_runs import clear_all_crawl_runs, find_overlap_addresses, list_crawl_runs, record_crawl_run
+from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -109,7 +110,13 @@ def create_app(host="127.0.0.1"):
             volumes=list_mounted_volumes(),
             findings_count=len(findings),
             findings_needs_review_count=sum(1 for f in findings if f["balance"] != 0.0),
+            scan_index_count=len(list_scanned_files()),
         )
+
+    @app.route("/scan-index/clear", methods=["POST"])
+    def scan_index_clear():
+        clear_scan_index()
+        return redirect(url_for("index"))
 
     @app.route("/api/browse")
     def browse():
@@ -146,11 +153,18 @@ def create_app(host="127.0.0.1"):
         if not input_dir or not Path(input_dir).is_dir():
             return render_template("index.html", error=f"Not a directory: {input_dir}"), 400
 
+        # A real unchecked HTML checkbox submits nothing at all -- "on by
+        # default" is achieved in index.html by rendering the checkbox
+        # pre-checked (main scan form) or as a hidden field fixed to "1"
+        # (the per-target quick-scan buttons, which show no checkbox at
+        # all), not by treating an absent field as "on" here.
+        index_db_path = SCAN_INDEX_DB_PATH if request.form.get("dedup_index") else None
+
         # Stage 1 only (search + analyze) -- fast, no network calls. See
         # scan_check_balances() for the slow stage, kicked off separately
         # once you've seen what stage 1 actually found.
         job_id = create_job(kind="find", label=input_dir)
-        start_job(job_id, _run_find_job, input_dir, job_id)
+        start_job(job_id, _run_find_job, input_dir, job_id, index_db_path)
         return redirect(url_for("scan_status", job_id=job_id))
 
     @app.route("/scan/<job_id>")
@@ -684,6 +698,7 @@ _NAV_GROUPS = {
 _NAV_GROUP_BY_ENDPOINT = {
     # Sources -- everything about acquiring/choosing what to scan, plus the scan action itself.
     "index": "sources",
+    "scan_index_clear": "sources",
     "wizard_start": "sources",
     "wizard_choose": "sources",
     "wizard_cloud": "sources",
@@ -918,15 +933,18 @@ def _run_drive_scan_job(output_dir, query):
     return {"report": "\n".join(lines), "manifest": manifest, "output_dir": output_dir}
 
 
-def _run_find_job(input_dir, job_id):
+def _run_find_job(input_dir, job_id, index_db_path=None):
     """
     Stage 1 -- search + analyze + hidden-volume detection. Fast: no
     network calls. Deliberately does NOT run check_wallet_balances --
     that's _run_check_balances_job, a separate job kicked off only once
     you've seen these results and decided it's worth the slow stage.
+
+    :param index_db_path: see run_pipeline.find() -- None disables the
+        content-hash dedup index, a path enables it.
     """
     output_dir = str(DEFAULT_OUTPUT_ROOT / Path(input_dir).name)
-    summary = run_pipeline.find(input_dir, output_dir)
+    summary = run_pipeline.find(input_dir, output_dir, index_db_path=index_db_path)
 
     hidden_volumes = scan_for_hidden_volumes(input_dir)
     summary["hidden_volumes_report"] = render_hidden_volumes_report(hidden_volumes)
