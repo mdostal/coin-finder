@@ -1,0 +1,34 @@
+name: durable-scan-history
+title: Durable scan history -- Find results survive restarts
+description: >
+  Find-stage scan results (file list, coin counts, hidden-volumes report)
+  currently live only in web/jobs.py's in-memory job registry and vanish on
+  every app restart. This adds a durable, disk-backed index of every scan
+  plus a way to view any past scan's results regardless of whether its job
+  is still in memory.
+target_codebase: .
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session (group-view-graph, scan-dedup-index, quick-lookup,
+      editable-vault-entries, auto-unlock, scan-file-list-and-selective-
+      actions): real codebase research, TDD test-first, live smoke tests
+      with real data, explicit risk call-outs, disclosed here rather than
+      silently presented as a full Hive multi-agent run.
+stories:
+  - id: dsh-01
+    title: Persist Find summary + scan-history index to disk
+    complexity: medium
+    depends_on: []
+  - id: dsh-02
+    title: /scans list + durable scan view page
+    complexity: medium
+    depends_on: [dsh-01]

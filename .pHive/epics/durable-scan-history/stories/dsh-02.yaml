@@ -1,0 +1,90 @@
+id: dsh-02
+epic: durable-scan-history
+title: /scans list + durable scan view page
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [dsh-01]
+description: >
+  With dsh-01's durable index + find_summary.json in place, add a way to
+  actually get back to a past scan's results from the UI: a GET /scans
+  list page (every recorded scan, newest first) and a GET /scans/view
+  route that reloads find_summary.json plus (if present) balance-check
+  results via the existing _load_scan_results(), rendering through the
+  same content scan.html already shows -- including the selective-actions
+  bulk toolbar from scan-file-list-and-selective-actions, now wired
+  against a durable output_dir instead of a live job_id.
+acceptance_criteria:
+  - GET /scans renders every scan_history row (input_dir, when,
+    files_found), newest first, with a link to each one's durable view.
+  - GET /scans/view?output_dir=<path> loads find_summary.json from that
+    output_dir and renders it through scan.html's existing "What was
+    found"/"Files matched" sections -- reusing the template, not
+    duplicating markup. 404s if find_summary.json doesn't exist at that
+    path (deleted/moved output_dir, or a path from outside our own
+    scan_history db).
+  - When a balance check has also been run for that output_dir (checks/
+    wallet_balances.json exists), /scans/view also shows those results
+    via the existing _load_scan_results() -- same as scan_balances.html's
+    content, reachable from the durable view.
+  - The "Check balances for selected"/"Graph selected"/"Check fork coins
+    for selected" bulk actions work from the durable view exactly as from
+    a live /scan/<job_id> page -- all three existing backend routes
+    already take plain paths/addresses, not job objects, so no backend
+    change is needed for them specifically; only the template's form
+    actions need a durable-output_dir variant.
+  - A "Clear scan history" action on /scans -- index-only, confirmed
+    destructive-looking but actually just removes the list entries (same
+    UX pattern as "Clear all findings").
+  - /scans and /scans/view both added to _NAV_GROUPS/_NAV_GROUP_BY_ENDPOINT
+    under "sources", after "Scan" and before "Manage".
+steps:
+  - phase: research
+    notes: >
+      scan.html (web/templates/scan.html) already has the exact rendering
+      this needs -- "What was found"/"Files matched" reading from
+      job.result. The durable view needs the same shape of data
+      (find_summary.json's dict) under a variable that isn't literally
+      job.result, so scan.html needs a small refactor: accept a generic
+      `result` (+ optional `job`/`job_id` for the live-job-only bits like
+      the poll.js status pill and "Next: check balances" form action).
+  - phase: test-spec
+    notes: >
+      tests/test_web_app_scan_history.py (extend from dsh-01): GET /scans
+      lists a recorded scan; GET /scans/view with a real output_dir shows
+      the same files/coin_counts as the original job did; GET /scans/view
+      with a missing find_summary.json 404s; POST /scans/clear empties
+      the list without touching output_dir on disk.
+  - phase: implement
+    notes: >
+      web/app.py: new routes scans_page (GET /scans), scan_view (GET
+      /scans/view), scans_clear (POST /scans/clear). scan.html: swap
+      job.result -> result throughout, guard the live-only bits
+      (poll.js script tag, status pill, "Next: check balances" section)
+      behind `if job`. New web/templates/scans.html (list page, same
+      table-list style as findings.html/group_view.html's crawl-run
+      list).
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/app.py
+    - web/templates/scan.html
+    - web/templates/scans.html (new)
+    - tests/test_web_app_scan_history.py
+design_decisions:
+  - Reuse scan.html rather than build a parallel template -- the whole
+    point of this epic is "the thing you already saw, durably" not a
+    second UI to maintain and let drift.
+  - /scans/view takes output_dir as a query param (not a synthetic ID) --
+    scan_history.db's row already IS the addressable key (output_dir is
+    unique per scan, same as it's used today as the job result's own
+    key), no new ID scheme needed.
+risks:
+  - A stale scan_history row whose output_dir was since deleted from disk
+    (user manually cleared ui_output/) -- handled by the explicit 404 in
+    the acceptance criteria above, not a crash.
+references:
+  - web/templates/scan.html
+  - web/app.py:1218 (_load_scan_results)
+  - web/templates/group_view.html (list-page precedent)
