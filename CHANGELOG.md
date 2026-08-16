@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-08-16
+
+### Changed
+
+- **Balance checks are faster again.** Raised per-coin concurrency from 5
+  to 15 -- 5 was a conservative guess, never checked against blockstream.info's
+  real published rate limit (~50 req/s, shared globally). Live-benchmarked:
+  15 more than doubles throughput over 5 with zero increase in errors.
+
 ## [0.49.0] - 2026-08-16
 
 ### Added
