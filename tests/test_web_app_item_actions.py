@@ -139,6 +139,19 @@ def test_crawl_action_records_findings(mock_crawl, mock_record, client):
     mock_record.assert_called_once_with("Bitcoin", "1abc", 2.5, source_label="crawl_transaction_graph")
 
 
+@patch("web.app.record_crawl_run")
+@patch("web.app.crawl_wallet_cluster")
+def test_crawl_action_persists_the_full_run(mock_crawl, mock_record_run, client):
+    results = {"1abc": {"confidence": "seed", "generation": 0, "balance": 2.5}}
+    mock_crawl.return_value = results
+
+    resp = client.post("/item/crawl", data={"addresses": "1abc"}, follow_redirects=False)
+    job = _wait_for_job(client, _job_id_from_redirect(resp))
+
+    assert job["status"] == "done"
+    mock_record_run.assert_called_once_with(["1abc"], results)
+
+
 @patch("web.app.record_finding")
 @patch("web.app.check_fork_coins_for_addresses")
 def test_fork_coins_action_records_findings(mock_check, mock_record, client):

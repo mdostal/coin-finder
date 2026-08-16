@@ -29,6 +29,7 @@ from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
+from web.crawl_runs import clear_all_crawl_runs, find_overlap_addresses, list_crawl_runs, record_crawl_run
 from web import ai_assist
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -787,6 +788,7 @@ def _run_crawl_job(addresses):
 
     for address, info in results.items():
         record_finding("Bitcoin", address, info.get("balance"), source_label="crawl_transaction_graph")
+    record_crawl_run(seeds, results)
 
     return {"report": render_cluster_report(results), "results": results}
 
