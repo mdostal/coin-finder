@@ -13,6 +13,8 @@ import run_pipeline
 from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
 from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
+from tools.check_wallet_balances import load_service, _check_balance_with_retries
+from config.wallet import WALLET_SERVICES
 from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addresses, render_cluster_report
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
 from tools.find_seed_phrases import find_candidate_phrases, scan_directory
@@ -230,6 +232,20 @@ def create_app(host="127.0.0.1"):
             return render_template("index.html", error="Enter at least one address."), 400
 
         job_id = run_job(_run_fork_coins_job, addresses, kind="fork-coins", label=f"{len(addresses)} address(es)")
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/lookup")
+    def lookup_form():
+        return render_template("lookup.html", coins=sorted(WALLET_SERVICES.keys()), error=None)
+
+    @app.route("/lookup", methods=["POST"])
+    def lookup_submit():
+        coin = (request.form.get("coin") or "").strip()
+        address = (request.form.get("address") or "").strip()
+        if not coin or not address:
+            return render_template("lookup.html", coins=sorted(WALLET_SERVICES.keys()), error="Enter both a coin and an address."), 400
+
+        job_id = run_job(_run_quick_lookup_job, coin, address, kind="quick-lookup", label=f"{coin}: {address}")
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item/find-seed-phrases", methods=["POST"])
@@ -699,6 +715,8 @@ _NAV_GROUP_BY_ENDPOINT = {
     # Sources -- everything about acquiring/choosing what to scan, plus the scan action itself.
     "index": "sources",
     "scan_index_clear": "sources",
+    "lookup_form": "sources",
+    "lookup_submit": "sources",
     "wizard_start": "sources",
     "wizard_choose": "sources",
     "wizard_cloud": "sources",
@@ -827,6 +845,22 @@ def _run_fork_coins_job(addresses):
             record_finding(coin, address, balance, source_label="check_fork_coins")
 
     return {"report": render_fork_coin_report(results), "results": results}
+
+
+def _run_quick_lookup_job(coin, address):
+    """
+    Skips the whole file-scan pipeline: check ONE address on ONE coin
+    directly, reusing tools/check_wallet_balances.py's own
+    load_service()/_check_balance_with_retries() unmodified -- the same
+    two calls check_wallet_balances() makes per address, just for one
+    address instead of a whole file's worth.
+    """
+    service = load_service(coin)
+    balance = _check_balance_with_retries(service, address)
+    record_finding(coin, address, balance, source_label="quick_lookup")
+
+    balance_str = "inconclusive (couldn't confirm)" if balance is None else str(balance)
+    return {"report": f"{address} ({coin}): {balance_str}"}
 
 
 def _run_find_seed_phrases_job(target_path):
