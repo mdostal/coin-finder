@@ -783,7 +783,7 @@ def create_app(host="127.0.0.1"):
 # "Network" item landed on the same page, which read as pointless -- real
 # on-page tabs plus a deliberate order fixes both complaints at once.
 _NAV_GROUPS = {
-    "sources": {"label": "Sources", "tabs": [("Manage", "targets_page"), ("Cloud — Mounts", "mounts_page"), ("Cloud — Google Drive", "drive_form"), ("Scan", "index")]},
+    "sources": {"label": "Sources", "tabs": [("Scan", "index"), ("Cloud — Mounts", "mounts_page"), ("Cloud — Google Drive", "drive_form"), ("Manage", "targets_page")]},
     "unlock": {"label": "Unlock", "tabs": [("Try", "item_unlock_form"), ("Vault", "vault_page"), ("Extract Key", "item_extract_key_form")]},
     "about": {"label": "About", "tabs": [("Update", "update_page"), ("Network", "network_page")]},
 }
