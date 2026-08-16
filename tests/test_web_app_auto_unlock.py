@@ -44,6 +44,22 @@ def test_auto_unlock_form_shows_offline_status_and_known_wallets(mock_status, mo
     assert str(wallet_file).encode() in resp.data
 
 
+@patch("web.app.list_vault_entries")
+@patch("web.app.list_findings", return_value=[])
+@patch("web.app.check_network_status", return_value="OFFLINE")
+def test_auto_unlock_form_never_calls_list_vault_entries(mock_status, mock_findings, mock_vault, client):
+    """
+    Regression test for a real bug hit live: list_vault_entries() can take
+    10-15s from this app's own subprocess context (same root cause as the
+    0.32.2 wizard-page fix), and this app's server is single-threaded --
+    calling it inline on this page's GET would block the whole app for
+    that long on every page view. The real check still happens in
+    auto_unlock_submit() (POST), which is a less frequent action.
+    """
+    client.get("/auto-unlock")
+    mock_vault.assert_not_called()
+
+
 @patch("web.app.run_unlock")
 @patch("web.app.check_network_status", return_value="ONLINE")
 def test_post_auto_unlock_refused_when_online(mock_status, mock_run_unlock, client):

@@ -354,11 +354,19 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/auto-unlock", methods=["GET"])
     def auto_unlock_form():
+        # Deliberately does NOT call list_vault_entries() here -- confirmed
+        # live (same root cause as the 0.32.2 wizard-page fix): a vault
+        # round-trip can take 10-15s from this app's own subprocess
+        # context, and this app's server is single-threaded, so that would
+        # block this page's render (a frequent, should-be-instant action)
+        # for everyone. The real vault-entries check still happens in
+        # auto_unlock_submit() below -- a less frequent action where
+        # "wait a moment before the job starts" is already the expected
+        # shape, same as any other job-starting POST in this app.
         return render_template(
             "auto_unlock.html",
             network_status=check_network_status(),
             wallet_paths=_known_wallet_paths(),
-            vault_count=len(list_vault_entries()),
             error=None,
         )
 
@@ -377,7 +385,6 @@ def create_app(host="127.0.0.1"):
                     "auto_unlock.html",
                     network_status=network_status,
                     wallet_paths=_known_wallet_paths(),
-                    vault_count=len(list_vault_entries()),
                     error=(
                         f"Network status is {network_status}, not OFFLINE. Testing real passwords "
                         "against real wallets is safest with network disabled. Disconnect and try "
@@ -395,7 +402,6 @@ def create_app(host="127.0.0.1"):
                     "auto_unlock.html",
                     network_status=network_status,
                     wallet_paths=_known_wallet_paths(),
-                    vault_count=0,
                     error="No enabled vault entries to try. Save at least one password in the vault first.",
                 ),
                 400,

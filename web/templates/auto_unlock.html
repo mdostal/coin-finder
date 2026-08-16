@@ -36,9 +36,10 @@ which wallet.</p>
 
 <div class="card">
   <h3 style="margin-top:0">What this will try</h3>
-  <p>{{ vault_count }} enabled vault entr{{ "y" if vault_count == 1 else "ies" }} against
+  <p>Every enabled entry in your <a href="{{ url_for('vault_page') }}">vault</a> against
   {{ wallet_paths | length }} known wallet file{{ "s" if wallet_paths | length != 1 else "" }}
-  (from Findings' recorded source paths).</p>
+  (from Findings' recorded source paths). Checked for real when you click
+  Run -- if the vault turns out to be empty, you'll see that then.</p>
   {% if wallet_paths %}
   <ul>
     {% for path in wallet_paths %}
@@ -50,7 +51,7 @@ which wallet.</p>
   {% endif %}
 </div>
 
-{% if wallet_paths and vault_count %}
+{% if wallet_paths %}
 <div class="card">
   <form method="post" action="{{ url_for('auto_unlock_submit') }}">
     {% if network_status != "OFFLINE" %}
