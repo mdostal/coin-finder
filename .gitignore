@@ -253,3 +253,6 @@ node_modules/
 src-tauri/target/
 src-tauri/gen/
 src-tauri/resources/coin-finder-onedir/
+
+# Playwright MCP's own scratch output from manual smoke-testing pages -- never commit
+.playwright-mcp/

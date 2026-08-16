@@ -162,7 +162,7 @@ label {
   font-weight: 500;
 }
 
-input[type=text], textarea, select {
+input[type=text], input[type=password], textarea, select {
   width: 100%;
   background: var(--bg-inset);
   border: 1px solid var(--border);
@@ -173,11 +173,35 @@ input[type=text], textarea, select {
   font-size: 0.92rem;
   margin-bottom: 1rem;
 }
-input[type=text]:focus, textarea:focus, select:focus {
+input[type=text]:focus, input[type=password]:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--accent-dim);
 }
 textarea { font-family: var(--mono); resize: vertical; }
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+.radio-row input[type=radio] { margin: 0; }
+
+details {
+  margin: 0.75rem 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+}
+details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+details[open] summary { margin-bottom: 0.75rem; }
 
 button, input[type=submit] {
   background: var(--accent);

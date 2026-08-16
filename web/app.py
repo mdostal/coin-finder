@@ -28,6 +28,8 @@ from web.native_dialogs import pick_path
 from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
+from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
+from web import ai_assist
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # Unchanged (REPO_ROOT/ui_output) for a source install -- only a frozen
@@ -548,7 +550,65 @@ def create_app(host="127.0.0.1"):
     @app.route("/wizard/cloud")
     def wizard_cloud():
         kind = request.args.get("kind", "gdrive")
-        return render_template("wizard_cloud.html", kind=kind, rclone_installed=is_rclone_installed(), remotes=list_remotes())
+        return render_template(
+            "wizard_cloud.html",
+            kind=kind,
+            rclone_installed=is_rclone_installed(),
+            remotes=list_remotes(),
+            scope_choices=SCOPE_CHOICES,
+            default_scope=DEFAULT_SCOPE,
+            ai_key_set=ai_assist.has_api_key(),
+        )
+
+    @app.route("/wizard/cloud/connect", methods=["POST"])
+    def wizard_cloud_connect():
+        kind = (request.form.get("kind") or "gdrive").strip()
+        remote_name = (request.form.get("remote_name") or "").strip()
+        scope = (request.form.get("scope") or DEFAULT_SCOPE).strip()
+        client_id = (request.form.get("client_id") or "").strip()
+        client_secret = request.form.get("client_secret") or ""
+
+        if not remote_name:
+            return (
+                render_template(
+                    "wizard_cloud.html",
+                    kind=kind,
+                    rclone_installed=is_rclone_installed(),
+                    remotes=list_remotes(),
+                    scope_choices=SCOPE_CHOICES,
+                    default_scope=DEFAULT_SCOPE,
+                    ai_key_set=ai_assist.has_api_key(),
+                    error="Enter a name for this connection.",
+                ),
+                400,
+            )
+
+        job_id = create_job(kind="connect-remote", label=remote_name)
+        start_job(job_id, _run_connect_remote_job, job_id, remote_name, kind, client_id, client_secret, scope)
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/ai-assist/ask", methods=["POST"])
+    def ai_assist_ask():
+        question = (request.get_json(silent=True) or {}).get("question", "").strip()
+        if not question:
+            return {"ok": False, "error": "Ask something first."}, 400
+        try:
+            answer = ai_assist.ask(question)
+        except RuntimeError as err:
+            return {"ok": False, "error": str(err)}, 400
+        return {"ok": True, "answer": answer}
+
+    @app.route("/ai-assist/key", methods=["POST"])
+    def ai_assist_key():
+        api_key = (request.form.get("api_key") or "").strip()
+        if api_key:
+            ai_assist.set_api_key(api_key)
+        return redirect(url_for("wizard_cloud", kind=request.form.get("kind", "gdrive")))
+
+    @app.route("/ai-assist/key/clear", methods=["POST"])
+    def ai_assist_key_clear():
+        ai_assist.clear_api_key()
+        return redirect(url_for("wizard_cloud", kind=request.form.get("kind", "gdrive")))
 
     @app.route("/jobs")
     def jobs_page():
@@ -589,6 +649,10 @@ _NAV_GROUP_BY_ENDPOINT = {
     "wizard_start": "sources",
     "wizard_choose": "sources",
     "wizard_cloud": "sources",
+    "wizard_cloud_connect": "sources",
+    "ai_assist_ask": "sources",
+    "ai_assist_key": "sources",
+    "ai_assist_key_clear": "sources",
     "targets_page": "sources",
     "targets_add": "sources",
     "targets_remove": "sources",
@@ -778,6 +842,17 @@ def _run_exodus_unlock_job(seed_seco_path, candidates_path, allow_online=False, 
 
 def _run_install_rclone_job(job_id):
     return install_rclone(progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message))
+
+
+def _run_connect_remote_job(job_id, remote_name, kind, client_id, client_secret, scope):
+    return create_remote(
+        remote_name,
+        kind=kind,
+        client_id=client_id,
+        client_secret=client_secret,
+        scope=scope,
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
 
 
 def _run_drive_scan_job(output_dir, query):

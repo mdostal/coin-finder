@@ -76,6 +76,18 @@ approximate.</p>
   fallback store) -- no network call at all.</p>
 </div>
 
+<div class="card">
+  <h3 style="margin-top:0">7. AI assist -- only if you set it up, only your typed question</h3>
+  <p>The <a href="{{ url_for('wizard_cloud') }}">cloud setup wizard</a>'s
+  optional "Ask AI" panel is bring-your-own-key: nothing is sent anywhere
+  until you paste your own Anthropic API key and click Ask. Each question
+  sends only your typed text plus a short fixed description of what the
+  wizard is for -- never a wallet file, address, password, or key. The key
+  itself lives in the vault (Portunus), the same place every other secret
+  in this app does.
+  (<code>web/ai_assist.py</code>)</p>
+</div>
+
 <p class="subtle">That's the complete list. If you find a network call this
 page doesn't mention, that's a bug worth reporting.</p>
 {% endblock %}

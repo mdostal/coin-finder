@@ -77,3 +77,37 @@ def test_mounts_install_rclone_starts_a_job(mock_install, client):
 
     assert resp.status_code == 302
     assert "/item-result/" in resp.headers["Location"]
+
+
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.is_rclone_installed")
+def test_mounts_page_never_tells_you_to_open_a_terminal(mock_installed, mock_remotes, mock_mounts, client):
+    """Direct regression test for the reported bug: this page must not send
+    the user to a terminal for `rclone config` -- it must link to the
+    in-app wizard instead, both when rclone isn't installed yet and when
+    it's installed but no remote is configured."""
+    mock_installed.return_value = False
+    mock_remotes.return_value = []
+    mock_mounts.return_value = []
+
+    resp = client.get("/mounts")
+
+    assert resp.status_code == 200
+    assert b"rclone config" not in resp.data
+    assert b"/wizard/cloud" in resp.data
+
+
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.is_rclone_installed")
+def test_mounts_page_links_to_wizard_when_no_remotes_configured(mock_installed, mock_remotes, mock_mounts, client):
+    mock_installed.return_value = True
+    mock_remotes.return_value = []
+    mock_mounts.return_value = []
+
+    resp = client.get("/mounts")
+
+    assert resp.status_code == 200
+    assert b"No rclone remotes configured yet" in resp.data
+    assert b"/wizard/cloud" in resp.data

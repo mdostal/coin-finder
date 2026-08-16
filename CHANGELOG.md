@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-08-15
+
+### Added
+
+- **Real in-app wizard for connecting Google Drive/GCS -- no more "open a
+  terminal and run `rclone config`."** The Mounts and Cloud setup pages
+  used to hand off to a terminal for the one step that actually mattered.
+  Now there's a real form: name the connection, pick an access level in
+  plain English (read-only is the default and the recommendation -- this
+  app never needs more), optionally supply your own Google API client
+  id/secret, and click Connect. It runs `rclone config create` as a
+  background job; the one unavoidable manual step (Google's own sign-in
+  and "Allow" screen) opens in your actual default browser -- not inside
+  the app window, thanks to the 0.31.1 navigation fix -- and comes back on
+  its own once you approve it. A client secret you provide is routed
+  through the vault (Portunus) exactly like every other secret this
+  project handles, never held in this app's own plaintext state.
+- **Optional AI assist panel on the cloud setup wizard.** Bring your own
+  Anthropic API key (stored in the vault, same as above) and ask a plain
+  question about anything on the page -- client ids, access levels,
+  whatever's unclear -- instead of guessing. Entirely optional; every step
+  above works without it. Each question sends only your typed text plus a
+  short fixed description of the wizard's own purpose, never wallet data;
+  see the Network page for the exact accounting (`web/ai_assist.py`).
+
 ## [0.31.1] - 2026-08-15
 
 ### Fixed

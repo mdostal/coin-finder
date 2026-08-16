@@ -18,11 +18,10 @@ drive. Mounts are always read-only.</p>
   <form method="post" action="{{ url_for('mounts_install_rclone') }}">
     <button type="submit">Install now</button>
   </form>
-  <p class="subtle">Then <code>rclone config</code> to set up a remote (opens
-  a browser for Google sign-in, or asks for a GCS service-account key) --
-  that step is interactive by design and can't be automated. See the setup
-  wizard, or the README's "Mounting Google Drive for Multi-Terabyte
-  Drives" section, for the walkthrough.</p>
+  <p class="subtle">Then connect an account -- the
+  <a href="{{ url_for('wizard_cloud') }}">setup wizard</a> walks through it
+  in-app (it opens your browser for the one unavoidable step, Google's own
+  sign-in/approval screen, then comes right back).</p>
 </div>
 {% endif %}
 
@@ -75,7 +74,7 @@ drive. Mounts are always read-only.</p>
     <button type="submit">Mount</button>
   </form>
   {% else %}
-  <p class="empty">No rclone remotes configured yet. Run <code>rclone config</code> after installing rclone.</p>
+  <p class="empty">No rclone remotes configured yet. <a href="{{ url_for('wizard_cloud') }}">Connect an account</a> to add one.</p>
   {% endif %}
 </div>
 {% endblock %}
