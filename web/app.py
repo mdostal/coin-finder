@@ -203,6 +203,60 @@ def create_app(host="127.0.0.1"):
         start_job(balances_job_id, _run_check_balances_selected_job, output_dir, selected_files, balances_job_id)
         return redirect(url_for("scan_balances_status", job_id=balances_job_id))
 
+    @app.route("/scans")
+    def scans_page():
+        return render_template("scans.html", scans=list_scan_history())
+
+    @app.route("/scans/clear", methods=["POST"])
+    def scans_clear():
+        clear_scan_history()
+        return redirect(url_for("scans_page"))
+
+    @app.route("/scans/view")
+    def scan_view():
+        # Durable counterpart to scan_status() -- reads find_summary.json
+        # straight off disk instead of an in-memory job, so it works after
+        # a restart / from a different session. output_dir doubles as
+        # scan_history's own primary key, so no separate ID scheme needed.
+        output_dir = (request.args.get("output_dir") or "").strip()
+        result = _read_json(Path(output_dir) / "find_summary.json") if output_dir else None
+        if result is None:
+            abort(404)
+
+        balances = _load_scan_results(output_dir)
+        return render_template("scan.html", job=None, job_id=None, output_dir=output_dir, result=result, balances=balances, error=None)
+
+    @app.route("/scans/view/check-balances", methods=["POST"])
+    def scans_view_check_balances():
+        output_dir = (request.form.get("output_dir") or "").strip()
+        if not output_dir or not Path(output_dir).is_dir():
+            abort(404)
+
+        balances_job_id = create_job(kind="check-balances", label=output_dir)
+        start_job(balances_job_id, _run_check_balances_job, output_dir, balances_job_id)
+        return redirect(url_for("scan_balances_status", job_id=balances_job_id))
+
+    @app.route("/scans/view/check-balances-selected", methods=["POST"])
+    def scans_view_check_balances_selected():
+        output_dir = (request.form.get("output_dir") or "").strip()
+        if not output_dir or not Path(output_dir).is_dir():
+            abort(404)
+
+        selected_files = request.form.getlist("files")
+        if not selected_files:
+            result = _read_json(Path(output_dir) / "find_summary.json")
+            balances = _load_scan_results(output_dir)
+            return (
+                render_template(
+                    "scan.html", job=None, job_id=None, output_dir=output_dir, result=result, balances=balances, error="Select at least one file first."
+                ),
+                400,
+            )
+
+        balances_job_id = create_job(kind="check-balances", label=f"{len(selected_files)} selected file(s)")
+        start_job(balances_job_id, _run_check_balances_selected_job, output_dir, selected_files, balances_job_id)
+        return redirect(url_for("scan_balances_status", job_id=balances_job_id))
+
     @app.route("/scan/balances/<job_id>")
     def scan_balances_status(job_id):
         job = get_job(job_id)
@@ -831,7 +885,13 @@ _NAV_GROUP_BY_ENDPOINT = {
     "start_scan": "sources",
     "scan_status": "sources",
     "scan_check_balances": "sources",
+    "scan_check_balances_selected": "sources",
     "scan_balances_status": "sources",
+    "scans_page": "sources",
+    "scans_clear": "sources",
+    "scan_view": "sources",
+    "scans_view_check_balances": "sources",
+    "scans_view_check_balances_selected": "sources",
     "item_scan_wallet_dat": "sources",
     # Unlock -- testing/saving passwords, extracting keys.
     "item_unlock_form": "unlock",
