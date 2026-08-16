@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-08-16
+
+### Added
+
+- **Live progress for every scan stage, not just balance checks.**
+  Searching, analyzing, hidden-volume detection, and the Google Drive
+  adapter's listing/downloading all used to run silently -- a long walk
+  over a huge mounted drive looked identical to a hung process. Every
+  stage now reports real, live progress (directories/files walked,
+  matches found so far, current path) to the same progress bar that
+  balance checks already had. Indeterminate stages (no way to know a
+  walk's total ahead of time) get an animated bar instead of a
+  misleading stuck 0%.
+
 ## [0.49.1] - 2026-08-16
 
 ### Changed
