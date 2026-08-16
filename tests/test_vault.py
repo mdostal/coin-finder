@@ -1,7 +1,9 @@
 import json
+import subprocess
 from unittest.mock import MagicMock, patch
 
 from web.vault import (
+    PORTUNUS_TIMEOUT_SECONDS,
     add_vault_entry,
     list_vault_entries,
     resolve_vault_entries_to_candidates_file,
@@ -121,6 +123,52 @@ def test_resolve_vault_entries_with_values_returns_name_value_pairs(mock_run, tm
     pairs = resolve_vault_entries_with_values(["password-1"])
 
     assert pairs == [("password-1", "hunter2")]
+
+
+@patch("web.vault.subprocess.run")
+def test_every_portunus_call_passes_stdin_devnull_and_a_timeout(mock_run, tmp_path):
+    """
+    Regression test for a real hang hit live: `portunus` inherits whatever
+    stdin it's given, and a subprocess spawned from inside the Tauri
+    sidecar gets a piped stdin that never produces EOF -- if portunus ever
+    tries to read from it, the read blocks forever, freezing the whole
+    single-threaded Flask server. Every portunus call must pass
+    stdin=DEVNULL (so a read returns EOF immediately) and a timeout (so a
+    hang anywhere else in portunus itself can't block forever either).
+    """
+    mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps([]), stderr="")
+    value_file = tmp_path / "value.txt"
+    value_file.write_text("hunter2")
+
+    list_vault_entries()
+    add_vault_entry("password-1", str(value_file))
+    revoke_vault_entry("password-1")
+    try:
+        resolve_vault_entries_with_values(["password-1"])
+    except Exception:
+        pass  # this call's mocked stdout isn't a real resolved-path -- only the call shape matters here
+
+    assert mock_run.call_args_list, "expected at least one portunus call"
+    for call in mock_run.call_args_list:
+        assert call.kwargs.get("stdin") is subprocess.DEVNULL, f"missing stdin=DEVNULL: {call}"
+        assert call.kwargs.get("timeout") == PORTUNUS_TIMEOUT_SECONDS, f"missing/wrong timeout: {call}"
+
+
+@patch("web.vault.subprocess.run")
+def test_list_vault_entries_returns_empty_on_timeout_instead_of_hanging(mock_run):
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd=["portunus"], timeout=PORTUNUS_TIMEOUT_SECONDS)
+    assert list_vault_entries() == []
+
+
+@patch("web.vault.subprocess.run")
+def test_resolve_vault_entries_raises_clear_error_on_timeout_instead_of_hanging(mock_run):
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd=["portunus"], timeout=PORTUNUS_TIMEOUT_SECONDS)
+
+    try:
+        resolve_vault_entries_with_values(["password-1"])
+        assert False, "expected an error"
+    except RuntimeError as e:
+        assert "timed out" in str(e)
 
 
 @patch("web.vault.shutil.which", return_value=None)

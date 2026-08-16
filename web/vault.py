@@ -11,6 +11,21 @@ from web.paths import app_data_dir
 PROJECT = "coin-finder"
 GROUP = "coin-finder/candidates"
 
+# Every `portunus` subprocess call below MUST pass both of these. Confirmed
+# the hard way, live, against the real installed app: `portunus` inherits
+# whatever stdin it's given, and a subprocess spawned from inside the
+# Tauri-managed sidecar gets a piped (not terminal, not closed) stdin --
+# nothing this project's own code does closes it. If portunus ever tries
+# to read from stdin (its own prompt, unlock flow, anything), that read
+# blocks forever on a pipe that will never produce EOF, freezing this
+# single-threaded Flask server for every user, not just the one request.
+# `stdin=DEVNULL` makes that read return EOF immediately instead of
+# hanging; `timeout=` is the same defense-in-depth this project already
+# requires of every `requests.*()` call (see services/__init__.py), here
+# for the same reason: a call with no way to fail must not be allowed to
+# hang forever either.
+PORTUNUS_TIMEOUT_SECONDS = 15
+
 # Fallback store used only when the `portunus` CLI isn't on PATH -- e.g. a
 # fresh install that hasn't set it up yet. Deliberately dumb (plaintext
 # local .env + a metadata sidecar): Portunus is the real vault; this exists
@@ -36,7 +51,13 @@ def list_vault_entries(include_revoked=False):
     if not _portunus_available():
         return _list_vault_entries_fallback(include_revoked)
 
-    result = subprocess.run(["portunus", "list", "--project", PROJECT, "--json"], capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ["portunus", "list", "--project", PROJECT, "--json"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=PORTUNUS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return []
     if result.returncode != 0:
         return []
 
@@ -74,10 +95,12 @@ def add_vault_entry(name, value_file_path, description="", sm_name=None):
             "--description", description or name,
             "--value-file", str(value_file_path),
         ],
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=PORTUNUS_TIMEOUT_SECONDS,
     )
-    subprocess.run(["portunus", "state", name, "enabled"], capture_output=True, text=True)
+    subprocess.run(
+        ["portunus", "state", name, "enabled"],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=PORTUNUS_TIMEOUT_SECONDS,
+    )
 
 
 def revoke_vault_entry(name):
@@ -85,7 +108,10 @@ def revoke_vault_entry(name):
     if not _portunus_available():
         _revoke_vault_entry_fallback(name)
         return
-    subprocess.run(["portunus", "state", name, "revoked"], capture_output=True, text=True)
+    subprocess.run(
+        ["portunus", "state", name, "revoked"],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=PORTUNUS_TIMEOUT_SECONDS,
+    )
 
 
 def resolve_vault_entries_with_values(names):
@@ -105,7 +131,13 @@ def resolve_vault_entries_with_values(names):
 
     pairs = []
     for name in names:
-        result = subprocess.run(["portunus", "resolve", f"{{{{secret:{name}}}}}"], capture_output=True, text=True)
+        try:
+            result = subprocess.run(
+                ["portunus", "resolve", f"{{{{secret:{name}}}}}"],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=PORTUNUS_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Could not resolve vault entry '{name}': portunus timed out after {PORTUNUS_TIMEOUT_SECONDS}s.")
         if result.returncode != 0:
             raise RuntimeError(f"Could not resolve vault entry '{name}': {result.stderr.strip()}")
         resolved_path = result.stdout.strip()

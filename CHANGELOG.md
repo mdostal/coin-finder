@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-08-15
+
+### Fixed
+
+- **The vault (Portunus) could hang the entire app indefinitely, freezing
+  it for every request, not just the one that touched the vault.** Caught
+  live, immediately after shipping 0.32.0's wizard: `web/vault.py`'s five
+  `portunus` subprocess calls (`list`, `drop`, `state`, `resolve`) passed
+  no `stdin=` and no `timeout=`. A subprocess spawned from inside the
+  Tauri-managed sidecar inherits a piped stdin that never produces EOF; if
+  `portunus` ever tries to read from it, that read blocks forever, and
+  because the Flask dev server is single-threaded, one hung vault call
+  freezes the whole app for everyone. Every call now passes
+  `stdin=subprocess.DEVNULL` (so a read returns EOF immediately instead of
+  blocking) and a 15s timeout (matching the same discipline this project
+  already requires of every `requests.*()` call, for the same reason: a
+  call with no way to fail must not be allowed to hang forever either).
+
 ## [0.32.0] - 2026-08-15
 
 ### Added
