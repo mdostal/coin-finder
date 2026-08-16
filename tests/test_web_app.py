@@ -92,7 +92,30 @@ def test_find_job_lifecycle_reaches_done(mock_pipeline, mock_hidden, client, tmp
     assert job["kind"] == "find"
     mock_pipeline.find.assert_called_once()
     mock_pipeline.check_balances.assert_not_called()
-    mock_hidden.assert_called_once_with(str(tmp_path))
+    assert mock_hidden.call_args.args == (str(tmp_path),)
+
+
+@patch("web.app.scan_for_hidden_volumes")
+@patch("web.app.run_pipeline")
+def test_find_job_wires_live_progress_from_both_search_and_hidden_volume_stages(mock_pipeline, mock_hidden, client, tmp_path):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None):
+        progress_callback(3, None, "Searching: 3 potential wallet(s) found so far — /a")
+        return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
+
+    def fake_hidden(start_path, progress_callback=None):
+        progress_callback(7, None, "0 candidate(s) found so far — /a")
+        return []
+
+    mock_pipeline.find.side_effect = fake_find
+    mock_hidden.side_effect = fake_hidden
+
+    resp = client.post("/scan", data={"input_dir": str(tmp_path)}, follow_redirects=False)
+    job_id = resp.headers["Location"].rstrip("/").split("/")[-1]
+    job = _wait_for_done(client, job_id)
+
+    assert job["status"] == "done"
+    # last progress reported wins -- the hidden-volume stage runs after search/analyze
+    assert job["progress"] == {"current": 7, "total": None, "message": "Checking for hidden volumes: 0 candidate(s) found so far — /a"}
 
 
 @patch("web.app.scan_for_hidden_volumes")
@@ -144,7 +167,7 @@ def test_check_balances_records_findings_and_flows_progress(mock_pipeline, mock_
     output_dir = tmp_path / "out"
     balances_data = {"walletA.dat": {"Bitcoin": {"1abc": 0.5}}}
 
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None):
         return {"output_dir": out_dir, "files_found": 1, "coin_counts": {"Bitcoin": 1}, "total_address_instances": 1}
 
     def fake_check_balances(out_dir, progress_callback=None, checkpoint_path=None):
@@ -186,7 +209,7 @@ def test_check_balances_404s_while_find_job_still_running(mock_pipeline, mock_hi
     started = threading.Event()
     release = threading.Event()
 
-    def slow_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None):
+    def slow_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None):
         started.set()
         release.wait(timeout=2)
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}

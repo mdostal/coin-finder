@@ -6,7 +6,7 @@ import run_pipeline
 
 
 def _fake_analyze(analysis_data):
-    def _write(input_file, output_file, index_db_path=None):
+    def _write(input_file, output_file, index_db_path=None, progress_callback=None):
         with open(output_file, "w") as f:
             json.dump(analysis_data, f)
 
@@ -182,3 +182,22 @@ def test_check_balances_requires_a_prior_find(tmp_path):
     mock_check.assert_called_once()
     called_analyze_input = mock_check.call_args[0][0]
     assert called_analyze_input == str(output_dir / "checks" / "wallet_analysis.json")
+
+
+def test_find_forwards_progress_callback_with_stage_prefixes(tmp_path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    def fake_search(start_path, output_file, checkpoint_path=None, progress_callback=None):
+        progress_callback(3, None, "3 potential wallet(s) found so far — /a")
+        with open(output_file, "w") as f:
+            pass
+
+    with patch("run_pipeline.search_for_wallets", side_effect=fake_search), \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})), \
+         patch("run_pipeline.check_wallet_balances"):
+        calls = []
+        run_pipeline.find(str(input_dir), str(output_dir), progress_callback=lambda c, t, m="": calls.append((c, t, m)))
+
+    assert calls[0] == (3, None, "Searching: 3 potential wallet(s) found so far — /a")

@@ -13,20 +13,22 @@
   function renderProgress(job) {
     var container = document.getElementById("job-progress");
     if (!container || !job.progress) return;
-    var pct = job.progress.total ? Math.round((job.progress.current / job.progress.total) * 100) : 0;
+
+    var indeterminate = !job.progress.total;
+    var pct = indeterminate ? 0 : Math.round((job.progress.current / job.progress.total) * 100);
 
     container.textContent = "";
 
     var bar = document.createElement("div");
-    bar.className = "progress-bar";
+    bar.className = indeterminate ? "progress-bar progress-bar-indeterminate" : "progress-bar";
     var fill = document.createElement("div");
     fill.className = "progress-bar-fill";
-    fill.style.width = pct + "%";
+    if (!indeterminate) fill.style.width = pct + "%";
     bar.appendChild(fill);
 
     var label = document.createElement("div");
     label.className = "progress-label";
-    var text = job.progress.current + " / " + job.progress.total;
+    var text = indeterminate ? String(job.progress.current) : job.progress.current + " / " + job.progress.total;
     if (job.progress.message) text += " — " + job.progress.message;
     label.textContent = text;
 

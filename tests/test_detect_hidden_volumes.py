@@ -171,3 +171,18 @@ def test_cli_writes_json_and_markdown_report(tmp_path):
     data = json.loads(output_file.read_text())
     assert len(data) == 1
     assert data[0]["path"] == str(container_like)
+
+
+def test_scan_for_hidden_volumes_reports_indeterminate_progress(tmp_path, monkeypatch):
+    import tools.detect_hidden_volumes as detect_hidden_volumes_module
+
+    monkeypatch.setattr(detect_hidden_volumes_module, "PROGRESS_EVERY_SECONDS", 0)
+
+    (tmp_path / "random.bin").write_bytes(os.urandom(4096))
+
+    calls = []
+    scan_for_hidden_volumes(str(tmp_path), progress_callback=lambda c, t, m="": calls.append((c, t, m)))
+
+    assert calls
+    assert all(total is None for _, total, _ in calls)
+    assert calls[-1][0] == 1  # one file checked

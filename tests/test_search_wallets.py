@@ -82,3 +82,26 @@ def test_search_for_wallets_ignores_checkpoint_for_a_different_start_path(tmp_pa
 
     assert str(tmp_path / "wallet.dat") in results
     assert "/some/other/path/bogus.dat" not in results
+
+
+def test_search_for_wallets_reports_indeterminate_progress(tmp_path, monkeypatch):
+    """
+    Throttled to PROGRESS_EVERY_SECONDS in real use -- forced to 0 here so
+    a fast, tiny test tree still triggers at least one callback per
+    directory without needing a real wall-clock wait.
+    """
+    import tools.search_wallets as search_wallets_module
+
+    monkeypatch.setattr(search_wallets_module, "PROGRESS_EVERY_SECONDS", 0)
+
+    subdir = tmp_path / "sub"
+    subdir.mkdir()
+    (subdir / "wallet.dat").write_bytes(b"x" * 100)
+    output_file = tmp_path / "out.txt"
+
+    calls = []
+    search_for_wallets(str(tmp_path), str(output_file), progress_callback=lambda c, t, m="": calls.append((c, t, m)))
+
+    assert calls  # at least one progress report happened
+    assert all(total is None for _, total, _ in calls)  # always indeterminate
+    assert calls[-1][2].startswith("1 potential wallet(s) found")  # final call reports the real count

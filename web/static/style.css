@@ -340,6 +340,15 @@ pre {
   height: 100%;
   transition: width 0.2s ease;
 }
+.progress-bar-indeterminate .progress-bar-fill {
+  width: 35% !important;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: progress-indeterminate-slide 1.2s ease-in-out infinite;
+}
+@keyframes progress-indeterminate-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(285%); }
+}
 .progress-label {
   font-size: 0.78rem;
   color: var(--text-dim);

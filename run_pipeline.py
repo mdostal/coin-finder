@@ -22,7 +22,7 @@ def _paths(output_dir):
     }
 
 
-def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None):
+def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, progress_callback=None):
     """
     Stage 1 -- search + analyze only. No network calls, so it's fast
     regardless of how many addresses turn up. Returns a summary (files
@@ -40,17 +40,35 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None):
         Lets the (potentially very long) file-walk stage survive an app
         quit/update/crash mid-scan by resuming from the directories
         already checked instead of starting over.
+    :param progress_callback: optional callable(current, total, message).
+        Forwarded to both search_for_wallets (indeterminate -- directories
+        walked, no known total) and analyze_wallets (determinate -- a
+        known file count), each with its own stage prefix so a caller
+        showing one progress bar can tell which sub-stage is running.
     :return: {"output_dir", "files_found", "coin_counts", "total_address_instances"}
     """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     paths = _paths(output_dir)
     Path(paths["sub_dir"]).mkdir(parents=True, exist_ok=True)
 
     print("Running wallet search...")
-    search_for_wallets(input_dir, paths["search_output"], checkpoint_path=checkpoint_path)
+    search_for_wallets(
+        input_dir,
+        paths["search_output"],
+        checkpoint_path=checkpoint_path,
+        progress_callback=lambda c, t, m="": progress_callback(c, t, f"Searching: {m}"),
+    )
 
     print("Running wallet analysis...")
-    analyze_wallets(paths["search_output"], paths["analyze_output"], index_db_path=index_db_path)
+    analyze_wallets(
+        paths["search_output"],
+        paths["analyze_output"],
+        index_db_path=index_db_path,
+        progress_callback=lambda c, t, m="": progress_callback(c, t, f"Analyzing: {m}"),
+    )
 
     with open(paths["analyze_output"]) as f:
         analysis = json.load(f)

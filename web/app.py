@@ -672,7 +672,8 @@ def create_app(host="127.0.0.1"):
         if not output_dir:
             return render_template("drive.html", error="Enter a local output directory."), 400
 
-        job_id = run_job(_run_drive_scan_job, output_dir, query, kind="drive-scan", label=output_dir)
+        job_id = create_job(kind="drive-scan", label=output_dir)
+        start_job(job_id, _run_drive_scan_job, output_dir, query, job_id)
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/gmail")
@@ -1337,7 +1338,7 @@ def _run_connect_remote_job(job_id, remote_name, kind, client_id, client_secret,
     )
 
 
-def _run_drive_scan_job(output_dir, query):
+def _run_drive_scan_job(output_dir, query, job_id):
     """
     Reuses tools/scan_google_drive.py's exact OAuth + direct-Drive-API-to-
     disk functions -- no reimplementation. Runs in a background job because
@@ -1345,7 +1346,12 @@ def _run_drive_scan_job(output_dir, query):
     OAuth consent, which would otherwise block the request thread.
     """
     service = get_drive_service()
-    manifest = scan_drive_for_wallets(service, output_dir, query=query)
+    manifest = scan_drive_for_wallets(
+        service,
+        output_dir,
+        query=query,
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
 
     lines = [f"Downloaded {len(manifest)} candidate file(s) to {output_dir}."]
     for entry in manifest:
@@ -1457,10 +1463,17 @@ def _run_find_job(input_dir, job_id, index_db_path=None):
     output_dir = str(DEFAULT_OUTPUT_ROOT / Path(input_dir).name)
     Path(output_dir, "checks").mkdir(parents=True, exist_ok=True)
     summary = run_pipeline.find(
-        input_dir, output_dir, index_db_path=index_db_path, checkpoint_path=_find_checkpoint_path(output_dir)
+        input_dir,
+        output_dir,
+        index_db_path=index_db_path,
+        checkpoint_path=_find_checkpoint_path(output_dir),
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
     )
 
-    hidden_volumes = scan_for_hidden_volumes(input_dir)
+    hidden_volumes = scan_for_hidden_volumes(
+        input_dir,
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, f"Checking for hidden volumes: {message}"),
+    )
     summary["hidden_volumes_report"] = render_hidden_volumes_report(hidden_volumes)
 
     # Durable, restart-proof copy of this exact summary -- web/jobs.py's

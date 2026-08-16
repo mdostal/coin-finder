@@ -10,6 +10,7 @@ from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS, MAX_FILE_SIZE, MIN
 
 CHECKPOINT_EVERY_DIRS = 200
 CHECKPOINT_EVERY_SECONDS = 20
+PROGRESS_EVERY_SECONDS = 0.5
 
 
 def _load_checkpoint(checkpoint_path, start_path):
@@ -25,7 +26,7 @@ def _load_checkpoint(checkpoint_path, start_path):
     return set(data.get("completed_dirs", [])), list(data.get("potential_wallets", []))
 
 
-def search_for_wallets(start_path, output_file, checkpoint_path=None):
+def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_callback=None):
     """
     Walks start_path looking for likely wallet files. A long walk over a
     huge mounted drive is exactly the kind of job that used to be thrown
@@ -42,7 +43,18 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None):
     picking back up close to where a prior, interrupted run left off
     instead of restarting from zero. The checkpoint is removed once the
     walk finishes cleanly.
+
+    :param progress_callback: optional callable(current, total, message).
+        total is always None here -- there is no way to know how many
+        directories a walk will visit before it's done, so this reports
+        real, live movement (directories walked, matches found so far,
+        current path) rather than a fabricated percentage. Throttled to
+        roughly every PROGRESS_EVERY_SECONDS so a fast walk over small
+        directories doesn't flood the caller.
     """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
     completed_dirs, potential_wallets = _load_checkpoint(checkpoint_path, start_path)
     if completed_dirs:
         print(f"Resuming scan of {start_path}: {len(completed_dirs)} directory(ies) already checked, {len(potential_wallets)} wallet(s) found so far.")
@@ -60,6 +72,8 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None):
 
     dirs_since_checkpoint = 0
     last_checkpoint_at = time.time()
+    last_progress_at = time.time()
+    dirs_walked = len(completed_dirs)
 
     for root, dirs, files in os.walk(start_path):
         if root in completed_dirs:
@@ -88,11 +102,17 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None):
 
         completed_dirs.add(root)
         dirs_since_checkpoint += 1
+        dirs_walked += 1
         if checkpoint_path and (dirs_since_checkpoint >= CHECKPOINT_EVERY_DIRS or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS):
             _flush()
             dirs_since_checkpoint = 0
             last_checkpoint_at = time.time()
 
+        if time.time() - last_progress_at >= PROGRESS_EVERY_SECONDS:
+            progress_callback(dirs_walked, None, f"{len(potential_wallets)} potential wallet(s) found so far — {root}")
+            last_progress_at = time.time()
+
+    progress_callback(dirs_walked, None, f"{len(potential_wallets)} potential wallet(s) found — walk complete")
     _flush()
     if checkpoint_path:
         Path(checkpoint_path).unlink(missing_ok=True)

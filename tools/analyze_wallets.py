@@ -27,7 +27,7 @@ def analyze_wallet_file(file_path):
         print(f"Error analyzing {file_path}: {e}")
     return results
 
-def analyze_wallets(input_file, output_file, index_db_path=None):
+def analyze_wallets(input_file, output_file, index_db_path=None, progress_callback=None):
     """
     Analyze files listed in the input file for cryptocurrency addresses.
 
@@ -39,13 +39,19 @@ def analyze_wallets(input_file, output_file, index_db_path=None):
         Content-hash based, so a copy on a different drive/backup is
         recognized regardless of its current path. None (the default) is
         a complete no-op -- byte-identical to not having this parameter.
+    :param progress_callback: optional callable(current, total, message).
+        Unlike search_for_wallets, the file list here is already known
+        (it's search's own output) -- real, determinate progress.
     """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
     wallet_analysis = {}
 
     with open(input_file, "r") as f:
         file_paths = [line.strip() for line in f.readlines()]
 
-    for file_path in file_paths:
+    for i, file_path in enumerate(file_paths, start=1):
         if index_db_path is not None:
             try:
                 with open(file_path, "rb") as fh:
@@ -61,6 +67,7 @@ def analyze_wallets(input_file, output_file, index_db_path=None):
                     print(f"Already scanned (duplicate content): {file_path} -- reusing prior result")
                     if cached_result:
                         wallet_analysis[file_path] = cached_result
+                    progress_callback(i, len(file_paths), file_path)
                     continue
 
         print(f"Analyzing file: {file_path}")
@@ -70,6 +77,8 @@ def analyze_wallets(input_file, output_file, index_db_path=None):
 
         if index_db_path is not None and content is not None:
             record_scanned_file(file_hash, file_path, file_results, db_path=index_db_path)
+
+        progress_callback(i, len(file_paths), file_path)
 
     # Save results to a JSON file
     with open(output_file, "w") as f:

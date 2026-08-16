@@ -1,7 +1,10 @@
 import json
 import math
 import os
+import time
 from collections import Counter
+
+PROGRESS_EVERY_SECONDS = 0.5
 
 # Small table of common file-format magic-byte headers. A match means the file
 # is a known, explainable format -- not a hidden-volume candidate, even if its
@@ -94,15 +97,23 @@ def looks_like_encrypted_container(file_path, min_size_bytes=1_000_000, entropy_
     return {"path": file_path, "size": size, "entropy": entropy}
 
 
-def scan_for_hidden_volumes(start_path):
+def scan_for_hidden_volumes(start_path, progress_callback=None):
     """
     Recursively walk start_path, applying looks_like_encrypted_container() to
     every file. No upper file-size skip -- unlike tools/search_wallets.py, that
     is the entire point of this tool.
 
+    :param progress_callback: optional callable(current, total, message).
+        total is always None -- same reasoning as search_for_wallets.py's
+        walk: no way to know the file count ahead of time.
     :return: list of candidate dicts (see looks_like_encrypted_container).
     """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
     candidates = []
+    files_checked = 0
+    last_progress_at = time.time()
 
     for root, dirs, files in os.walk(start_path):
         for file in files:
@@ -115,6 +126,12 @@ def scan_for_hidden_volumes(start_path):
             if result:
                 candidates.append(result)
 
+            files_checked += 1
+            if time.time() - last_progress_at >= PROGRESS_EVERY_SECONDS:
+                progress_callback(files_checked, None, f"{len(candidates)} candidate(s) found so far — {root}")
+                last_progress_at = time.time()
+
+    progress_callback(files_checked, None, f"{len(candidates)} candidate(s) found — scan complete")
     return candidates
 
 

@@ -86,3 +86,38 @@ def _sha256_of(path):
     from tools.scan_index import hash_file_bytes
 
     return hash_file_bytes(path.read_bytes())
+
+
+def test_analyze_wallets_reports_determinate_progress(tmp_path):
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_text("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_text("nothing interesting here")
+    input_file = _write_input_file(tmp_path, [wallet_a, wallet_b])
+    output_file = tmp_path / "analysis.json"
+
+    calls = []
+    analyze_wallets(str(input_file), str(output_file), progress_callback=lambda c, t, m="": calls.append((c, t, m)))
+
+    assert calls == [(1, 2, str(wallet_a)), (2, 2, str(wallet_b))]
+
+
+def test_analyze_wallets_reports_progress_for_a_dedup_cache_hit_too(tmp_path):
+    content = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_text(content)
+    index_db_path = tmp_path / "scan_index.db"
+    analyze_wallets(str(_write_input_file(tmp_path, [wallet_a])), str(tmp_path / "out_a.json"), index_db_path=index_db_path)
+
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_text(content)  # identical content -- a cache hit this time
+
+    calls = []
+    analyze_wallets(
+        str(_write_input_file(tmp_path, [wallet_b])),
+        str(tmp_path / "out_b.json"),
+        index_db_path=index_db_path,
+        progress_callback=lambda c, t, m="": calls.append((c, t, m)),
+    )
+
+    assert calls == [(1, 1, str(wallet_b))]

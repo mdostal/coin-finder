@@ -97,6 +97,24 @@ def test_drive_scan_wires_to_scan_drive_for_wallets(mock_get_service, mock_scan,
     assert args[1] == str(tmp_path)
 
 
+@patch("web.app.scan_drive_for_wallets")
+@patch("web.app.get_drive_service")
+def test_drive_scan_wires_live_progress_to_the_job(mock_get_service, mock_scan, client, tmp_path):
+    def fake_scan(service, output_dir, query=None, progress_callback=None):
+        progress_callback(1, 2, "Downloading: wallet.dat")
+        return []
+
+    mock_get_service.return_value = "fake-service"
+    mock_scan.side_effect = fake_scan
+
+    resp = client.post("/drive/scan", data={"output_dir": str(tmp_path)}, follow_redirects=False)
+    job_id = _job_id_from_redirect(resp)
+    job = _wait_for_terminal(client, job_id)
+
+    assert job["status"] == "done"
+    assert job["progress"] == {"current": 1, "total": 2, "message": "Downloading: wallet.dat"}
+
+
 def test_browse_endpoint_does_not_recurse_into_symlinks(client, tmp_path):
     real_dir = tmp_path / "real"
     real_dir.mkdir()

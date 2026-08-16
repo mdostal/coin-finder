@@ -63,7 +63,7 @@ def get_drive_service(credentials_path=DEFAULT_CREDENTIALS_PATH, token_path=DEFA
     return build("drive", "v3", credentials=creds)
 
 
-def list_wallet_like_files(service, query=None, page_size=100, page_delay_seconds=DEFAULT_PAGE_DELAY_SECONDS):
+def list_wallet_like_files(service, query=None, page_size=100, page_delay_seconds=DEFAULT_PAGE_DELAY_SECONDS, progress_callback=None):
     """
     Paginated, rate-limited ("slow crawl") listing of Drive files, filtered
     to wallet-like filenames and a plausible size range -- metadata only, no
@@ -71,7 +71,14 @@ def list_wallet_like_files(service, query=None, page_size=100, page_delay_second
     (they aren't downloadable "files" in the same sense -- a doc containing
     wallet notes should be reviewed by the user directly in Drive, not
     auto-downloaded).
+
+    :param progress_callback: optional callable(current, total, message).
+        total is always None -- the number of pages/files Drive will
+        return isn't known ahead of time.
     """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
     results = []
     page_token = None
     base_query = query or "trashed = false"
@@ -97,6 +104,8 @@ def list_wallet_like_files(service, query=None, page_size=100, page_delay_second
             if is_wallet_like_filename(file.get("name", "")):
                 results.append(file)
 
+        progress_callback(len(results), None, f"{len(results)} wallet-like file(s) found so far")
+
         page_token = response.get("nextPageToken")
         if not page_token:
             break
@@ -119,7 +128,7 @@ def download_file(service, file_id, destination_path):
             _, done = downloader.next_chunk()
 
 
-def scan_drive_for_wallets(service, output_dir, query=None):
+def scan_drive_for_wallets(service, output_dir, query=None, progress_callback=None):
     """
     "Slow crawl": lists wallet-like files (metadata only), downloads each
     directly to output_dir. Does NOT read or interpret file content itself
@@ -127,14 +136,23 @@ def scan_drive_for_wallets(service, output_dir, query=None):
     scan_wallet_dat.py, etc.) against output_dir afterward, exactly as you
     would for a local drive.
 
+    :param progress_callback: optional callable(current, total, message).
+        Listing is indeterminate (see list_wallet_like_files); downloading
+        is determinate once the candidate list is known.
     :return: [{"drive_file_id", "name", "local_path"}, ...]
     """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
     os.makedirs(output_dir, exist_ok=True)
-    candidates = list_wallet_like_files(service, query=query)
+    candidates = list_wallet_like_files(
+        service, query=query, progress_callback=lambda c, t, m="": progress_callback(c, t, f"Listing: {m}")
+    )
 
     manifest = []
-    for file in candidates:
+    for i, file in enumerate(candidates, start=1):
         local_path = os.path.join(output_dir, f"{file['id']}_{file['name']}")
+        progress_callback(i, len(candidates), f"Downloading: {file['name']}")
         download_file(service, file["id"], local_path)
         manifest.append({"drive_file_id": file["id"], "name": file["name"], "local_path": local_path})
 

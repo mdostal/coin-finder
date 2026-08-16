@@ -11,7 +11,8 @@
 {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
 
 {% if job and job.status == "running" %}
-<div class="card"><p>Searching &amp; analyzing -- fast, no network calls. This page will refresh automatically.</p><div id="job-progress"></div></div>
+<div class="card"><p>Searching &amp; analyzing -- no network calls, but a huge drive can still take a
+while to walk. This page will refresh automatically.</p><div id="job-progress"></div></div>
 {% elif job and job.status == "error" %}
 <div class="banner error">{{ job.error }}</div>
 {% elif result %}

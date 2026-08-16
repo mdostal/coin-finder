@@ -102,3 +102,35 @@ def test_scan_drive_for_wallets_downloads_every_candidate_and_returns_a_manifest
     assert mock_download.call_count == 2
     assert len(manifest) == 2
     assert all(entry["local_path"].startswith(str(tmp_path)) for entry in manifest)
+
+
+def test_list_wallet_like_files_reports_progress_per_page():
+    service = MagicMock()
+    service.files.return_value.list.return_value.execute.side_effect = [
+        make_files_list_response(
+            [{"id": "1", "name": "wallet1.dat", "size": "1000", "mimeType": "application/octet-stream"}],
+            next_page_token="page2",
+        ),
+        make_files_list_response(
+            [{"id": "2", "name": "wallet2.dat", "size": "1000", "mimeType": "application/octet-stream"}],
+        ),
+    ]
+
+    calls = []
+    list_wallet_like_files(service, page_delay_seconds=0, progress_callback=lambda c, t, m="": calls.append((c, t, m)))
+
+    assert calls == [(1, None, "1 wallet-like file(s) found so far"), (2, None, "2 wallet-like file(s) found so far")]
+
+
+@patch("tools.scan_google_drive.download_file")
+@patch("tools.scan_google_drive.list_wallet_like_files")
+def test_scan_drive_for_wallets_reports_determinate_download_progress(mock_list, mock_download, tmp_path):
+    mock_list.return_value = [
+        {"id": "1", "name": "wallet1.dat"},
+        {"id": "2", "name": "wallet2.dat"},
+    ]
+
+    calls = []
+    scan_drive_for_wallets(MagicMock(), str(tmp_path), progress_callback=lambda c, t, m="": calls.append((c, t, m)))
+
+    assert calls == [(1, 2, "Downloading: wallet1.dat"), (2, 2, "Downloading: wallet2.dat")]
