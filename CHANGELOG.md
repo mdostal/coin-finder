@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-08-15
+
+### Added
+
+- **Auto-unlock across all wallets.** New "Auto-unlock" page tries every
+  enabled Vault password against every wallet file already recorded from
+  a scan, in one run, and maps which one (if any) unlocked which wallet --
+  instead of testing one wallet/password pair at a time. Every existing
+  safety invariant is reused unchanged from the single-wallet Unlock flow:
+  the same offline gate (with the same informed-choice online override),
+  the same file-only-secrets handling, and the same once-only result
+  delivery. The single-wallet Unlock flow itself is untouched.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `auto-unlock`) -- the most security-sensitive epic this session,
+  with extra design-discussion detail on exactly what must not change.
+
 ## [0.37.0] - 2026-08-15
 
 ### Added
