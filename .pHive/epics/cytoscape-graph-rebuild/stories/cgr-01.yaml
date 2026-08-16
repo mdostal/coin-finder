@@ -85,6 +85,20 @@ risks:
   - None beyond what's already covered in the epic design discussion's
     Risks section (vendoring, multi-root breadthfirst, disconnected
     components) -- all addressed there.
+
+correction_during_implementation: >
+  Live testing against a real 200-node dataset (2 seeds, 9 gen-1, 189
+  gen-2) showed breadthfirst's default band/tree layout falls apart with
+  this uneven a distribution -- it either crushed everything into a
+  sliver (fit shrinking to accommodate the widest band) or ran off-screen
+  entirely depending on fit settings. Switched to Cytoscape's built-in
+  `concentric` layout (concentric: -generation, so generation 0 sits at
+  the highest concentric value and ends up centered) -- genuine rings
+  sized to fit however many nodes share one, which is what "ring
+  distance = hops" actually needs. Verified live: all 200 nodes visible
+  with zero overlap, zoom/hover/click-to-copy all confirmed working via
+  real Playwright mouse events against Cytoscape's actual rendered node
+  positions (not synthetic/guessed coordinates).
 references:
   - web/static/graph.js (current, to be replaced)
   - web/templates/item_result.html

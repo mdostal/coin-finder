@@ -1,38 +1,11 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const canvas = document.getElementById("graph-canvas");
+  const container = document.getElementById("cy");
   const dataEl = document.getElementById("graph-data");
-  if (!canvas || !dataEl) return;
+  if (!container || !dataEl || typeof cytoscape === "undefined") return;
 
   const nodes = JSON.parse(dataEl.textContent);
   const addresses = Object.keys(nodes);
   if (addresses.length === 0) return;
-
-  const ctx = canvas.getContext("2d");
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-  const ringStep = Math.min(cx, cy) / (Math.max(...addresses.map((a) => nodes[a].generation)) + 1 || 1);
-
-  // Ring-by-generation layout: seeds at the center, each hop further out.
-  // Deterministic (no physics/force simulation) since generation + a
-  // per-ring index is already a complete, stable position.
-  const byGeneration = {};
-  addresses.forEach((addr) => {
-    const gen = nodes[addr].generation || 0;
-    (byGeneration[gen] = byGeneration[gen] || []).push(addr);
-  });
-
-  const position = {};
-  Object.keys(byGeneration).forEach((gen) => {
-    const ring = byGeneration[gen];
-    const radius = Number(gen) * ringStep;
-    ring.forEach((addr, i) => {
-      const angle = (2 * Math.PI * i) / ring.length - Math.PI / 2;
-      position[addr] = {
-        x: cx + radius * Math.cos(radius === 0 ? 0 : angle),
-        y: cy + radius * Math.sin(radius === 0 ? 0 : angle),
-      };
-    });
-  });
 
   const colorFor = (info) => {
     if (info.balance) return "#2dd4a7"; // accent -- has a balance, most interesting
@@ -41,33 +14,71 @@ document.addEventListener("DOMContentLoaded", () => {
     return "#9aa3b2"; // output / lower-confidence
   };
 
-  function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Edges first, under the nodes.
-    ctx.strokeStyle = "#3a4150";
-    ctx.lineWidth = 1;
-    addresses.forEach((addr) => {
-      const parent = nodes[addr].discovered_via;
-      if (!parent || !position[parent]) return;
-      ctx.beginPath();
-      ctx.moveTo(position[addr].x, position[addr].y);
-      ctx.lineTo(position[parent].x, position[parent].y);
-      ctx.stroke();
+  const elements = [];
+  addresses.forEach((addr) => {
+    const info = nodes[addr];
+    elements.push({
+      data: {
+        id: addr,
+        confidence: info.confidence,
+        generation: info.generation,
+        balance: info.balance,
+        dormant_years: info.dormant_years,
+        color: colorFor(info),
+        size: info.balance ? 22 : 14,
+      },
     });
+    if (info.discovered_via) {
+      elements.push({ data: { id: `${info.discovered_via}->${addr}`, source: info.discovered_via, target: addr } });
+    }
+  });
 
-    // Nodes on top.
-    addresses.forEach((addr) => {
-      const p = position[addr];
-      const info = nodes[addr];
-      ctx.beginPath();
-      ctx.fillStyle = colorFor(info);
-      ctx.arc(p.x, p.y, info.balance ? 7 : 5, 0, 2 * Math.PI);
-      ctx.fill();
-    });
-  }
+  const cy = cytoscape({
+    container,
+    elements,
+    style: [
+      {
+        selector: "node",
+        style: {
+          "background-color": "data(color)",
+          width: "data(size)",
+          height: "data(size)",
+        },
+      },
+      {
+        selector: "edge",
+        style: {
+          width: 1,
+          "line-color": "#3a4150",
+          "curve-style": "bezier",
+          "target-arrow-shape": "none",
+        },
+      },
+    ],
+    // Ring distance = hop count -- concentric (not breadthfirst) is the
+    // right layout for that: breadthfirst lays generations out as
+    // horizontal bands, which falls apart when one generation has 20x
+    // more nodes than another (confirmed live -- 189 nodes at one
+    // generation vs 2 at another squashed everything into a sliver).
+    // Concentric places nodes in genuine rings by radius, sized to fit
+    // however many nodes share a ring.
+    layout: {
+      name: "concentric",
+      concentric: (node) => -node.data("generation"),
+      levelWidth: () => 1,
+      minNodeSpacing: 18,
+      animate: false,
+      fit: true,
+      padding: 20,
+    },
+  });
 
-  draw();
+  // The container's real size isn't always settled at the moment
+  // cytoscape() first measures it (e.g. mid-layout reflow) -- resize +
+  // re-fit once more after the initial layout so a wide graph (dozens+
+  // nodes at one generation) doesn't render partly off-screen.
+  cy.resize();
+  cy.fit(undefined, 20);
 
   const tooltip = document.createElement("div");
   tooltip.style.cssText =
@@ -75,53 +86,37 @@ document.addEventListener("DOMContentLoaded", () => {
     "border-radius:4px;padding:6px 8px;font-size:0.85rem;display:none;z-index:10;max-width:320px;";
   document.body.appendChild(tooltip);
 
-  function nearestAddress(x, y) {
-    let best = null;
-    let bestDist = 12; // px hit-test radius
-    addresses.forEach((addr) => {
-      const p = position[addr];
-      const d = Math.hypot(p.x - x, p.y - y);
-      if (d < bestDist) {
-        bestDist = d;
-        best = addr;
-      }
-    });
-    return best;
+  function describe(node) {
+    const info = node.data();
+    const balance = info.balance === null || info.balance === undefined ? "unknown (inconclusive)" : info.balance;
+    const dormancy =
+      info.dormant_years === null || info.dormant_years === undefined ? "unknown" : `${info.dormant_years.toFixed(1)}y ago`;
+    return `<code>${info.id}</code><br>confidence: ${info.confidence}, generation: ${info.generation}<br>balance: ${balance}<br>last activity: ${dormancy}`;
   }
 
-  canvas.addEventListener("mousemove", (event) => {
-    const rect = canvas.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
-    const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
-    const addr = nearestAddress(x, y);
-
-    if (!addr) {
-      tooltip.style.display = "none";
-      canvas.style.cursor = "default";
-      return;
-    }
-
-    const info = nodes[addr];
-    const balance = info.balance === null || info.balance === undefined ? "unknown (inconclusive)" : info.balance;
-    const dormancy = info.dormant_years === null || info.dormant_years === undefined ? "unknown" : `${info.dormant_years.toFixed(1)}y ago`;
-    tooltip.innerHTML = `<code>${addr}</code><br>confidence: ${info.confidence}, generation: ${info.generation}<br>balance: ${balance}<br>last activity: ${dormancy}`;
-    tooltip.style.left = `${event.clientX + 12}px`;
-    tooltip.style.top = `${event.clientY + 12}px`;
+  cy.on("mouseover", "node", (event) => {
+    tooltip.innerHTML = describe(event.target);
     tooltip.style.display = "block";
-    canvas.style.cursor = "pointer";
+    container.style.cursor = "pointer";
   });
 
-  canvas.addEventListener("mouseleave", () => {
+  cy.on("mouseout", "node", () => {
     tooltip.style.display = "none";
+    container.style.cursor = "default";
   });
 
-  canvas.addEventListener("click", (event) => {
-    const rect = canvas.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
-    const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
-    const addr = nearestAddress(x, y);
-    if (!addr || !navigator.clipboard) return;
+  container.addEventListener("mousemove", (event) => {
+    if (tooltip.style.display === "block") {
+      tooltip.style.left = `${event.clientX + 12}px`;
+      tooltip.style.top = `${event.clientY + 12}px`;
+    }
+  });
+
+  cy.on("tap", "node", (event) => {
+    const addr = event.target.id();
+    if (!navigator.clipboard) return;
     navigator.clipboard.writeText(addr);
     tooltip.innerHTML = `Copied <code>${addr}</code>`;
+    tooltip.style.display = "block";
   });
 });

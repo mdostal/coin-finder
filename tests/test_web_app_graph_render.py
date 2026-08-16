@@ -39,7 +39,11 @@ def test_crawl_result_page_embeds_graph_data_and_script(mock_crawl, client):
     assert page.status_code == 200
     assert b'id="graph-data"' in page.data
     assert b"1cospend" in page.data
+    assert b'id="cy"' in page.data
+    assert b"cytoscape.min.js" in page.data
     assert b'graph.js' in page.data
+    # cytoscape.min.js must load before graph.js references the global it defines
+    assert page.data.index(b"cytoscape.min.js") < page.data.index(b'src="/static/graph.js"')
     # the existing text report must still be present alongside the graph
     assert b"Transaction Graph Cluster Report" in page.data
 
