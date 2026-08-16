@@ -68,6 +68,14 @@ def test_vault_revoke_calls_revoke_vault_entry(mock_revoke, client):
     mock_revoke.assert_called_once_with("password-1")
 
 
+@patch("web.app.edit_vault_entry")
+def test_vault_edit_calls_edit_vault_entry(mock_edit, client):
+    resp = client.post("/vault/edit", data={"name": "password-1", "description": "updated"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    mock_edit.assert_called_once_with("password-1", "updated")
+
+
 @patch("web.app.resolve_vault_entries_with_values")
 @patch("web.app.run_unlock")
 @patch("web.app.check_network_status")

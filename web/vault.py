@@ -114,6 +114,21 @@ def revoke_vault_entry(name):
     )
 
 
+def edit_vault_entry(name, description):
+    """
+    Updates a saved entry's description via Portunus's own `retag` command
+    -- metadata only, the underlying secret value is never re-touched
+    (unlike a delete-and-re-add, this also preserves state/history).
+    """
+    if not _portunus_available():
+        _edit_vault_entry_fallback(name, description)
+        return
+    subprocess.run(
+        ["portunus", "retag", name, "--description", description],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=PORTUNUS_TIMEOUT_SECONDS,
+    )
+
+
 def resolve_vault_entries_with_values(names):
     """
     Resolves each named vault entry to its real value and returns them
@@ -200,6 +215,14 @@ def _revoke_vault_entry_fallback(name):
     for entry in entries:
         if entry["name"] == name:
             entry["state"] = "revoked"
+    _save_fallback_meta(entries)
+
+
+def _edit_vault_entry_fallback(name, description):
+    entries = _load_fallback_meta()
+    for entry in entries:
+        if entry["name"] == name:
+            entry["description"] = description
     _save_fallback_meta(entries)
 
 

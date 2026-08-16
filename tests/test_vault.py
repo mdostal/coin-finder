@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from web.vault import (
     PORTUNUS_TIMEOUT_SECONDS,
     add_vault_entry,
+    edit_vault_entry,
     list_vault_entries,
     resolve_vault_entries_to_candidates_file,
     resolve_vault_entries_with_values,
@@ -77,6 +78,32 @@ def test_revoke_vault_entry(mock_run):
 
     args = mock_run.call_args.args[0]
     assert args == ["portunus", "state", "password-1", "revoked"]
+
+
+@patch("web.vault.subprocess.run")
+def test_edit_vault_entry_calls_portunus_retag(mock_run):
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    edit_vault_entry("password-1", "updated description")
+
+    args, kwargs = mock_run.call_args
+    assert args[0] == ["portunus", "retag", "password-1", "--description", "updated description"]
+    assert kwargs.get("stdin") is subprocess.DEVNULL
+    assert kwargs.get("timeout") == PORTUNUS_TIMEOUT_SECONDS
+
+
+@patch("web.vault.shutil.which", return_value=None)
+def test_edit_vault_entry_updates_fallback_description(mock_which, tmp_path, monkeypatch):
+    monkeypatch.setattr("web.vault.FALLBACK_ENV_PATH", tmp_path / "vault_fallback.env")
+    monkeypatch.setattr("web.vault.FALLBACK_META_PATH", tmp_path / "vault_fallback_meta.json")
+    value_file = tmp_path / "value.txt"
+    value_file.write_text("hunter2")
+    add_vault_entry("password-1", str(value_file), description="original")
+
+    edit_vault_entry("password-1", "updated description")
+
+    entries = list_vault_entries()
+    assert entries[0]["description"] == "updated description"
 
 
 @patch("web.vault.subprocess.run")

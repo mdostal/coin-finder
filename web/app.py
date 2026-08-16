@@ -29,7 +29,7 @@ from web.jobs import consume_job_result, create_job, get_job, list_jobs, report_
 from web.native_dialogs import pick_path
 from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
-from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
+from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
 from web.crawl_runs import clear_all_crawl_runs, find_overlap_addresses, list_crawl_runs, record_crawl_run
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
@@ -587,6 +587,11 @@ def create_app(host="127.0.0.1"):
         revoke_vault_entry((request.form.get("name") or "").strip())
         return redirect(url_for("vault_page"))
 
+    @app.route("/vault/edit", methods=["POST"])
+    def vault_edit():
+        edit_vault_entry((request.form.get("name") or "").strip(), (request.form.get("description") or "").strip())
+        return redirect(url_for("vault_page"))
+
     @app.route("/wizard")
     def wizard_start():
         return render_template("wizard_start.html")
@@ -752,6 +757,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "vault_page": "unlock",
     "vault_add": "unlock",
     "vault_revoke": "unlock",
+    "vault_edit": "unlock",
     # Findings -- standalone, no tab strip.
     "findings_page": "findings",
     "findings_archive": "findings",

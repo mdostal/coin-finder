@@ -22,7 +22,13 @@ used instead so the feature still works.</p>
       {% for e in entries %}
       <tr>
         <td>{{ e.name }}</td>
-        <td>{{ e.description }}</td>
+        <td>
+          <form method="post" action="{{ url_for('vault_edit') }}" style="display:flex;gap:0.4rem;align-items:center">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <input type="text" name="description" value="{{ e.description }}" style="margin:0;min-width:12rem">
+            <button type="submit" class="btn-secondary">Save</button>
+          </form>
+        </td>
         <td>{{ e.state }}</td>
         <td>
           <form method="post" action="{{ url_for('vault_revoke') }}" style="display:inline">
