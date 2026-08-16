@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools.check_wallet_balances import _check_balance_with_retries, check_wallet_balances
+from tools.check_wallet_balances import PER_COIN_MAX_CONCURRENCY, _check_balance_with_retries, check_wallet_balances
 
 
 def make_service(side_effect):
@@ -295,7 +295,7 @@ def test_per_coin_concurrency_is_capped(mock_load_service, tmp_path):
         with lock:
             concurrent += 1
             max_concurrent = max(max_concurrent, concurrent)
-            if concurrent >= 5:
+            if concurrent >= PER_COIN_MAX_CONCURRENCY:
                 ramped_up.set()
         release.wait(timeout=2)
         with lock:
@@ -306,7 +306,7 @@ def test_per_coin_concurrency_is_capped(mock_load_service, tmp_path):
     service.check_balance = MagicMock(side_effect=check_balance)
     mock_load_service.return_value = service
 
-    addresses = [f"addr{i}" for i in range(20)]
+    addresses = [f"addr{i}" for i in range(PER_COIN_MAX_CONCURRENCY + 5)]
     input_file = tmp_path / "wallet_analysis.json"
     input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": addresses}}))
     output_file = tmp_path / "wallet_balances.json"
@@ -320,7 +320,7 @@ def test_per_coin_concurrency_is_capped(mock_load_service, tmp_path):
     release.set()
     t.join(timeout=3)
 
-    assert max_concurrent <= 5  # PER_COIN_MAX_CONCURRENCY
+    assert max_concurrent <= PER_COIN_MAX_CONCURRENCY
 
 
 @patch("tools.check_wallet_balances.time.sleep")

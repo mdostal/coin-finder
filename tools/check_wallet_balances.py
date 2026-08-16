@@ -20,7 +20,15 @@ RETRY_BACKOFF_SECONDS = 2
 # point: a scan that's mostly one coin (the realistic case) used to run
 # every one of that coin's addresses strictly one at a time, no matter how
 # many were found.
-PER_COIN_MAX_CONCURRENCY = 5
+#
+# 15, not a round guess: blockstream.info's real public rate limit is
+# ~50 req/s (shared across everyone using the public instance, not per-IP
+# -- see github.com/Blockstream/esplora issues #449/#302), and a live
+# benchmark (40 real addresses, 5 vs 10 vs 15 concurrent) showed 15 more
+# than doubled throughput over 5 with zero increase in errors/inconclusive
+# results. 15 leaves ~35 req/s of headroom for everyone else on the same
+# public endpoint.
+PER_COIN_MAX_CONCURRENCY = 15
 
 # Hard cap on total worker threads regardless of how many addresses are
 # queued -- per-coin semaphores already bound how many of those threads
