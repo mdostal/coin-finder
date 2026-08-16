@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-08-16
+
+### Fixed
+
+- **Google Drive/GCS connections that never actually finished are no
+  longer invisible.** `rclone config create` writes a connection's
+  config to disk before sign-in completes -- a failed or abandoned
+  attempt used to leave a permanent, broken entry with zero way to
+  detect or remove it. Every connection now shows real status
+  ("connected" vs "incomplete"), and can be removed and retried directly
+  from the Mounts page or the setup wizard -- no more needing direct
+  file-system intervention to recover.
+- A custom Google API client ID is now validated before attempting
+  sign-in at all -- catches a value that isn't actually a real Google
+  OAuth client ID immediately, with a clear explanation, instead of a
+  confusing Google error page five minutes later.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `cloud-connection-reliability`).
+
 ## [0.43.0] - 2026-08-16
 
 ### Added
