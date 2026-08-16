@@ -107,6 +107,42 @@ def list_remotes():
     return [line.strip().rstrip(":") for line in result.stdout.splitlines() if line.strip()]
 
 
+def remote_status(remote_name):
+    """
+    A FAST, LOCAL signal (parses `rclone config show <name>` -- a config-
+    file read, no network call) for whether a remote actually finished
+    setting up. Confirmed live this session: `rclone config create` writes
+    a remote's config section to disk before OAuth completes, so a failed
+    or abandoned sign-in leaves a real, listed remote with no `token`
+    field -- exactly what this distinguishes. NOT live proof the token
+    still works (a revoked token would still read "connected" here) --
+    that real verification belongs to create_remote()'s own creation-time
+    check (web/rclone_wizard.py), not a per-page-load network call. This
+    app already has one documented bug class (v0.32.2, v0.38.1) from
+    exactly that mistake with a different slow subprocess (Portunus) --
+    deliberately not repeating it here with a different tool.
+
+    :return: "connected" | "incomplete"
+    """
+    result = subprocess.run(["rclone", "config", "show", remote_name], capture_output=True, text=True)
+    if result.returncode != 0:
+        return "incomplete"
+    return "connected" if "token" in result.stdout else "incomplete"
+
+
+def remove_remote(remote_name, state_path=DEFAULT_STATE_PATH):
+    """
+    Deletes a configured rclone remote entirely -- the recovery path this
+    session's live bug was missing (two broken, tokenless remotes existed
+    with zero way to remove or retry them from the UI). Unmounts first if
+    currently mounted -- deleting a remote out from under a live FUSE
+    mount would leave that mount silently broken rather than cleanly gone.
+    """
+    if is_mounted(remote_name, state_path=state_path):
+        unmount(remote_name, state_path=state_path)
+    subprocess.run(["rclone", "config", "delete", remote_name], capture_output=True, text=True)
+
+
 def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH):
     """
     Starts `rclone mount <remote>: <mount_point>` as a background process.

@@ -12,15 +12,39 @@ def client():
     return app.test_client()
 
 
+@patch("web.app.remote_status")
 @patch("web.app.list_mounts")
 @patch("web.app.list_remotes")
-def test_mounts_page_loads(mock_remotes, mock_mounts, client):
+def test_mounts_page_loads(mock_remotes, mock_mounts, mock_status, client):
     mock_remotes.return_value = ["gdrive"]
     mock_mounts.return_value = []
+    mock_status.return_value = "connected"
 
     resp = client.get("/mounts")
 
     assert resp.status_code == 200
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_page_shows_status_pill_per_remote(mock_remotes, mock_mounts, mock_status, client):
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "incomplete"
+
+    resp = client.get("/mounts")
+
+    assert resp.status_code == 200
+    assert b"incomplete" in resp.data.lower()
+
+
+@patch("web.app.remove_remote")
+def test_mounts_remove_calls_remove_remote(mock_remove, client):
+    resp = client.post("/mounts/remove", data={"remote_name": "gdrive"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    mock_remove.assert_called_once_with("gdrive")
 
 
 @patch("web.app.mount")

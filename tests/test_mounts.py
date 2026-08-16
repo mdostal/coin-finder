@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, unmount
+from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, unmount
 
 
 @patch("web.mounts.subprocess.run")
@@ -155,3 +155,65 @@ def test_install_rclone_reports_progress(mock_run, mock_which):
 
     assert len(calls) == 2
     assert calls[0][0] == 1 and calls[1][0] == 2
+
+
+@patch("web.mounts.subprocess.run")
+def test_remote_status_connected_when_token_present(mock_run):
+    mock_run.return_value = MagicMock(returncode=0, stdout="[gdrive]\ntype = drive\ntoken = {\"access_token\":\"x\"}\n", stderr="")
+
+    assert remote_status("gdrive") == "connected"
+
+
+@patch("web.mounts.subprocess.run")
+def test_remote_status_incomplete_when_no_token(mock_run):
+    """
+    The exact real bug this session: a remote whose OAuth never finished
+    has a config section but no token field.
+    """
+    mock_run.return_value = MagicMock(returncode=0, stdout="[gdrive]\ntype = drive\nscope = drive.readonly\n", stderr="")
+
+    assert remote_status("gdrive") == "incomplete"
+
+
+@patch("web.mounts.subprocess.run")
+def test_remote_status_incomplete_on_nonzero_exit(mock_run):
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="not found")
+
+    assert remote_status("does-not-exist") == "incomplete"
+
+
+@patch("web.mounts.subprocess.run")
+def test_remove_remote_deletes_config(mock_run):
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    remove_remote("gdrive", state_path="/tmp/does-not-matter-for-this-test.json")
+
+    delete_calls = [c for c in mock_run.call_args_list if c[0][0][:3] == ["rclone", "config", "delete"]]
+    assert len(delete_calls) == 1
+    assert delete_calls[0][0][0] == ["rclone", "config", "delete", "gdrive"]
+
+
+@patch("web.mounts.unmount")
+@patch("web.mounts.is_mounted")
+@patch("web.mounts.subprocess.run")
+def test_remove_remote_unmounts_first_when_currently_mounted(mock_run, mock_is_mounted, mock_unmount, tmp_path):
+    mock_is_mounted.return_value = True
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    state_path = tmp_path / "mounts_state.json"
+
+    remove_remote("gdrive", state_path=state_path)
+
+    mock_unmount.assert_called_once_with("gdrive", state_path=state_path)
+
+
+@patch("web.mounts.unmount")
+@patch("web.mounts.is_mounted")
+@patch("web.mounts.subprocess.run")
+def test_remove_remote_skips_unmount_when_not_mounted(mock_run, mock_is_mounted, mock_unmount, tmp_path):
+    mock_is_mounted.return_value = False
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    state_path = tmp_path / "mounts_state.json"
+
+    remove_remote("gdrive", state_path=state_path)
+
+    mock_unmount.assert_not_called()

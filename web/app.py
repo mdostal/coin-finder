@@ -11,7 +11,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 
 import run_pipeline
 from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
-from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, unmount
+from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.check_wallet_balances import check_wallet_balances, load_service, _check_balance_with_retries
 from config.wallet import WALLET_SERVICES
@@ -665,7 +665,7 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/mounts")
     def mounts_page():
-        return render_template("mounts.html", remotes=list_remotes(), mounts=list_mounts(), rclone_installed=is_rclone_installed(), error=None)
+        return render_template("mounts.html", remotes=_remote_summaries(), mounts=list_mounts(), rclone_installed=is_rclone_installed(), error=None)
 
     @app.route("/mounts/install-rclone", methods=["POST"])
     def mounts_install_rclone():
@@ -678,7 +678,7 @@ def create_app(host="127.0.0.1"):
         remote_name = (request.form.get("remote_name") or "").strip()
         mount_point = (request.form.get("mount_point") or "").strip()
         if not remote_name or not mount_point:
-            return render_template("mounts.html", remotes=list_remotes(), mounts=list_mounts(), error="Enter both a remote and a mount point."), 400
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=list_mounts(), error="Enter both a remote and a mount point."), 400
 
         mount(remote_name, mount_point)
         return redirect(url_for("mounts_page"))
@@ -687,6 +687,13 @@ def create_app(host="127.0.0.1"):
     def mounts_unmount():
         remote_name = (request.form.get("remote_name") or "").strip()
         unmount(remote_name)
+        return redirect(url_for("mounts_page"))
+
+    @app.route("/mounts/remove", methods=["POST"])
+    def mounts_remove():
+        remote_name = (request.form.get("remote_name") or "").strip()
+        if remote_name:
+            remove_remote(remote_name)
         return redirect(url_for("mounts_page"))
 
     @app.route("/mounts/bind", methods=["POST"])
@@ -699,7 +706,7 @@ def create_app(host="127.0.0.1"):
             return (
                 render_template(
                     "mounts.html",
-                    remotes=list_remotes(),
+                    remotes=_remote_summaries(),
                     mounts=list_mounts(),
                     error=f"{remote_name} is not actually mounted right now -- refusing to bind it as a scan target. Mount it first.",
                 ),
@@ -767,7 +774,7 @@ def create_app(host="127.0.0.1"):
             "wizard_cloud.html",
             kind=kind,
             rclone_installed=is_rclone_installed(),
-            remotes=list_remotes(),
+            remotes=_remote_summaries(),
             scope_choices=SCOPE_CHOICES,
             default_scope=DEFAULT_SCOPE,
         )
@@ -786,7 +793,7 @@ def create_app(host="127.0.0.1"):
                     "wizard_cloud.html",
                     kind=kind,
                     rclone_installed=is_rclone_installed(),
-                    remotes=list_remotes(),
+                    remotes=_remote_summaries(),
                     scope_choices=SCOPE_CHOICES,
                     default_scope=DEFAULT_SCOPE,
                     error="Enter a name for this connection.",
@@ -890,6 +897,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "mounts_install_rclone": "sources",
     "mounts_mount": "sources",
     "mounts_unmount": "sources",
+    "mounts_remove": "sources",
     "mounts_bind": "sources",
     "drive_form": "sources",
     "drive_scan": "sources",
@@ -956,6 +964,17 @@ def _split_lines(raw):
     if not raw:
         return []
     return [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def _remote_summaries():
+    """
+    [{"name", "status"}, ...] for every configured rclone remote -- status
+    via remote_status()'s fast, local, per-remote check. list_remotes()
+    itself stays a bare name list (used as-is for the mount-point <select>
+    and the already-exists check) -- status is layered on only where a
+    template actually displays it.
+    """
+    return [{"name": name, "status": remote_status(name)} for name in list_remotes()]
 
 
 def _known_bitcoin_addresses():

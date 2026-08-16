@@ -62,11 +62,33 @@ drive. Mounts are always read-only.</p>
 <div class="card">
   <h3 style="margin-top:0">Configured remotes</h3>
   {% if remotes %}
+  <table>
+    <thead><tr><th>Remote</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for r in remotes %}
+      <tr>
+        <td>{{ r.name }}</td>
+        <td>{{ m.status_pill("done" if r.status == "connected" else "error") }} {{ r.status }}</td>
+        <td>
+          <form method="post" action="{{ url_for('mounts_remove') }}" style="display:inline" onsubmit="return confirm('Remove this connection? This deletes it from rclone entirely -- you\'ll need to reconnect from the wizard to use it again.');">
+            <input type="hidden" name="remote_name" value="{{ r.name }}">
+            <button type="submit" class="btn-secondary">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if remotes | selectattr("status", "equalto", "incomplete") | list %}
+  <p class="subtle">"incomplete" means sign-in never actually finished -- remove it and reconnect from the
+  <a href="{{ url_for('wizard_cloud') }}">wizard</a> rather than trying to mount it.</p>
+  {% endif %}
+
   <form class="inline-form" method="post" action="{{ url_for('mounts_mount') }}">
     <label>Remote</label>
     <select name="remote_name">
       {% for r in remotes %}
-      <option value="{{ r }}">{{ r }}</option>
+      <option value="{{ r.name }}">{{ r.name }}</option>
       {% endfor %}
     </select>
     <label>Mount point (a local directory, created if it doesn't exist)</label>

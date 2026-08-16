@@ -32,7 +32,27 @@ contents only when something actually needs to read it.</p>
 <div class="card">
   <h3 style="margin-top:0">Step 2 -- Connect your account</h3>
   {% if remotes %}
-  <p>&#x2713; You have {{ remotes | length }} connection(s) already set up: {{ remotes | join(", ") }}.</p>
+  <table>
+    <thead><tr><th>Connection</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for r in remotes %}
+      <tr>
+        <td>{{ r.name }}</td>
+        <td>{{ m.status_pill("done" if r.status == "connected" else "error") }} {{ r.status }}</td>
+        <td>
+          <form method="post" action="{{ url_for('mounts_remove') }}" style="display:inline" onsubmit="return confirm('Remove this connection?');">
+            <input type="hidden" name="remote_name" value="{{ r.name }}">
+            <button type="submit" class="btn-secondary">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if remotes | selectattr("status", "equalto", "incomplete") | list %}
+  <p class="subtle">A connection marked "incomplete" never actually finished signing in -- remove it
+  and try again below rather than expecting it to work.</p>
+  {% endif %}
   <p class="subtle">Want another account or bucket? Fill out the form below with a new name.</p>
   {% endif %}
 
@@ -52,26 +72,30 @@ contents only when something actually needs to read it.</p>
     {% endfor %}
     {% endif %}
 
-    <details>
-      <summary>Advanced: use your own Google API credentials (optional)</summary>
-      <p class="subtle">Leave both blank to use rclone's own shared credentials --
-      simplest, and fine for occasional use. If Google throttles it (rare,
-      but happens with heavy scanning), create your own free client id/secret
-      following <a href="https://rclone.org/drive/#making-your-own-client-id">rclone's
-      guide</a> and paste them here. Your client secret is stored in the
-      vault (Portunus), never in this app's own plaintext state.</p>
-      <label>Client ID</label>
-      <input type="text" name="client_id" autocomplete="off">
-      <label>Client Secret</label>
-      <input type="password" name="client_secret" autocomplete="off">
-    </details>
-
     <p class="subtle" style="margin-top:1rem">Clicking Connect opens your
     browser to sign in to Google and approve access -- the same "Allow"
     screen you'd see for any app asking to use your account. It opens in
     your regular browser, not inside this window. rclone only ever reads
     your files (this project mounts everything read-only), never writes or
-    deletes anything.</p>
+    deletes anything. <strong>This is all most people need</strong> -- the
+    fields below are for a specific, rare situation, not a required step.</p>
+
+    <details>
+      <summary>Advanced: use your own Google API credentials (optional, most people should skip this)</summary>
+      <p class="subtle">Leave both blank -- the button above already uses rclone's own shared
+      credentials and works without anything here. Only fill this in if Google has specifically
+      throttled the shared credentials for you (rare, only happens with very heavy scanning), and
+      only with a REAL client ID/secret from
+      <a href="https://rclone.org/drive/#making-your-own-client-id">Google Cloud Console via rclone's
+      guide</a> -- a real client ID always ends in ".apps.googleusercontent.com". Typing anything
+      else here (a password, a made-up name) will fail with a confusing Google error page instead of
+      working -- if in doubt, leave this blank. Your client secret is stored in the vault (Portunus),
+      never in this app's own plaintext state.</p>
+      <label>Client ID</label>
+      <input type="text" name="client_id" autocomplete="off" placeholder="123...-abc...apps.googleusercontent.com">
+      <label>Client Secret</label>
+      <input type="password" name="client_secret" autocomplete="off">
+    </details>
 
     <button type="submit">Connect</button>
   </form>
