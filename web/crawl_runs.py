@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS run_addresses (
     last_activity_timestamp REAL,
     dormant_years REAL
 );
+CREATE TABLE IF NOT EXISTS run_edges (
+    run_id INTEGER NOT NULL,
+    from_address TEXT NOT NULL,
+    to_address TEXT NOT NULL,
+    edge_type TEXT NOT NULL,
+    txid TEXT NOT NULL
+);
 """
 
 # Same migration discipline as web/findings.py: a table that doesn't exist
@@ -50,12 +57,15 @@ def _connect(db_path):
     return conn
 
 
-def record_crawl_run(seed_addresses, results, db_path=DEFAULT_DB_PATH):
+def record_crawl_run(seed_addresses, results, edges=None, db_path=DEFAULT_DB_PATH):
     """
     Persists one crawl_wallet_cluster() run in full: one row in `runs`
-    (the seed addresses that triggered it) and one row per discovered
+    (the seed addresses that triggered it), one row per discovered
     address in `run_addresses` (confidence/generation/balance/dormancy,
-    exactly as crawl_wallet_cluster() returned them -- nothing recomputed).
+    exactly as crawl_wallet_cluster() returned them -- nothing recomputed),
+    and, when given, one row per edges_out entry in `run_edges` -- the
+    "numerous transactions and interactions" evidence confidence scoring
+    (compute_confidence_scores) aggregates across every saved run.
 
     Called from web/app.py's _run_crawl_job() alongside (not instead of)
     its existing record_finding() loop -- this captures the *run* (which
@@ -64,6 +74,9 @@ def record_crawl_run(seed_addresses, results, db_path=DEFAULT_DB_PATH):
 
     :param seed_addresses: the addresses the crawl was started from.
     :param results: crawl_wallet_cluster()'s return value.
+    :param edges: crawl_wallet_cluster()'s edges_out list, or None (the
+        default) -- writes nothing to run_edges, exactly matching every
+        call site that predates edge tracking.
     """
     conn = _connect(db_path)
     try:
@@ -91,6 +104,11 @@ def record_crawl_run(seed_addresses, results, db_path=DEFAULT_DB_PATH):
                 for address, info in results.items()
             ],
         )
+        if edges:
+            conn.executemany(
+                "INSERT INTO run_edges (run_id, from_address, to_address, edge_type, txid) VALUES (?, ?, ?, ?, ?)",
+                [(run_id, edge["from"], edge["to"], edge["type"], edge["txid"]) for edge in edges],
+            )
         conn.commit()
     finally:
         conn.close()
@@ -118,6 +136,16 @@ def list_crawl_runs(db_path=DEFAULT_DB_PATH):
             }
             for row in rows
         ]
+    finally:
+        conn.close()
+
+
+def list_run_edges(db_path=DEFAULT_DB_PATH):
+    """:return: [{"run_id", "from_address", "to_address", "edge_type", "txid"}, ...], every edge ever saved."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute("SELECT run_id, from_address, to_address, edge_type, txid FROM run_edges").fetchall()
+        return [dict(row) for row in rows]
     finally:
         conn.close()
 
@@ -175,6 +203,7 @@ def clear_all_crawl_runs(db_path=DEFAULT_DB_PATH):
     """Hard-deletes every saved crawl run -- mirrors web.findings.clear_all_findings()."""
     conn = _connect(db_path)
     try:
+        conn.execute("DELETE FROM run_edges")
         conn.execute("DELETE FROM run_addresses")
         conn.execute("DELETE FROM runs")
         conn.commit()

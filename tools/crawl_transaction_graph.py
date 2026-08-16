@@ -103,7 +103,7 @@ def dormancy_years(last_activity_timestamp, now=None):
     return (now - last_activity_timestamp) / SECONDS_PER_YEAR
 
 
-def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, balance_threshold=1.0, now=None):
+def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, balance_threshold=1.0, now=None, edges_out=None):
     """
     BFS outward from seed_addresses using co-spend clustering (always followed)
     and bounded output-following (capped, lower confidence). Stops admitting
@@ -111,6 +111,18 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
     generation still finishes). Checks balance and last-activity/dormancy for
     every discovered address via the existing BitcoinService.
 
+    :param edges_out: optional list -- when given, every distinct
+        relationship observed (not just the first one that discovers a
+        new address) is appended as {"from", "to", "type": "co-spend"|
+        "output", "txid"}. None (the default) is a complete no-op --
+        every existing caller is unaffected. Co-spend is symmetric
+        evidence (same-tx common-input ownership), so from/to are
+        sorted before appending -- otherwise the SAME real transaction,
+        observed once from each side's own transaction fetch, would
+        record as two directionally-swapped duplicates. Output keeps
+        sender->receiver direction as-is (a real transfer has real
+        directionality). Deduplicated by (from, to, type, txid) within
+        this call.
     :return: {address: {"confidence": "seed"|"co-spend"|"output",
                          "generation": int, "discovered_via": str | None,
                          "balance": float | None,
@@ -124,6 +136,10 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
     frontier = set(seed_addresses)
     tx_cache = {}
 
+    def record_edge(edge):
+        if edges_out is not None and edge not in edges_out:
+            edges_out.append(edge)
+
     for generation in range(1, max_generations + 1):
         if not frontier:
             break
@@ -134,6 +150,7 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
             tx_cache[address] = txs
             for tx in txs:
                 for co_spend in find_co_spend_addresses(tx, address):
+                    record_edge({"from": min(address, co_spend), "to": max(address, co_spend), "type": "co-spend", "txid": tx["txid"]})
                     if co_spend not in discovered and len(discovered) >= max_addresses:
                         continue
                     if co_spend not in discovered:
@@ -141,6 +158,7 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
                         next_frontier.add(co_spend)
 
                 for output_addr in find_output_addresses(tx, address):
+                    record_edge({"from": address, "to": output_addr, "type": "output", "txid": tx["txid"]})
                     if output_addr not in discovered and len(discovered) >= max_addresses:
                         continue
                     if output_addr not in discovered:

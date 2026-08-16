@@ -1006,15 +1006,16 @@ def _run_crawl_job(addresses, max_generations=DEFAULT_CRAWL_GENERATIONS):
         f.write("\n".join(addresses))
         temp_path = f.name
 
+    edges = []
     try:
         seeds = load_seed_addresses(temp_path)
-        results = crawl_wallet_cluster(seeds, max_generations=max_generations)
+        results = crawl_wallet_cluster(seeds, max_generations=max_generations, edges_out=edges)
     finally:
         Path(temp_path).unlink(missing_ok=True)
 
     for address, info in results.items():
         record_finding("Bitcoin", address, info.get("balance"), source_label="crawl_transaction_graph")
-    record_crawl_run(seeds, results)
+    record_crawl_run(seeds, results, edges=edges)
 
     return {"report": render_cluster_report(results), "results": results}
 

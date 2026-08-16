@@ -5,6 +5,7 @@ from web.crawl_runs import (
     clear_all_crawl_runs,
     find_overlap_addresses,
     list_crawl_runs,
+    list_run_edges,
     record_crawl_run,
 )
 
@@ -84,12 +85,13 @@ def test_find_overlap_addresses_ignores_addresses_seen_in_only_one_run(tmp_path)
 
 def test_clear_all_crawl_runs_deletes_everything(tmp_path):
     db_path = tmp_path / "crawl_runs.db"
-    record_crawl_run(["1seed"], SAMPLE_RESULTS, db_path=db_path)
+    record_crawl_run(["1seed"], SAMPLE_RESULTS, edges=[{"from": "1cospend", "to": "1seed", "type": "co-spend", "txid": "tx1"}], db_path=db_path)
 
     clear_all_crawl_runs(db_path=db_path)
 
     assert list_crawl_runs(db_path=db_path) == []
     assert find_overlap_addresses(db_path=db_path) == {}
+    assert list_run_edges(db_path=db_path) == []
 
 
 def test_connect_creates_parent_directory(tmp_path):
@@ -111,3 +113,32 @@ def test_migration_does_not_crash_on_pre_existing_schema_less_db(tmp_path):
     # Should not raise even though run_addresses doesn't exist yet.
     record_crawl_run(["1seed"], SAMPLE_RESULTS, db_path=db_path)
     assert list_crawl_runs(db_path=db_path)[0]["address_count"] == 2
+
+
+SAMPLE_EDGES = [
+    {"from": "1cospend", "to": "1seed", "type": "co-spend", "txid": "tx1"},
+    {"from": "1seed", "to": "1output", "type": "output", "txid": "tx2"},
+]
+
+
+def test_record_crawl_run_with_edges_none_writes_nothing_new(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1seed"], SAMPLE_RESULTS, db_path=db_path)
+    assert list_run_edges(db_path=db_path) == []
+
+
+def test_record_crawl_run_persists_edges(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1seed"], SAMPLE_RESULTS, edges=SAMPLE_EDGES, db_path=db_path)
+
+    edges = list_run_edges(db_path=db_path)
+    assert len(edges) == 2
+    assert {"from_address": "1cospend", "to_address": "1seed", "edge_type": "co-spend", "txid": "tx1"} in [
+        {k: e[k] for k in ("from_address", "to_address", "edge_type", "txid")} for e in edges
+    ]
+
+
+def test_record_crawl_run_with_empty_edges_list_writes_nothing(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1seed"], SAMPLE_RESULTS, edges=[], db_path=db_path)
+    assert list_run_edges(db_path=db_path) == []

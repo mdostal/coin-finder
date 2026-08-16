@@ -149,7 +149,7 @@ def test_crawl_action_persists_the_full_run(mock_crawl, mock_record_run, client)
     job = _wait_for_job(client, _job_id_from_redirect(resp))
 
     assert job["status"] == "done"
-    mock_record_run.assert_called_once_with(["1abc"], results)
+    mock_record_run.assert_called_once_with(["1abc"], results, edges=[])
 
 
 @patch("web.app.record_finding")

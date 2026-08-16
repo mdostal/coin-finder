@@ -273,6 +273,76 @@ def test_cli_writes_json_and_markdown_report(mock_fetch, mock_service_cls, tmp_p
     assert json.loads(output_file.read_text())[SEED]["confidence"] == "seed"
 
 
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_edges_out_none_is_a_complete_no_op(mock_fetch, mock_service_cls):
+    mock_fetch.side_effect = lambda addr: {SEED: [make_tx([SEED, COSPEND], [])]}.get(addr, [])
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    result = crawl_wallet_cluster([SEED], max_generations=1, edges_out=None)
+
+    assert result[COSPEND]["confidence"] == "co-spend"
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_edges_out_records_co_spend_edge(mock_fetch, mock_service_cls):
+    tx = make_tx([SEED, COSPEND], [])
+    tx["txid"] = "tx1"
+    mock_fetch.side_effect = lambda addr: {SEED: [tx]}.get(addr, [])
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    edges = []
+    crawl_wallet_cluster([SEED], max_generations=1, edges_out=edges)
+
+    assert {"from": min(SEED, COSPEND), "to": max(SEED, COSPEND), "type": "co-spend", "txid": "tx1"} in edges
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_edges_out_records_output_edge_with_direction_preserved(mock_fetch, mock_service_cls):
+    tx = make_tx([SEED], [THIRD_PARTY])
+    tx["txid"] = "tx1"
+    mock_fetch.side_effect = lambda addr: {SEED: [tx]}.get(addr, [])
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    edges = []
+    crawl_wallet_cluster([SEED], max_generations=1, edges_out=edges)
+
+    assert {"from": SEED, "to": THIRD_PARTY, "type": "output", "txid": "tx1"} in edges
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_edges_out_normalizes_co_spend_regardless_of_discovery_order(mock_fetch, mock_service_cls):
+    """
+    The double-counting risk called out in the design discussion: SEED's
+    own scan finds a co-spend with COSPEND on tx1; COSPEND's own later
+    scan (once it enters the frontier in generation 2) ALSO sees tx1 and
+    would independently find the same co-spend relationship from the
+    other side. Both must normalize to the SAME edge dict, not two
+    directionally-swapped duplicates.
+    """
+    tx1 = make_tx([SEED, COSPEND], [])
+    tx1["txid"] = "tx1"
+
+    def fetch(addr):
+        if addr == SEED:
+            return [tx1]
+        if addr == COSPEND:
+            return [tx1]
+        return []
+
+    mock_fetch.side_effect = fetch
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    edges = []
+    crawl_wallet_cluster([SEED], max_generations=2, edges_out=edges)
+
+    cospend_edges = [e for e in edges if e["type"] == "co-spend"]
+    assert cospend_edges == [{"from": min(SEED, COSPEND), "to": max(SEED, COSPEND), "type": "co-spend", "txid": "tx1"}]
+
+
 def test_load_seed_addresses_returns_single_literal_address_unchanged():
     assert load_seed_addresses(SEED) == [SEED]
 
