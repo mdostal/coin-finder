@@ -51,6 +51,11 @@ drive. Mounts are always read-only.</p>
           </form>
         </td>
       </tr>
+      {% if mnt.log_tail %}
+      <tr>
+        <td colspan="4"><pre style="margin:0;font-size:0.85rem;color:var(--text-dim)">{{ mnt.log_tail }}</pre></td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
@@ -91,8 +96,7 @@ drive. Mounts are always read-only.</p>
       <option value="{{ r.name }}">{{ r.name }}</option>
       {% endfor %}
     </select>
-    <label>Mount point (a local directory, created if it doesn't exist)</label>
-    <input type="text" name="mount_point" placeholder="/Users/you/gdrive-mount" required>
+    {{ m.path_input("Mount point (a local directory, created if it doesn't exist)", "mount_point", mode="directory", value=default_mount_point, required=True) }}
     <button type="submit">Mount</button>
   </form>
   {% else %}

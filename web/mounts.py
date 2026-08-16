@@ -143,22 +143,35 @@ def remove_remote(remote_name, state_path=DEFAULT_STATE_PATH):
     subprocess.run(["rclone", "config", "delete", remote_name], capture_output=True, text=True)
 
 
-def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH):
+def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None):
     """
-    Starts `rclone mount <remote>: <mount_point>` as a background process.
-    Always --read-only -- this app only ever scans, never writes to
-    Drive/GCS; a read-only mount makes "accidentally modify the user's real
-    cloud storage" structurally impossible, not just a convention.
+    Starts `rclone nfsmount <remote>: <mount_point>` as a background
+    process. NOT `rclone mount` -- confirmed live (direct reproduction,
+    plus rclone's own Homebrew caveat) that Homebrew's macOS rclone build
+    does not support the `mount` subcommand at all (no FUSE support
+    included); `nfsmount` is the documented, working alternative and
+    needs no macFUSE/system-extension approval. Always --read-only --
+    this app only ever scans, never writes to Drive/GCS; a read-only
+    mount makes "accidentally modify the user's real cloud storage"
+    structurally impossible, not just a convention.
+
+    stderr is captured to a real log file (not discarded) -- confirmed
+    live this was the difference between a bare, undiagnosable "ERROR"
+    pill and an actionable error message.
     """
     os.makedirs(mount_point, exist_ok=True)
+    log_dir = Path(log_dir) if log_dir is not None else app_data_dir() / "mount-logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{remote_name}.log"
+    log_file = open(log_path, "w")
     process = subprocess.Popen(
-        ["rclone", "mount", f"{remote_name}:", str(mount_point), "--read-only", "--vfs-cache-mode", "minimal"],
+        ["rclone", "nfsmount", f"{remote_name}:", str(mount_point), "--read-only", "--vfs-cache-mode", "minimal"],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=log_file,
     )
 
     state = _load_state(state_path)
-    state[remote_name] = {"pid": process.pid, "mount_point": str(mount_point), "started_at": time.time()}
+    state[remote_name] = {"pid": process.pid, "mount_point": str(mount_point), "started_at": time.time(), "log_path": str(log_path)}
     _save_state(state_path, state)
 
 
@@ -202,7 +215,7 @@ def is_mounted(remote_name, state_path=DEFAULT_STATE_PATH):
 
 
 def list_mounts(state_path=DEFAULT_STATE_PATH):
-    """:return: [{"remote_name", "mount_point", "started_at", "is_mounted"}, ...]"""
+    """:return: [{"remote_name", "mount_point", "started_at", "is_mounted", "log_path"}, ...]"""
     state = _load_state(state_path)
     return [
         {
@@ -210,6 +223,9 @@ def list_mounts(state_path=DEFAULT_STATE_PATH):
             "mount_point": entry["mount_point"],
             "started_at": entry["started_at"],
             "is_mounted": is_mounted(name, state_path=state_path),
+            # .get(), not [] -- a mount started before this field existed
+            # (mounts_state.json predates this fix) must not crash here.
+            "log_path": entry.get("log_path"),
         }
         for name, entry in state.items()
     ]

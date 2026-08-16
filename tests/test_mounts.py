@@ -1,3 +1,6 @@
+import json
+import subprocess as subprocess_module
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, unmount
@@ -19,18 +22,42 @@ def test_list_remotes_returns_empty_on_failure(mock_run):
 
 
 @patch("web.mounts.subprocess.Popen")
-def test_mount_starts_rclone_read_only(mock_popen, tmp_path):
+def test_mount_starts_rclone_nfsmount_read_only(mock_popen, tmp_path):
+    """
+    Regression test for a real bug hit live: `rclone mount` fails
+    immediately on macOS via Homebrew ("rclone mount is not supported on
+    MacOS when rclone is installed via Homebrew") -- confirmed via direct
+    reproduction. `rclone nfsmount` (same binary, no macFUSE needed)
+    works, verified live against a real Google Drive remote.
+    """
     mock_popen.return_value = MagicMock(pid=12345)
     state_path = tmp_path / "mounts_state.json"
     mount_point = tmp_path / "mnt"
 
-    mount("gdrive", str(mount_point), state_path=state_path)
+    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path)
 
     args = mock_popen.call_args[0][0]
     assert "rclone" in args
-    assert "mount" in args
+    assert "nfsmount" in args
+    assert "mount" not in args  # the broken subcommand must never be used
     assert "--read-only" in args
     assert mount_point.exists()
+
+
+@patch("web.mounts.subprocess.Popen")
+def test_mount_captures_stderr_to_a_log_file_not_devnull(mock_popen, tmp_path):
+    mock_popen.return_value = MagicMock(pid=12345)
+    state_path = tmp_path / "mounts_state.json"
+    mount_point = tmp_path / "mnt"
+
+    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path)
+
+    kwargs = mock_popen.call_args[1]
+    assert kwargs["stderr"] != subprocess_module.DEVNULL
+
+    state = json.loads(state_path.read_text())
+    assert "log_path" in state["gdrive"]
+    assert Path(state["gdrive"]["log_path"]).parent == tmp_path
 
 
 @patch("web.mounts.os.listdir")
@@ -41,7 +68,7 @@ def test_is_mounted_true_when_process_alive_and_mount_point_readable(mock_popen,
     mock_listdir.return_value = ["some_file.txt"]
     state_path = tmp_path / "mounts_state.json"
 
-    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path)
+    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path)
 
     assert is_mounted("gdrive", state_path=state_path) is True
 
@@ -53,7 +80,7 @@ def test_is_mounted_false_when_process_is_dead(mock_popen, mock_kill, tmp_path):
     mock_kill.side_effect = OSError("no such process")
     state_path = tmp_path / "mounts_state.json"
 
-    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path)
+    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path)
 
     assert is_mounted("gdrive", state_path=state_path) is False
 
@@ -68,7 +95,7 @@ def test_is_mounted_false_for_unknown_remote(tmp_path):
 def test_unmount_removes_state_entry(mock_popen, mock_kill, mock_run, tmp_path):
     mock_popen.return_value = MagicMock(pid=12345)
     state_path = tmp_path / "mounts_state.json"
-    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path)
+    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path)
 
     unmount("gdrive", state_path=state_path)
 
@@ -84,7 +111,7 @@ def test_list_mounts_reflects_is_mounted_health(mock_popen, mock_kill, mock_list
     state_path = tmp_path / "mounts_state.json"
     mount_point = tmp_path / "mnt"
 
-    mount("gdrive", str(mount_point), state_path=state_path)
+    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path)
 
     mounts = list_mounts(state_path=state_path)
     assert len(mounts) == 1

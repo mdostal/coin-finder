@@ -135,3 +135,40 @@ def test_mounts_page_links_to_wizard_when_no_remotes_configured(mock_installed, 
     assert resp.status_code == 200
     assert b"No rclone remotes configured yet" in resp.data
     assert b"/wizard/cloud" in resp.data
+
+
+@patch("web.app.remote_status", return_value="connected")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_page_shows_log_tail_for_a_failed_mount(mock_remotes, mock_mounts, mock_status, client, tmp_path):
+    """
+    Regression test for a real bug hit live: a failed mount showed a bare
+    "ERROR" pill with zero diagnostic information -- rclone's own real
+    error message (e.g. "rclone mount is not supported on MacOS...") was
+    being discarded (stderr=DEVNULL). Now captured to a log file and
+    surfaced here.
+    """
+    log_path = tmp_path / "gdrive.log"
+    log_path.write_text("CRITICAL: Fatal error: failed to mount FUSE fs: some real reason\n")
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = [{"remote_name": "gdrive", "mount_point": "/mnt", "started_at": 0, "is_mounted": False, "log_path": str(log_path)}]
+
+    resp = client.get("/mounts")
+
+    assert resp.status_code == 200
+    assert b"failed to mount FUSE fs" in resp.data
+
+
+@patch("web.app.remote_status", return_value="connected")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_page_no_log_tail_for_a_healthy_mount(mock_remotes, mock_mounts, mock_status, client, tmp_path):
+    log_path = tmp_path / "gdrive.log"
+    log_path.write_text("this is noise that should never be shown for a healthy mount\n")
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = [{"remote_name": "gdrive", "mount_point": "/mnt", "started_at": 0, "is_mounted": True, "log_path": str(log_path)}]
+
+    resp = client.get("/mounts")
+
+    assert resp.status_code == 200
+    assert b"this is noise" not in resp.data

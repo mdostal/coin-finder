@@ -665,7 +665,14 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/mounts")
     def mounts_page():
-        return render_template("mounts.html", remotes=_remote_summaries(), mounts=list_mounts(), rclone_installed=is_rclone_installed(), error=None)
+        return render_template(
+            "mounts.html",
+            remotes=_remote_summaries(),
+            mounts=_mounts_with_log_tail(),
+            rclone_installed=is_rclone_installed(),
+            default_mount_point=str(Path.home() / "gdrive-mount"),
+            error=None,
+        )
 
     @app.route("/mounts/install-rclone", methods=["POST"])
     def mounts_install_rclone():
@@ -678,7 +685,7 @@ def create_app(host="127.0.0.1"):
         remote_name = (request.form.get("remote_name") or "").strip()
         mount_point = (request.form.get("mount_point") or "").strip()
         if not remote_name or not mount_point:
-            return render_template("mounts.html", remotes=_remote_summaries(), mounts=list_mounts(), error="Enter both a remote and a mount point."), 400
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error="Enter both a remote and a mount point."), 400
 
         mount(remote_name, mount_point)
         return redirect(url_for("mounts_page"))
@@ -707,7 +714,7 @@ def create_app(host="127.0.0.1"):
                 render_template(
                     "mounts.html",
                     remotes=_remote_summaries(),
-                    mounts=list_mounts(),
+                    mounts=_mounts_with_log_tail(),
                     error=f"{remote_name} is not actually mounted right now -- refusing to bind it as a scan target. Mount it first.",
                 ),
                 409,
@@ -975,6 +982,27 @@ def _remote_summaries():
     template actually displays it.
     """
     return [{"name": name, "status": remote_status(name)} for name in list_remotes()]
+
+
+def _mounts_with_log_tail(lines=15):
+    """
+    list_mounts(), with a log_tail added for any entry that isn't
+    currently healthy -- surfaces the real rclone error (e.g. the
+    Homebrew/FUSE incompatibility confirmed live this session) instead
+    of a bare "ERROR" pill with no information. Skipped for healthy
+    mounts -- no reason to read a log file nobody needs to see.
+    """
+    mounts = list_mounts()
+    for mnt in mounts:
+        mnt["log_tail"] = None
+        if mnt["is_mounted"] or not mnt.get("log_path"):
+            continue
+        try:
+            with open(mnt["log_path"]) as f:
+                mnt["log_tail"] = "".join(f.readlines()[-lines:])
+        except OSError:
+            pass
+    return mounts
 
 
 def _known_bitcoin_addresses():
