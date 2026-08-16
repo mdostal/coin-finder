@@ -1,0 +1,89 @@
+id: au-01-auto-unlock
+epic: auto-unlock
+title: Batch unlock across known wallets + Vault entries
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  New GET/POST /auto-unlock: tries every enabled Vault password against
+  every known wallet file (distinct, still-existing source_path values
+  from Findings), producing a wallet -> matched-password-label map.
+  Reuses run_unlock/run_exodus_unlock/_match_vault_label unchanged; same
+  offline gate and once-only-result discipline as /item/unlock.
+
+acceptance_criteria:
+  - "Given GET /auto-unlock, then it shows the exact same offline-gate banner/logic as unlock.html, plus the list of known wallet files (distinct existing source_paths from findings) and the count of enabled vault entries it would try"
+  - "Given POST /auto-unlock while ONLINE without allow_online=1, then it refuses with the same 409 + explanation as item_unlock(), and starts no job"
+  - "Given POST /auto-unlock with allow_online=1 or while OFFLINE, then it starts a secret=True job that tries every enabled vault entry against every known wallet file"
+  - "Given the job runs, then it calls run_unlock() for a non-.seco wallet path and run_exodus_unlock() for a .seco path, matching each result via the existing _match_vault_label()"
+  - "Given the job completes, then its result is a {wallet_path: matched_label_or_None} map, readable exactly once via the existing consume_job_result() once-only mechanism"
+  - "Given zero enabled vault entries, then POST /auto-unlock refuses with an error and starts no job"
+
+steps:
+  - id: research
+    description: Re-confirm item_unlock()'s exact offline-gate check/wording and _run_btcrecover_unlock_job/_run_exodus_unlock_job's candidates-file cleanup timing before writing the batch loop.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests for the offline-gate refusal, the happy path
+      (mocking run_unlock/run_exodus_unlock), the zero-vault-entries
+      refusal, and the .seco routing -- modeled on the existing
+      item_unlock test coverage.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Add GET/POST /auto-unlock routes + _run_auto_unlock_job to web/app.py; new templates auto_unlock.html (form) and auto_unlock_result.html (once-only map view).
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: |
+      Line-by-line check against design-discussion.md §4 ("What This
+      Does NOT Change") -- confirm the single-wallet flow, the offline
+      gate wording, and _match_vault_label's non-persistence are all
+      byte-identical to before this story.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: |
+      Commit on feat/auto-unlock, bump version_bump: minor across all
+      four version sources, CHANGELOG entry, rebuild sidecar + tauri
+      build, gh release, install after confirming 0 jobs running.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/app.py
+      purpose: "item_unlock() (~line 281) is the reference for every invariant (offline gate, file-only secrets, once-only result) this story must preserve exactly."
+    - path: tools/unlock_wallet.py
+      purpose: "run_unlock(wallet_path, candidates_file, allow_online=False) -- reused directly, unmodified."
+    - path: tools/unlock_exodus_wallet.py
+      purpose: "run_exodus_unlock(...) -- reused directly, unmodified, for .seco paths."
+    - path: web/findings.py
+      purpose: "list_findings(include_archived=True)'s source_path field -- the known-wallet-files set for a batch run."
+
+files_to_modify:
+  - file: web/app.py
+    change: "Add GET/POST /auto-unlock routes + _run_auto_unlock_job."
+  - file: web/templates/auto_unlock.html
+    change: "New file -- offline-gate banner (reused wording), known-wallets preview, submit."
+  - file: web/templates/auto_unlock_result.html
+    change: "New file -- once-only wallet->matched-label map."
+  - file: tests/test_web_app_auto_unlock.py
+    change: "New file -- route tests covering every acceptance criterion above."
+
+design_decisions:
+  - decision: "New job loop calls run_unlock/run_exodus_unlock directly, not the existing _run_*_unlock_job wrappers."
+    rationale: "Those wrappers each delete their own candidates file after one use -- correct for a single-wallet job, but auto-unlock needs one shared candidates file reused across every wallet in the batch. Rather than modify the existing wrappers (touching the single-wallet flow is explicitly out of scope), the batch job owns its own single cleanup after the whole loop."
+  - decision: "No free-text candidates for a batch run -- Vault entries only."
+    rationale: "The whole point is trying already-saved passwords across many wallets at once; typing the same candidates in again for a batch run duplicates the vault's own purpose."
+  - decision: ".seco extension routes to run_exodus_unlock, everything else to run_unlock."
+    rationale: "A batch run has no per-wallet form field to ask kind -- extension is the same signal Exodus wallets are already distinguished by elsewhere in this project."
+
+risks:
+  - severity: medium
+    description: "This is the most security-sensitive epic this session -- touches the offline-gate-protected unlock flow."
+    mitigation: "Every invariant (offline gate, file-only secrets, once-only result) is reused unchanged from item_unlock(), not reimplemented. design-discussion.md §4 explicitly enumerates what must NOT change; the review step checks against it line-by-line before integrate."
