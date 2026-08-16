@@ -1,0 +1,36 @@
+name: cloud-connection-reliability
+title: Cloud connections that actually verify, and can be fixed
+description: >
+  create_remote() writes a Google Drive remote's config to disk before
+  OAuth actually completes -- a failed/abandoned sign-in leaves a
+  permanent, tokenless, phantom "connected" entry indistinguishable from
+  a real one anywhere in the UI, with zero way to remove or retry it.
+  Confirmed live: two real broken connections, one caused by a
+  fabricated client_id typed into the optional Advanced credentials
+  field. Fix: verify a connection actually works before declaring
+  success, clean up on failure, validate custom credentials before even
+  attempting OAuth, and add a real remove/retry action.
+target_codebase: .
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session. Urgent: directly blocks the user's ability to mount and
+      scan their large drives, reported live with real evidence
+      (screenshots + direct rclone.conf/process inspection).
+stories:
+  - id: ccr-01
+    title: Verify OAuth actually completed; clean up on failure; validate custom credentials upfront
+    complexity: medium
+    depends_on: []
+  - id: ccr-02
+    title: Real connection status + remove/retry action in the UI
+    complexity: medium
+    depends_on: [ccr-01]

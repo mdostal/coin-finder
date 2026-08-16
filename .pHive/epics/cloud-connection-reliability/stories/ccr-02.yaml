@@ -1,0 +1,103 @@
+id: ccr-02
+epic: cloud-connection-reliability
+title: Real connection status + remove/retry action in the UI
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [ccr-01]
+description: >
+  With ccr-01 preventing NEW broken entries (verify-then-delete-on-
+  failure at creation time), this story handles the two remaining gaps:
+  a way to remove/retry a connection from the UI at all (no way exists
+  today -- confirmed, the only way to recover from a broken entry was
+  direct rclone.conf/CLI intervention), and a real status signal for
+  every listed remote instead of a flat name-only list that implies
+  every entry is equally "set up." Also makes the default, no-custom-
+  credentials sign-in flow clearly the primary, recommended path -- the
+  "Advanced" custom-credentials field is what produced the fabricated-
+  client-id failure, and most users should never need to open it.
+acceptance_criteria:
+  - New remove_remote(remote_name) in web/mounts.py -- unmounts first if
+    currently mounted (never orphans a live FUSE mount), then `rclone
+    config delete <name>`.
+  - New POST /mounts/remove route wired to remove_remote(), redirecting
+    back to the mounts page.
+  - A "Remove" action is available for every remote on both
+    wizard_cloud.html and mounts.html.
+  - remote_status(remote_name) in web/mounts.py -- a FAST, LOCAL check
+    (parses `rclone config show <name>`'s output for a `token` field,
+    no network call) returning "connected" or "incomplete". This is a
+    local config-file signal, not live proof the token still works
+    (that's what ccr-01's creation-time verification is for) -- labeled
+    honestly, not oversold. Explicitly NOT a network call on every page
+    load -- this app already has one documented bug class (v0.32.2,
+    v0.38.1 this session) from exactly that mistake with a different
+    slow subprocess (Portunus); rclone config show is a local file
+    parse, confirmed fast, and stays that way.
+  - Both wizard_cloud.html and mounts.html show each remote's status as
+    a pill (m.status_pill()-style) next to its name instead of a bare
+    name in a flat list.
+  - wizard_cloud.html's "Advanced: use your own Google API credentials"
+    section is reframed as clearly optional/power-user-only -- explicit
+    copy that the plain "Connect" button above it is what most people
+    want and already works without filling anything in below.
+steps:
+  - phase: research
+    notes: >
+      web/templates/mounts.html/wizard_cloud.html -- confirmed both just
+      render list_remotes()'s flat name list today, zero status/removal
+      anywhere. web/mounts.py's existing mount()/unmount()/is_mounted()
+      pattern (subprocess + a simple return) is the template for
+      remove_remote()'s shape.
+  - phase: test-spec
+    notes: >
+      tests/test_mounts.py: remote_status() reads a real (or mocked)
+      `rclone config show` output correctly for both a token-bearing and
+      a tokenless stanza; remove_remote() calls unmount() first only
+      when is_mounted() is true, then always calls `rclone config
+      delete`. tests/test_web_app_mounts.py: POST /mounts/remove wired
+      correctly; mounts_page/wizard_cloud page context includes each
+      remote's status.
+  - phase: implement
+    notes: >
+      web/mounts.py: remote_status(remote_name) -- subprocess.run(["rclone",
+      "config", "show", remote_name], capture_output=True, text=True),
+      "token" in stdout -> "connected" else "incomplete" (nonzero exit,
+      e.g. unknown remote, also "incomplete"). remove_remote(remote_name)
+      per acceptance criteria. web/app.py: new mounts_remove route;
+      mounts_page/wizard_cloud pass remote statuses alongside the name
+      list (e.g. [{"name": ..., "status": ...}, ...] instead of a bare
+      list of strings -- templates updated accordingly).
+      web/templates/mounts.html, wizard_cloud.html: status pill + Remove
+      form per remote; wizard_cloud.html's Advanced section copy
+      reframed.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/mounts.py
+    - web/app.py
+    - web/templates/mounts.html
+    - web/templates/wizard_cloud.html
+    - tests/test_mounts.py
+    - tests/test_web_app_mounts.py
+design_decisions:
+  - remote_status() is a local config-file read, not a live network
+    call -- deliberately avoiding the exact "slow synchronous subprocess
+    on a GET route" mistake already caught and fixed twice this session
+    for a different tool (Portunus/list_vault_entries). ccr-01's
+    creation-time verification is where the real network proof belongs;
+    page-load status is a cheap, honest, local signal on top of that.
+  - remove_remote() unmounts first -- an rclone remote deleted out from
+    under a live FUSE mount would leave that mount silently broken
+    (reads would start failing) rather than cleanly gone.
+risks:
+  - remote_status()'s "token present" heuristic could theoretically
+    read as "connected" for a token that Google has since revoked --
+    acceptable, since this is explicitly a cheap local signal, not a
+    live-verified claim (labeled as such), and ccr-01 already ensures
+    nothing gets INTO this state as broken in the first place.
+references:
+  - web/mounts.py
+  - web/templates/mounts.html
+  - web/templates/wizard_cloud.html

@@ -251,6 +251,8 @@ cython_debug/
 !.pHive/epics/visual-transaction-graph/**
 !.pHive/epics/confidence-scored-related-accounts/
 !.pHive/epics/confidence-scored-related-accounts/**
+!.pHive/epics/cloud-connection-reliability/
+!.pHive/epics/cloud-connection-reliability/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
