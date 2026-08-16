@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-08-16
+
+### Fixed
+
+- **Mounting a cloud drive actually works now.** Homebrew's macOS build
+  of rclone does not support the `mount` subcommand at all -- every
+  mount attempt failed immediately with a bare "ERROR" pill and no
+  explanation. Switched to `nfsmount` (same rclone binary, no macFUSE
+  approval needed) -- verified against a real Google Drive connection.
+  Mount failures now show the real error inline instead of nothing.
+  Also added a Browse button and a sensible default to the mount-point
+  field.
+
 ## [0.45.0] - 2026-08-16
 
 ### Fixed
