@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-08-16
+
+### Changed
+
+- **Balance checks now run different coins concurrently.** Every one of
+  the ~21 configured coin services hits a distinct external API with no
+  shared rate limit, but balance checks used to run through them fully
+  serially -- one address at a time, for every coin, for every file. A
+  large wallet.dat with 1000+ addresses now checks all its coins in
+  parallel instead of one long single-file queue. Each coin's own
+  addresses still run in order with the existing retry/backoff, so no
+  single API gets hit any harder than before.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `parallel-balance-checks`, first of a 3-epic technical track).
+
 ## [0.40.0] - 2026-08-16
 
 ### Added
