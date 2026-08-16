@@ -1,0 +1,100 @@
+id: utp-01
+epic: unlock-tools-packaging-fix
+title: Bundle vendor tools + a frozen-safe script runner
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+description: >
+  vendor/btcrecover and vendor/hashcat-tools were never bundled into the
+  PyInstaller build; even bundled, run_unlock()/extract_exodus_hash()
+  invoke [sys.executable, script.py, ...], which crashes in a frozen
+  build (sys.executable is the app's own binary). Bundle the vendor
+  dirs, add a second sibling executable (coin-finder-script-runner) that
+  correctly runpy.run_path()s an arbitrary vendored script, and route
+  through it only when frozen.
+acceptance_criteria:
+  - coin_finder_ui.spec's datas includes vendor/btcrecover and
+    vendor/hashcat-tools -- confirmed present in a real build's output
+    directory.
+  - A second Analysis/EXE, MERGE()'d with the main app's Analysis,
+    produces coin-finder-script-runner as a sibling executable in the
+    same onedir output -- sharing the bundled runtime, not doubling
+    build size.
+  - The script-runner Analysis includes btcrecover.py/exodus2hashcat.py
+    in its own scripts list (for import tracing only, not as additional
+    entry points) so their real dependency trees (multiprocessing,
+    their own vendored libs) are actually bundled -- confirmed via a
+    real run, not just a clean build.
+  - script_runner.py: multiprocessing.freeze_support() called first
+    (before anything else), the target script's own directory prepended
+    to sys.path before runpy.run_path(), target script's own argv
+    reconstructed (script path as argv[0], remaining args after).
+  - tools/unlock_wallet.py's new script_runner_prefix(): [sys.executable]
+    when not frozen (byte-identical to today), [<sibling runner exe
+    path>] when frozen. Both run_unlock() and
+    extract_exodus_hash() (tools/unlock_exodus_wallet.py) use it instead
+    of a hardcoded sys.executable.
+  - Verified live end-to-end against the real frozen binary: a real
+    BTCRecover run against BTCRecover's own public test fixture
+    (bitcoincore-wallet.dat / btcr-test-password) finds the password,
+    exit code 0. exodus2hashcat.py's own imports confirmed resolving
+    (real argparse error on a bad path, not a Python traceback).
+steps:
+  - phase: research
+    notes: >
+      Confirmed via `find` on the real installed .app: zero btcrecover
+      files anywhere -- coin_finder_ui.spec's datas never referenced
+      vendor/. Confirmed via a real unlock attempt against the rebuilt
+      (vendor-bundled) app: sys.executable crash
+      ("ValueError: invalid literal for int() with base 10:
+      '.../btcrecover.py'" -- ended up inside entrypoint.py's own port-
+      parsing code). Each subsequent runpy.run_path() gap (sys.path,
+      hiddenimports, multiprocessing.freeze_support()) found and fixed
+      the same way -- live reproduction, not speculation.
+  - phase: test-spec
+    notes: >
+      tests/test_unlock_wallet.py: script_runner_prefix() returns
+      [sys.executable] when is_frozen() is mocked False;
+      returns a path ending in "coin-finder-script-runner" in the same
+      directory as sys.executable when is_frozen() is mocked True.
+      Real end-to-end verification (this story's actual proof) happens
+      via direct invocation of the built coin-finder-script-runner
+      binary against BTCRecover's public test fixture -- not
+      meaningfully expressible as a pytest unit test (it requires a
+      real PyInstaller build artifact), documented as a manual/live
+      verification step instead.
+  - phase: implement
+    notes: >
+      packaging/pyinstaller/script_runner.py (new). coin_finder_ui.spec:
+      vendor datas + a_runner Analysis + MERGE() + exe_runner + updated
+      COLLECT. tools/unlock_wallet.py: script_runner_prefix() helper +
+      import web.paths.is_frozen. tools/unlock_exodus_wallet.py: import
+      and use script_runner_prefix() from tools.unlock_wallet.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - packaging/pyinstaller/coin_finder_ui.spec
+    - packaging/pyinstaller/script_runner.py (new)
+    - tools/unlock_wallet.py
+    - tools/unlock_exodus_wallet.py
+    - tests/test_unlock_wallet.py
+design_decisions:
+  - MERGE(), not a fully independent second onedir build -- shares the
+    bundled Python runtime/stdlib between both executables instead of
+    doubling the already-large (~150MB, now +70MB for vendor/btcrecover)
+    build size.
+  - btcrecover.py/exodus2hashcat.py listed in the RUNNER's Analysis
+    scripts (for import-tracing only) rather than hand-maintaining a
+    hiddenimports list -- btcrecover's own dependency tree is large and
+    would be extremely fragile to hand-list; letting PyInstaller's real
+    static analyzer trace it is far more robust.
+risks:
+  - None beyond what the epic design discussion's Risks section already
+    covers.
+references:
+  - tools/unlock_wallet.py, tools/unlock_exodus_wallet.py
+  - packaging/pyinstaller/coin_finder_ui.spec
+  - Live reproduction (this session): real frozen-build unlock attempts,
+    iterated until a real password was found.

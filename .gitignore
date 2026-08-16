@@ -257,6 +257,8 @@ cython_debug/
 !.pHive/epics/cytoscape-graph-rebuild/**
 !.pHive/epics/nfsmount-fix/
 !.pHive/epics/nfsmount-fix/**
+!.pHive/epics/unlock-tools-packaging-fix/
+!.pHive/epics/unlock-tools-packaging-fix/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
