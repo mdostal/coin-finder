@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-08-16
+
+### Added
+
+- **The Find results page now shows the actual files matched**, not just
+  aggregate coin counts -- every file path with its per-coin address
+  counts, sorted most-address-dense-file-first.
+- **Selective actions on selected files.** Check checkboxes and either
+  check balances for just those files (new, isolated from the full
+  scan's own results -- never overwrites them), or graph/check-fork-coins
+  their Bitcoin addresses directly, instead of only the previous all-or-
+  nothing "check the whole scan" action.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `scan-file-list-and-selective-actions`).
+
+### Changed
+
+- Sources nav tabs reordered: Scan first (the default action), Manage
+  last.
+
 ## [0.38.1] - 2026-08-15
 
 ### Fixed

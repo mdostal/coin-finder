@@ -14,4 +14,4 @@ src-tauri/tauri.conf.json / CHANGELOG.md's new heading at every release --
 same manual version-bump routine, one more file.
 """
 
-VERSION = "0.38.1"
+VERSION = "0.39.0"
