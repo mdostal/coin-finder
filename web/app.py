@@ -1213,12 +1213,21 @@ def _run_auto_unlock_job(allow_online=False):
         f.write("\n".join(value for _, value in vault_pairs))
         candidates_path = f.name
 
+    # {label: value} for the O(1) lookup below -- the actual matched
+    # password is already resolved in vault_pairs at this point, it just
+    # never used to reach the result. Consistent with the single-wallet
+    # /item/unlock flow, which already shows a real matched value via its
+    # raw stdout -- this brings the batch flow in line with that existing
+    # precedent, not a new, less-conservative exposure.
+    value_by_label = dict(vault_pairs)
+
     results = {}
     try:
         for i, wallet_path in enumerate(wallet_paths, start=1):
             runner = run_exodus_unlock if wallet_path.endswith(".seco") else run_unlock
             result = runner(wallet_path, candidates_path, allow_online=allow_online)
-            results[wallet_path] = _match_vault_label(result.stdout, vault_pairs)
+            label = _match_vault_label(result.stdout, vault_pairs)
+            results[wallet_path] = {"vault_label": label, "value": value_by_label.get(label)}
     finally:
         Path(candidates_path).unlink(missing_ok=True)
 

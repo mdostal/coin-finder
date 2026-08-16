@@ -145,10 +145,31 @@ def test_auto_unlock_result_delivered_once_then_gone(mock_status, mock_findings,
 
     first_view = client.get(f"/auto-unlock/result/{job_id}")
     assert first_view.status_code == 200
-    assert b"password-1" in first_view.data  # matched label shown, not the raw value
+    assert b"password-1" in first_view.data  # matched label shown, for context
+    assert b"hunter2!!" in first_view.data  # AND the real matched value -- the actual ask
 
     second_view = client.get(f"/auto-unlock/result/{job_id}")
-    assert second_view.status_code == 404
+    assert second_view.status_code == 404  # once-only guarantee unchanged
+
+
+@patch("web.app.check_network_status", return_value="OFFLINE")
+@patch("web.app.list_findings")
+@patch("web.app.list_vault_entries", return_value=[{"name": "password-1", "description": "", "state": "enabled"}])
+@patch("web.app.resolve_vault_entries_with_values", return_value=[("password-1", "hunter2!!")])
+@patch("web.app.run_unlock")
+def test_auto_unlock_result_shows_no_match_not_a_blank_cell(mock_run_unlock, mock_resolve, mock_vault, mock_findings, mock_status, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_findings.return_value = [{"coin": "Bitcoin", "address": "1a", "source_path": str(wallet_file), "status": "new"}]
+    mock_run_unlock.return_value = SimpleNamespace(stdout="No password found.", stderr="", returncode=1)
+
+    resp = client.post("/auto-unlock", data={}, follow_redirects=False)
+    job_id = _job_id_from_redirect(resp)
+    _wait_for_terminal(client, job_id)
+
+    view = client.get(f"/auto-unlock/result/{job_id}")
+    assert view.status_code == 200
+    assert b"no match" in view.data.lower()
 
 
 def test_auto_unlock_result_unknown_job_is_404(client):

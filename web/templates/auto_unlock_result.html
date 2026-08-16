@@ -12,18 +12,19 @@ reload or come back to this page.
 {% elif job.result %}
 <div class="card">
   <table>
-    <thead><tr><th>Wallet</th><th>Result</th></tr></thead>
+    <thead><tr><th>Wallet</th><th>Password</th><th>Source</th></tr></thead>
     <tbody>
-      {% for path, label in job.result.results.items() %}
+      {% for path, r in job.result.results.items() %}
       <tr>
         <td><code>{{ path }}</code></td>
         <td>
-          {% if label %}
-          <strong style="color:var(--accent)">Matches saved vault entry "{{ label }}"</strong>
+          {% if r.value %}
+          <strong style="color:var(--accent)"><code>{{ r.value }}</code></strong>
           {% else %}
           <span class="subtle">no match</span>
           {% endif %}
         </td>
+        <td>{% if r.vault_label %}<span class="subtle">vault entry "{{ r.vault_label }}"</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
