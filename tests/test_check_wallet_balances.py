@@ -1,4 +1,5 @@
 import json
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -147,3 +148,89 @@ def test_no_progress_callback_is_unaffected(mock_load_service, mock_sleep, tmp_p
     result = check_wallet_balances(str(input_file), str(output_file), coins_to_check=["Bitcoin"])
 
     assert result["walletA.dat"]["Bitcoin"]["1abc"] == 0.0
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_different_coins_are_checked_concurrently(mock_load_service, mock_sleep, tmp_path):
+    """
+    The real complaint this story fixes: every coin's own independent
+    service/API used to be checked one at a time, in one thread. Two
+    services here each block until the OTHER has started -- if coins are
+    still checked serially, the second coin's worker never starts while
+    the first is blocked waiting for it, so this deadlocks and times out.
+    """
+    bitcoin_started = threading.Event()
+    litecoin_started = threading.Event()
+
+    def make_blocking_service(own_started, other_started):
+        def check_balance(address):
+            own_started.set()
+            assert other_started.wait(timeout=2), "the other coin's call never started -- coins are being checked serially, not concurrently"
+            return 1.0
+
+        service = MagicMock()
+        service.check_balance = MagicMock(side_effect=check_balance)
+        return service
+
+    services = {
+        "Bitcoin": make_blocking_service(bitcoin_started, litecoin_started),
+        "Litecoin": make_blocking_service(litecoin_started, bitcoin_started),
+    }
+    mock_load_service.side_effect = lambda coin: services[coin]
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc"], "Litecoin": ["Labc"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    result = check_wallet_balances(str(input_file), str(output_file), coins_to_check=["Bitcoin", "Litecoin"])
+
+    assert result == {"walletA.dat": {"Bitcoin": {"1abc": 1.0}, "Litecoin": {"Labc": 1.0}}}
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_progress_callback_thread_safe_across_multiple_coins(mock_load_service, mock_sleep, tmp_path):
+    mock_load_service.side_effect = lambda coin: MagicMock(check_balance=MagicMock(return_value=1.0))
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc", "1def"], "Litecoin": ["Labc", "Ldef"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    calls = []
+    calls_lock = threading.Lock()
+
+    def cb(current, total, message=""):
+        with calls_lock:
+            calls.append((current, total))
+
+    check_wallet_balances(str(input_file), str(output_file), coins_to_check=["Bitcoin", "Litecoin"], progress_callback=cb)
+
+    assert len(calls) == 4
+    assert all(total == 4 for _, total in calls)
+    assert sorted(current for current, _ in calls) == [1, 2, 3, 4]
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_multi_coin_multi_file_output_matches_expected_nested_dict(mock_load_service, mock_sleep, tmp_path):
+    values = {"Bitcoin": 1.0, "Litecoin": 2.0}
+    mock_load_service.side_effect = lambda coin: MagicMock(check_balance=MagicMock(return_value=values[coin]))
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(
+        json.dumps(
+            {
+                "walletA.dat": {"Bitcoin": ["1abc"], "Litecoin": ["Labc"]},
+                "walletB.dat": {"Bitcoin": ["1def"]},
+            }
+        )
+    )
+    output_file = tmp_path / "wallet_balances.json"
+
+    result = check_wallet_balances(str(input_file), str(output_file), coins_to_check=["Bitcoin", "Litecoin"])
+
+    assert result == {
+        "walletA.dat": {"Bitcoin": {"1abc": 1.0}, "Litecoin": {"Labc": 2.0}},
+        "walletB.dat": {"Bitcoin": {"1def": 1.0}},
+    }

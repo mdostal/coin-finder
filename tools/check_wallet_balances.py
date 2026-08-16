@@ -2,7 +2,9 @@ import json
 import importlib
 import os
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -86,41 +88,52 @@ def check_wallet_balances(input_file, output_file, coins_to_check=None, inconclu
     with open(input_file, "r") as f:
         wallet_data = json.load(f)
 
-    results = {}
+    results = {file_path: {} for file_path in wallet_data}
     inconclusive = {}
 
-    total_addresses = sum(
-        len(addresses)
-        for crypto_wallets in wallet_data.values()
-        for crypto_name, addresses in crypto_wallets.items()
-        if crypto_name in coins_to_check
-    )
-    checked_count = 0
-
+    # Grouped by coin, not by file/address -- each of the ~21 configured
+    # coin services hits a distinct external API with no shared rate
+    # limit, so different coins can run fully concurrently. Addresses
+    # *within* one coin still run one at a time, in original order, via
+    # one worker thread per coin -- that keeps each API's own call stream
+    # sequential/backoff-respecting exactly as before, only the across-
+    # coin structure changed from serial to concurrent.
+    pairs_by_coin = {}
     for file_path, crypto_wallets in wallet_data.items():
-        results[file_path] = {}
-
         for crypto_name, addresses in crypto_wallets.items():
             if crypto_name not in coins_to_check:
                 print(f"Skipping {crypto_name} as it is not in the specified list.")
                 continue
+            pairs_by_coin.setdefault(crypto_name, []).extend((file_path, address) for address in addresses)
 
-            print(f"Checking {crypto_name} wallets...")
-            service = load_service(crypto_name)
-            if not service:
-                print(f"  Skipping {crypto_name}: No valid service found.")
-                continue
+    total_addresses = sum(len(pairs) for pairs in pairs_by_coin.values())
+    checked_count = 0
+    progress_lock = threading.Lock()
 
-            results[file_path][crypto_name] = {}
-            for address in addresses:
-                balance = _check_balance_with_retries(service, address)
-                results[file_path][crypto_name][address] = balance
-                print(f"    {address}: {balance}")
+    def check_coin(crypto_name, pairs):
+        nonlocal checked_count
+
+        print(f"Checking {crypto_name} wallets...")
+        service = load_service(crypto_name)
+        if not service:
+            print(f"  Skipping {crypto_name}: No valid service found.")
+            return
+
+        for file_path, address in pairs:
+            balance = _check_balance_with_retries(service, address)
+            results[file_path].setdefault(crypto_name, {})[address] = balance
+            print(f"    {address}: {balance}")
+
+            with progress_lock:
                 checked_count += 1
                 progress_callback(checked_count, total_addresses, f"{crypto_name}: {address}")
-
                 if balance is None:
                     inconclusive.setdefault(file_path, {}).setdefault(crypto_name, []).append(address)
+
+    with ThreadPoolExecutor(max_workers=max(len(pairs_by_coin), 1)) as executor:
+        futures = [executor.submit(check_coin, crypto_name, pairs) for crypto_name, pairs in pairs_by_coin.items()]
+        for future in as_completed(futures):
+            future.result()  # re-raise any worker exception on the main thread
 
     with open(output_file, "w") as f:
         json.dump(results, f, indent=4)
