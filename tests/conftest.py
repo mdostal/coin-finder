@@ -27,10 +27,15 @@ def _never_touch_the_real_findings_db():
     _run_crawl_job also calls web.crawl_runs.record_crawl_run() (added by
     the group-view-graph epic) -- same leak risk, same fix: mocked here by
     default, tests asserting on it override with their own @patch.
+
+    _run_find_job also calls web.scan_history.record_scan() (added by the
+    durable-scan-history epic) -- same leak risk, same fix: mocked here by
+    default, tests asserting on it override with their own @patch.
     """
     with (
         patch("web.app.record_finding"),
         patch("web.app.list_findings", return_value=[]),
         patch("web.app.record_crawl_run"),
+        patch("web.app.record_scan"),
     ):
         yield

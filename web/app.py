@@ -32,6 +32,7 @@ from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
 from web.crawl_runs import clear_all_crawl_runs, find_overlap_addresses, list_crawl_runs, record_crawl_run
+from web.scan_history import clear_scan_history, list_scan_history, record_scan
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
 
@@ -1119,6 +1120,17 @@ def _run_find_job(input_dir, job_id, index_db_path=None):
 
     hidden_volumes = scan_for_hidden_volumes(input_dir)
     summary["hidden_volumes_report"] = render_hidden_volumes_report(hidden_volumes)
+
+    # Durable, restart-proof copy of this exact summary -- web/jobs.py's
+    # job registry is a plain in-memory dict, wiped on every app restart.
+    # wallet_analysis.json (written by run_pipeline.find() itself) already
+    # survives restarts; this is the missing piece: the computed summary
+    # built from it, plus a discoverable index of which scans exist.
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    with open(Path(output_dir) / "find_summary.json", "w") as f:
+        json.dump(summary, f)
+    record_scan(input_dir, output_dir, summary["files_found"])
+
     return summary
 
 

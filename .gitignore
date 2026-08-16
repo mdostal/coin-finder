@@ -14,6 +14,7 @@
 /web/findings.db
 /web/crawl_runs.db
 /web/scan_index.db
+/web/scan_history.db
 
 # Portunus-unavailable fallback vault (plaintext local store) -- never commit
 /web/vault_fallback.env
