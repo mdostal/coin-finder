@@ -1,0 +1,111 @@
+id: auo-02
+epic: auto-unlock-overhaul
+title: Durable run history (metadata only) + vault reveal-value action
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [auo-01]
+description: >
+  auto-unlock results still vanish forever today -- once-only display on
+  top of the in-memory-only job registry means both leaving the result
+  page AND any app restart lose the outcome permanently. Adds a durable
+  index of every wallet tried, which vault label (if any) matched, and
+  when -- metadata only, the raw password value is never written to this
+  or any table. Because the durable record only has a label, a real way
+  to look up that label's actual value later is needed: a new "Reveal"
+  action on the vault page, resolving one named entry on demand and
+  showing it once, matching every other once-only secret display in
+  this app.
+acceptance_criteria:
+  - New web/auto_unlock_history.py (sqlite, DEFAULT_DB_PATH under
+    app_data_dir()) -- record_auto_unlock_run(wallet_results,
+    db_path=...) where wallet_results is
+    {wallet_path: {"vault_label", "value"}} (the dict auo-01 already
+    built) -- writes one row per wallet
+    (run_id, wallet_path, vault_label, matched, run_at) per call.
+    NO column for the raw password value exists in the schema at all --
+    this is a schema-level guarantee, not just an application-level
+    promise not to write it.
+  - _run_auto_unlock_job calls record_auto_unlock_run() with its results
+    before returning -- alongside (not instead of) the existing
+    once-only in-memory result auo-01 already built.
+  - New GET /auto-unlock/history page: every past run, grouped by run,
+    showing each wallet tried and which label matched (or "no match"),
+    newest first -- durable, survives a restart, reachable independent
+    of whether that run's original job/result is still in memory.
+  - New POST /vault/reveal route + template: resolves one named vault
+    entry via the existing resolve_vault_entries_with_values(), shows
+    its real value ONCE (same once-only framing/banner language as
+    unlock_result.html/auto_unlock_result.html), never written to disk,
+    never appears in any durable table (including the new
+    auto_unlock_history one). vault.html gains a "Reveal" button per
+    entry; its copy ("values are... never shown by this page") is
+    corrected to describe the new, deliberate, once-only exception.
+  - /auto-unlock/history's rows link each matched wallet's vault_label
+    to a one-click Reveal (pre-filled POST to /vault/reveal) so a label
+    recorded days ago can still be turned back into its real value on
+    demand.
+steps:
+  - phase: research
+    notes: >
+      web/vault.py's resolve_vault_entries_with_values already does the
+      exact resolution a reveal action needs -- confirmed via
+      item_unlock()'s existing inline (non-job) use of the same
+      function in a POST handler, the precedent this story's /vault/reveal
+      follows (synchronous POST, not a backgrounded job -- no job entry
+      is ever created for a reveal, so it never shows up in /jobs'
+      generic listing either).
+  - phase: test-spec
+    notes: >
+      tests/test_auto_unlock_history.py (new): record_auto_unlock_run +
+      list-style getter round-trip; schema has no value/password column
+      (introspect via sqlite PRAGMA table_info, asserting the column
+      list explicitly). tests/test_web_app_auto_unlock.py: /auto-unlock
+      job records history after completion (mocked
+      record_auto_unlock_run, asserting call shape). tests/
+      test_web_app_vault.py (or wherever vault tests live): POST
+      /vault/reveal resolves and shows the value once; GET
+      /auto-unlock/history renders past runs without needing a live job.
+  - phase: implement
+    notes: >
+      New web/auto_unlock_history.py following the established
+      _connect/_SCHEMA pattern (web/crawl_runs.py,
+      web/scan_history.py). web/app.py: import + call from
+      _run_auto_unlock_job; new auto_unlock_history_page route; new
+      vault_reveal route (synchronous resolve_vault_entries_with_values
+      call, render a result template). New
+      web/templates/auto_unlock_history.html,
+      web/templates/vault_reveal_result.html. web/templates/vault.html:
+      Reveal button + corrected copy.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/auto_unlock_history.py (new)
+    - web/app.py
+    - web/templates/auto_unlock_history.html (new)
+    - web/templates/vault_reveal_result.html (new)
+    - web/templates/vault.html
+    - tests/test_auto_unlock_history.py (new)
+    - tests/test_web_app_auto_unlock.py
+design_decisions:
+  - Schema-level exclusion of the raw value column (not just
+    "we promise not to write it") -- makes the safety property visible
+    in the table definition itself, checkable by anyone reading the
+    module, not just documented in a docstring.
+  - /vault/reveal is a synchronous POST (mirrors item_unlock()'s
+    existing precedent), not a backgrounded job -- a reveal never
+    creates a job entry, so it never surfaces via /jobs' listing either,
+    which is a strictly smaller exposure surface than the job-based
+    once-only pattern used elsewhere.
+risks:
+  - A resubmitted /vault/reveal POST (e.g. browser "resend form") would
+    re-resolve and re-show the value, unlike the hard-delete-after-one-
+    read job pattern -- acceptable since resolving from the vault is an
+    idempotent, deliberate, user-initiated action (the user has to
+    actively click Reveal and confirm resubmission), not a passive replay
+    risk the way a leaked job-result URL would be.
+references:
+  - web/vault.py (resolve_vault_entries_with_values)
+  - web/app.py:344 (item_unlock's existing inline resolve precedent)
+  - web/crawl_runs.py, web/scan_history.py (sqlite module pattern)

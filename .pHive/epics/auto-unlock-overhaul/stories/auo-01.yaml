@@ -1,0 +1,80 @@
+id: auo-01
+epic: auto-unlock-overhaul
+title: Show the real matched password in a clean results table
+status: pending
+complexity: small
+methodology: tdd
+depends_on: []
+description: >
+  _run_auto_unlock_job already resolves every vault entry to its real
+  value and already knows which one matched -- the value itself is
+  discarded before it reaches auto_unlock_result.html, which only shows
+  the matched entry's LABEL. Return the actual value alongside the
+  label, and render a real table (Wallet | Matched password) instead of
+  the current label-only two-column version. The once-only,
+  never-persisted display of the raw value is kept exactly as
+  conservative as it already is today -- what changes is that the one
+  showing actually includes the value, matching the existing
+  single-wallet /item/unlock flow's precedent (which already exposes a
+  real match via raw stdout).
+acceptance_criteria:
+  - _run_auto_unlock_job's results dict becomes {wallet_path:
+    {"vault_label": str|None, "value": str|None}} -- value is the actual
+    resolved password when vault_label is set, None when there's no
+    match. No new resolution logic -- vault_pairs already has the value,
+    just needs to flow through instead of being discarded.
+  - auto_unlock_result.html renders a real table: Wallet | Matched
+    password (shown directly, not a placeholder/link) -- rows with no
+    match show "no match", not an empty cell.
+  - The once-only guarantee is unchanged: /auto-unlock/result/<job_id>
+    still consume_job_result()s (single read, then gone), still never
+    appears in the plain status/poll JSON path, still never written to
+    disk -- only the CONTENT of that one allowed view changes.
+  - Existing test_auto_unlock_result_delivered_once_then_gone's "second
+    view 404s" assertion is preserved; its "label shown, not the raw
+    value" comment/assertion is corrected to match the new intended
+    behavior (raw value now shown, in addition to the label for
+    context).
+steps:
+  - phase: research
+    notes: >
+      web/app.py:1169 _run_auto_unlock_job -- vault_pairs already holds
+      (label, value) tuples from resolve_vault_entries_with_values;
+      _match_vault_label already finds which label's value appears in
+      stdout. Comparing to unlock_result.html (single-wallet flow):
+      already shows raw stdout (which contains the real password on a
+      match) -- auto-unlock's label-only result is more conservative
+      than that existing precedent, not an equally-strict invariant.
+  - phase: test-spec
+    notes: >
+      tests/test_web_app_auto_unlock.py: update
+      test_auto_unlock_result_delivered_once_then_gone to assert the
+      raw matched value ("hunter2!!") appears in first_view.data
+      alongside the label, second view still 404s. New test: a wallet
+      with no match shows "no match" text, not a blank/missing cell.
+  - phase: implement
+    notes: >
+      web/app.py: _run_auto_unlock_job builds a value lookup dict from
+      vault_pairs ({label: value}), results[wallet_path] = {"vault_label":
+      label, "value": value_lookup.get(label)} (None when label is
+      None). web/templates/auto_unlock_result.html: real <table> with
+      Wallet/Matched password columns.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/app.py
+    - web/templates/auto_unlock_result.html
+    - tests/test_web_app_auto_unlock.py
+design_decisions:
+  - Value flows through the SAME once-only consume_job_result() path
+    already used for the label -- no new secret-exposure mechanism, just
+    more complete content within the existing one-time view.
+risks:
+  - None beyond what the epic design discussion's Risks section already
+    covers -- this story is purely "surface data that's already in
+    memory," no new resolution/network/storage code.
+references:
+  - web/app.py:1169 (_run_auto_unlock_job)
+  - web/templates/unlock_result.html (existing precedent for showing a
+    real matched value)
