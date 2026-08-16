@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-08-15
+
+### Added
+
+- **Quick single-address balance lookup.** Pick a coin, paste an address,
+  get the balance directly -- skips the file-scan pipeline entirely, for
+  when you already know an address and just want it checked. Reuses the
+  existing balance-check building blocks unmodified, records into
+  Findings the same way every other check does.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `quick-lookup`).
+
 ## [0.35.0] - 2026-08-15
 
 ### Added
