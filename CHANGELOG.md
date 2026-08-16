@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-08-16
+
+### Added
+
+- **A real visual transaction graph.** There has never been one before --
+  every Graph crawl result rendered as plain text only. Crawl results now
+  render as an actual graph: seed address at the center, discovered
+  addresses in rings by hop distance, lines showing which address led to
+  which, colored by confidence and balance, with hover detail and
+  click-to-copy. The text report is still there too.
+- **Configurable hop depth for Graph.** Previously hardcoded at 2 hops
+  with no way to change it -- now a 1-5 selector on both the manual crawl
+  form and the "Graph selected" bulk action.
+- **Cross-crawl overlaps are now surfaced proactively.** Findings shows a
+  banner linking to Group view whenever an address has been discovered by
+  more than one saved Graph run, instead of requiring you to know a
+  subtle link existed.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `visual-transaction-graph`, second of a 3-epic technical track).
+
 ## [0.41.0] - 2026-08-16
 
 ### Changed
