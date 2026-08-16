@@ -1,0 +1,69 @@
+id: eve-01-edit-vault-entry
+epic: editable-vault-entries
+title: edit_vault_entry() + route + inline edit form
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  Add edit_vault_entry(name, description) to web/vault.py -- portunus path
+  uses `portunus retag <name> --description <description>` (stdin=DEVNULL
+  + PORTUNUS_TIMEOUT_SECONDS, same discipline as every other call in this
+  file); fallback path updates the local metadata JSON. New POST
+  /vault/edit route. vault.html's description cell becomes an inline
+  edit form per row.
+
+acceptance_criteria:
+  - "Given edit_vault_entry(name, description) with portunus available, then it calls portunus retag <name> --description <description> with stdin=DEVNULL and PORTUNUS_TIMEOUT_SECONDS"
+  - "Given portunus is not available, then edit_vault_entry updates the matching fallback entry's description in place, leaving its state/value untouched"
+  - "Given POST /vault/edit with name+description, then it calls edit_vault_entry and redirects to /vault"
+  - "Given the vault page, then each entry's description is an editable inline form, not plain text"
+
+steps:
+  - id: research
+    description: Confirm portunus retag's exact flag name (--description) and web/vault.py's existing stdin/timeout call pattern.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests modeled on tests/test_vault.py's existing add/revoke test shapes, plus a fallback-path test.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Add edit_vault_entry() to web/vault.py; POST /vault/edit route in web/app.py; inline edit form in vault.html.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm the secret value itself is never touched by this path (retag only changes metadata).
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: |
+      Commit on feat/editable-vault-entries, bump version_bump: minor
+      across all four version sources, CHANGELOG entry, rebuild sidecar +
+      tauri build, gh release, install after confirming 0 jobs running.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/vault.py
+      purpose: "add_vault_entry/revoke_vault_entry -- the exact stdin=DEVNULL + PORTUNUS_TIMEOUT_SECONDS + fallback pattern to replicate for edit_vault_entry."
+    - path: web/templates/vault.html
+      purpose: "The per-row action-form pattern (Revoke button) to extend with an inline edit form."
+
+files_to_modify:
+  - file: web/vault.py
+    change: "Add edit_vault_entry(name, description) with portunus + fallback paths."
+  - file: web/app.py
+    change: "Add POST /vault/edit route."
+  - file: web/templates/vault.html
+    change: "Description cell becomes an inline edit form."
+  - file: tests/test_vault.py
+    change: "Extend with edit_vault_entry tests (portunus + fallback paths)."
+  - file: tests/test_web_app_vault.py
+    change: "Extend with the new route test."
+
+design_decisions:
+  - decision: "Reuse portunus's own retag command rather than drop+re-add."
+    rationale: "retag only changes metadata (description/tags/etc) -- the secret value is never re-touched, and history (state, first-seen) is preserved, unlike a delete+re-add."

@@ -236,6 +236,8 @@ cython_debug/
 !.pHive/epics/scan-dedup-index/**
 !.pHive/epics/quick-lookup/
 !.pHive/epics/quick-lookup/**
+!.pHive/epics/editable-vault-entries/
+!.pHive/epics/editable-vault-entries/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
