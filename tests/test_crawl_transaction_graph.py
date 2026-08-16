@@ -92,6 +92,43 @@ def test_crawl_discovers_co_spend_address_with_correct_confidence_and_generation
 
 @patch("tools.crawl_transaction_graph.BitcoinService")
 @patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_seed_has_no_discovered_via_parent(mock_fetch, mock_service_cls):
+    mock_fetch.return_value = []
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    result = crawl_wallet_cluster([SEED], max_generations=1)
+
+    assert result[SEED]["discovered_via"] is None
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_discovered_via_tracks_the_actual_parent_across_two_hops(mock_fetch, mock_service_cls):
+    """
+    seed -> COSPEND (gen 1, discovered via seed) -> GRANDCHILD (gen 2,
+    discovered via COSPEND, NOT via seed) -- proves discovered_via
+    records the real BFS parent, not just "whatever was in generation 0".
+    """
+    grandchild = "1GrandChild00000000000000000000"
+
+    def fetch(addr):
+        if addr == SEED:
+            return [make_tx([SEED, COSPEND], [])]
+        if addr == COSPEND:
+            return [make_tx([COSPEND, grandchild], [])]
+        return []
+
+    mock_fetch.side_effect = fetch
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    result = crawl_wallet_cluster([SEED], max_generations=2)
+
+    assert result[COSPEND]["discovered_via"] == SEED
+    assert result[grandchild]["discovered_via"] == COSPEND
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
 def test_crawl_respects_max_addresses_cap_without_raising(mock_fetch, mock_service_cls):
     many_cospends = [f"1Co{i:029d}" for i in range(50)]
 

@@ -292,7 +292,8 @@ def create_app(host="127.0.0.1"):
         if not addresses:
             return render_template("index.html", error="Enter at least one address."), 400
 
-        job_id = run_job(_run_crawl_job, addresses, kind="crawl", label=f"{len(addresses)} address(es)")
+        generations = _clamp_generations(request.form.get("generations"))
+        job_id = run_job(_run_crawl_job, addresses, generations, kind="crawl", label=f"{len(addresses)} address(es)")
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item/fork-coins", methods=["POST"])
@@ -946,6 +947,24 @@ def _split_lines(raw):
     return [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
 
 
+DEFAULT_CRAWL_GENERATIONS = 2
+MAX_CRAWL_GENERATIONS = 5
+
+
+def _clamp_generations(raw):
+    """
+    Hop-depth control for a Graph crawl -- a real, possibly slow live-
+    network BFS, so this is clamped server-side (not just a UI dropdown)
+    to [1, MAX_CRAWL_GENERATIONS] regardless of what a request sends.
+    Missing/unparseable falls back to DEFAULT_CRAWL_GENERATIONS,
+    matching exactly what every caller got before this control existed.
+    """
+    try:
+        return max(1, min(MAX_CRAWL_GENERATIONS, int(raw)))
+    except (TypeError, ValueError):
+        return DEFAULT_CRAWL_GENERATIONS
+
+
 def _run_scan_wallet_dat_job(wallet_path, job_id):
     scan = scan_wallet_for_addresses(wallet_path)
     checked = check_addresses_balances(
@@ -972,7 +991,7 @@ def _run_scan_wallet_dat_job(wallet_path, job_id):
     }
 
 
-def _run_crawl_job(addresses):
+def _run_crawl_job(addresses, max_generations=DEFAULT_CRAWL_GENERATIONS):
     """
     Writes the submitted addresses to a local temp file before calling
     load_seed_addresses -- reuses the CLI's exact file-or-literal contract
@@ -984,7 +1003,7 @@ def _run_crawl_job(addresses):
 
     try:
         seeds = load_seed_addresses(temp_path)
-        results = crawl_wallet_cluster(seeds)
+        results = crawl_wallet_cluster(seeds, max_generations=max_generations)
     finally:
         Path(temp_path).unlink(missing_ok=True)
 

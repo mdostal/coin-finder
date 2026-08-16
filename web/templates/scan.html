@@ -45,12 +45,21 @@
         {% else %}
         <button type="submit" formaction="{{ url_for('scans_view_check_balances_selected') }}" class="btn-secondary">Check balances for selected</button>
         {% endif %}
+        <label class="radio-row">Hops <select name="generations">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select></label>
         <button type="submit" formaction="{{ url_for('item_crawl') }}" class="btn-secondary">Graph selected</button>
         <button type="submit" formaction="{{ url_for('item_fork_coins') }}" class="btn-secondary">Check fork coins for selected</button>
       </p>
       <p class="subtle" style="margin-top:-0.5rem">Graph/Check fork coins only use each selected
       file's Bitcoin addresses (both tools are Bitcoin-only) -- a non-Bitcoin file contributes
-      nothing to those two, no error.</p>
+      nothing to those two, no error. "Hops" only applies to Graph -- how many steps outward from
+      each selected address to follow (co-spend + received-from/sent-to) before stopping; higher
+      means more real network calls and a slower crawl.</p>
       <table>
         <thead><tr><th></th><th>File</th><th>Coins matched</th></tr></thead>
         <tbody>
@@ -136,6 +145,13 @@
     <form class="inline-form" method="post" action="{{ url_for('item_crawl') }}">
       <label>Transaction-graph crawl -- addresses (one per line)</label>
       <textarea name="addresses" rows="3"></textarea>
+      <label class="radio-row">Hops <select name="generations">
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+      </select></label>
       <button type="submit">Run</button>
     </form>
 

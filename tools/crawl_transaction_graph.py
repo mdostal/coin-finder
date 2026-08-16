@@ -112,11 +112,15 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
     every discovered address via the existing BitcoinService.
 
     :return: {address: {"confidence": "seed"|"co-spend"|"output",
-                         "generation": int, "balance": float | None,
+                         "generation": int, "discovered_via": str | None,
+                         "balance": float | None,
                          "last_activity_timestamp": int | None,
                          "dormant_years": float | None}}
+        discovered_via is the specific frontier address this one was
+        found from (None for seeds) -- lets a caller draw real edges, not
+        just generation rings.
     """
-    discovered = {addr: {"confidence": "seed", "generation": 0} for addr in seed_addresses}
+    discovered = {addr: {"confidence": "seed", "generation": 0, "discovered_via": None} for addr in seed_addresses}
     frontier = set(seed_addresses)
     tx_cache = {}
 
@@ -133,14 +137,14 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
                     if co_spend not in discovered and len(discovered) >= max_addresses:
                         continue
                     if co_spend not in discovered:
-                        discovered[co_spend] = {"confidence": "co-spend", "generation": generation}
+                        discovered[co_spend] = {"confidence": "co-spend", "generation": generation, "discovered_via": address}
                         next_frontier.add(co_spend)
 
                 for output_addr in find_output_addresses(tx, address):
                     if output_addr not in discovered and len(discovered) >= max_addresses:
                         continue
                     if output_addr not in discovered:
-                        discovered[output_addr] = {"confidence": "output", "generation": generation}
+                        discovered[output_addr] = {"confidence": "output", "generation": generation, "discovered_via": address}
                         next_frontier.add(output_addr)
 
         frontier = next_frontier
