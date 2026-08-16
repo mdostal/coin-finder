@@ -1,0 +1,35 @@
+name: visual-transaction-graph
+title: A real visual transaction graph, configurable hop depth, surfaced overlaps
+description: >
+  There is no visual graph anywhere in the app today -- crawl job results
+  render as a plain-text report only, even though the underlying BFS
+  cluster data (confidence/generation/balance per address) already
+  exists. Adds real edge tracking + a configurable hop-depth control on
+  the backend, then a hand-rolled Canvas visual graph on the frontend,
+  plus proactive surfacing of cross-crawl overlap detection (already
+  shipped as group-view-graph) instead of a passive subtle link.
+target_codebase: .
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session. Second of a 3-epic technical track
+      (parallel-balance-checks -> visual-transaction-graph ->
+      scan-exclude-list) planned from one user request; each ships
+      independently.
+stories:
+  - id: vtg-01
+    title: discovered_via edge tracking + configurable hop depth
+    complexity: small
+    depends_on: []
+  - id: vtg-02
+    title: Canvas visual graph rendering + proactive overlap banner
+    complexity: medium
+    depends_on: [vtg-01]
