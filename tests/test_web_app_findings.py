@@ -62,3 +62,59 @@ def test_findings_archive_all_zero(mock_archive_all, client):
     resp = client.post("/findings/archive-all-zero", follow_redirects=False)
     assert resp.status_code == 302
     mock_archive_all.assert_called_once()
+
+
+@patch("web.app.list_findings")
+def test_findings_page_offers_graph_and_fork_check_for_bitcoin(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b'action="/item/crawl"' in resp.data
+    assert b'action="/item/fork-coins"' in resp.data
+    assert b'value="1abc"' in resp.data
+
+
+@patch("web.app.list_findings")
+def test_findings_page_hides_bitcoin_only_actions_for_other_coins(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Ethereum", "address": "0xabc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b'action="/item/crawl"' not in resp.data
+    assert b'action="/item/fork-coins"' not in resp.data
+
+
+@patch("web.app.list_findings")
+def test_findings_page_highlights_watched_rows(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 1, "watch_note": "suspected mining chain"}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b"watched-row" in resp.data
+    assert b"suspected mining chain" in resp.data
+    assert b'action="/findings/unwatch"' in resp.data
+
+
+@patch("web.app.set_watched")
+def test_findings_watch_stores_the_note(mock_set_watched, client):
+    resp = client.post("/findings/watch", data={"coin": "Bitcoin", "address": "1abc", "note": "mining chain"}, follow_redirects=False)
+    assert resp.status_code == 302
+    mock_set_watched.assert_called_once_with("Bitcoin", "1abc", True, note="mining chain")
+
+
+@patch("web.app.set_watched")
+def test_findings_unwatch(mock_set_watched, client):
+    resp = client.post("/findings/unwatch", data={"coin": "Bitcoin", "address": "1abc"}, follow_redirects=False)
+    assert resp.status_code == 302
+    mock_set_watched.assert_called_once_with("Bitcoin", "1abc", False)
+
+
+@patch("web.app.clear_all_findings")
+def test_findings_clear_all(mock_clear_all, client):
+    resp = client.post("/findings/clear-all", follow_redirects=False)
+    assert resp.status_code == 302
+    mock_clear_all.assert_called_once()

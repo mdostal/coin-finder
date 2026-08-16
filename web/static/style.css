@@ -260,6 +260,8 @@ th {
 }
 td { font-family: var(--mono); font-size: 0.82rem; }
 tr:hover td { background: rgba(255,255,255,0.02); }
+tr.watched-row td { background: rgba(45,212,167,0.07); border-bottom-color: rgba(45,212,167,0.2); }
+tr.watched-row:hover td { background: rgba(45,212,167,0.11); }
 
 pre {
   background: var(--bg-inset);

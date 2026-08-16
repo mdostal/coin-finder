@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-08-15
+
+### Added
+
+- **Findings can now run deeper analysis directly, one click at a time or
+  in bulk.** Every Bitcoin finding gets "Graph" (crawl the transaction
+  graph outward -- co-spent and related addresses, balances, last
+  activity) and "Check fork coins" (same address on Bitcoin Cash/Gold/SV)
+  buttons, reusing the existing crawl/fork-check tools that previously
+  required copy-pasting an address into a separate form. A bulk toolbar
+  (shown whenever at least one Bitcoin finding exists) lets you check
+  several findings and run either action across all of them as one
+  background job.
+- **Watch a finding, with a note, to track a hypothesis while scanning
+  continues.** Mark any finding "&#9733; Watch" with a short free-text
+  reason (e.g. "suspected mining-wallet chain -- small amounts in,
+  transferred out in equal chunks, expecting a holding wallet"). Watched
+  findings always sort to the top of the list and get a visual highlight,
+  so a candidate worth tracking down doesn't get buried as more scans add
+  rows.
+- **Clear all findings**, for starting over cleanly -- separate from
+  archive/unarchive (which stay reversible); this is a hard delete,
+  confirm-guarded in the UI.
+
 ## [0.32.2] - 2026-08-15
 
 ### Fixed

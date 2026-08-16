@@ -20,7 +20,7 @@ from tools.match_seed_phrases import load_phrases_from_file, match_phrases, rend
 from tools.scan_google_drive import get_drive_service, scan_drive_for_wallets
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
 from tools.extract_private_key import extract_wif_for_address
-from web.findings import archive, archive_all_zero_balance, list_findings, record_finding, unarchive
+from web.findings import archive, archive_all_zero_balance, clear_all_findings, list_findings, record_finding, set_watched, unarchive
 from tools.unlock_exodus_wallet import run_exodus_unlock
 from tools.unlock_wallet import check_network_status, run_unlock
 from web.jobs import consume_job_result, create_job, get_job, list_jobs, report_progress, run_job, running_jobs_count, start_job
@@ -395,6 +395,21 @@ def create_app(host="127.0.0.1"):
         archive_all_zero_balance()
         return redirect(url_for("findings_page"))
 
+    @app.route("/findings/watch", methods=["POST"])
+    def findings_watch():
+        set_watched(request.form.get("coin"), request.form.get("address"), True, note=(request.form.get("note") or "").strip())
+        return redirect(url_for("findings_page", include_archived="1" if request.form.get("include_archived") == "1" else None))
+
+    @app.route("/findings/unwatch", methods=["POST"])
+    def findings_unwatch():
+        set_watched(request.form.get("coin"), request.form.get("address"), False)
+        return redirect(url_for("findings_page", include_archived="1" if request.form.get("include_archived") == "1" else None))
+
+    @app.route("/findings/clear-all", methods=["POST"])
+    def findings_clear_all():
+        clear_all_findings()
+        return redirect(url_for("findings_page"))
+
     @app.route("/item/stage", methods=["POST"])
     def item_stage():
         file_path = (request.form.get("file_path") or "").strip()
@@ -699,6 +714,9 @@ _NAV_GROUP_BY_ENDPOINT = {
     "findings_archive": "findings",
     "findings_unarchive": "findings",
     "findings_archive_all_zero": "findings",
+    "findings_watch": "findings",
+    "findings_unwatch": "findings",
+    "findings_clear_all": "findings",
     # About -- update mechanics + network transparency.
     "network_page": "about",
     "update_page": "about",
