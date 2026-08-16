@@ -175,3 +175,64 @@ def test_auto_unlock_result_shows_no_match_not_a_blank_cell(mock_run_unlock, moc
 def test_auto_unlock_result_unknown_job_is_404(client):
     resp = client.get("/auto-unlock/result/does-not-exist")
     assert resp.status_code == 404
+
+
+@patch("web.app.list_vault_entries", return_value=[{"name": "password-1", "description": "", "state": "enabled"}])
+@patch("web.app.list_findings")
+@patch("web.app.check_network_status", return_value="OFFLINE")
+def test_auto_unlock_form_scopes_to_one_wallet_via_query_param(mock_status, mock_findings, mock_vault, client, tmp_path):
+    """
+    Regression test for the real, repeated ask: click a specific found
+    wallet's "Try unlock" action, land on a page scoped to just that
+    wallet -- not the full list requiring you to already know its path.
+    """
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_bytes(b"x")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_bytes(b"x")
+    mock_findings.return_value = [
+        {"coin": "Bitcoin", "address": "1a", "source_path": str(wallet_a), "status": "new"},
+        {"coin": "Bitcoin", "address": "1b", "source_path": str(wallet_b), "status": "new"},
+    ]
+
+    resp = client.get(f"/auto-unlock?wallet_path={str(wallet_a)}")
+
+    assert resp.status_code == 200
+    assert str(wallet_a).encode() in resp.data
+    assert str(wallet_b).encode() not in resp.data
+
+
+@patch("web.app.run_unlock")
+@patch("web.app.resolve_vault_entries_with_values", return_value=[("password-1", "hunter2!!")])
+@patch("web.app.list_vault_entries", return_value=[{"name": "password-1", "description": "", "state": "enabled"}])
+@patch("web.app.list_findings")
+@patch("web.app.check_network_status", return_value="OFFLINE")
+def test_auto_unlock_submit_scopes_to_one_wallet_via_hidden_field(mock_status, mock_findings, mock_vault, mock_resolve, mock_run_unlock, client, tmp_path):
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_bytes(b"x")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_bytes(b"x")
+    mock_findings.return_value = [
+        {"coin": "Bitcoin", "address": "1a", "source_path": str(wallet_a), "status": "new"},
+        {"coin": "Bitcoin", "address": "1b", "source_path": str(wallet_b), "status": "new"},
+    ]
+    mock_run_unlock.return_value = SimpleNamespace(stdout="Password found: hunter2!!", stderr="", returncode=0)
+
+    resp = client.post("/auto-unlock", data={"wallet_path": str(wallet_a)}, follow_redirects=False)
+    job_id = _job_id_from_redirect(resp)
+    _wait_for_terminal(client, job_id)
+
+    mock_run_unlock.assert_called_once()
+    assert mock_run_unlock.call_args[0][0] == str(wallet_a)
+
+
+@patch("web.app.list_findings")
+def test_findings_page_shows_try_unlock_action_for_wallets_with_source_path(mock_findings, client):
+    mock_findings.return_value = [
+        {"coin": "Bitcoin", "address": "1a", "source_path": "/real/wallet.dat", "status": "new", "balance": 0.0, "watched": 0, "watch_note": ""},
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b"/auto-unlock?wallet_path=" in resp.data

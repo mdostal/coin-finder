@@ -434,10 +434,23 @@ def create_app(host="127.0.0.1"):
         # auto_unlock_submit() below -- a less frequent action where
         # "wait a moment before the job starts" is already the expected
         # shape, same as any other job-starting POST in this app.
+        #
+        # ?wallet_path=<path> scopes the list to just that one known
+        # wallet -- the "click a finding, try unlock" entry point
+        # (findings.html), instead of requiring the full list every time.
+        # Silently ignored if it isn't actually a known wallet path (no
+        # error banner for a stale/malformed link -- just shows every
+        # known wallet, same as the plain /auto-unlock page).
+        wallet_path = (request.args.get("wallet_path") or "").strip()
+        wallet_paths = _known_wallet_paths()
+        if wallet_path and wallet_path in wallet_paths:
+            wallet_paths = [wallet_path]
+
         return render_template(
             "auto_unlock.html",
             network_status=check_network_status(),
-            wallet_paths=_known_wallet_paths(),
+            wallet_paths=wallet_paths,
+            scoped_wallet_path=wallet_path if wallet_path in wallet_paths else None,
             error=None,
         )
 
@@ -450,12 +463,19 @@ def create_app(host="127.0.0.1"):
         network_status = check_network_status()
         allow_online = request.form.get("allow_online") == "1"
 
+        # Carries the GET form's scoping through the POST -- a hidden
+        # field, not re-derived from the query string (this is a POST).
+        wallet_path = (request.form.get("wallet_path") or "").strip()
+        known_wallet_paths = _known_wallet_paths()
+        scoped_wallet_paths = [wallet_path] if wallet_path and wallet_path in known_wallet_paths else None
+
         if network_status != "OFFLINE" and not allow_online:
             return (
                 render_template(
                     "auto_unlock.html",
                     network_status=network_status,
-                    wallet_paths=_known_wallet_paths(),
+                    wallet_paths=scoped_wallet_paths or known_wallet_paths,
+                    scoped_wallet_path=wallet_path if scoped_wallet_paths else None,
                     error=(
                         f"Network status is {network_status}, not OFFLINE. Testing real passwords "
                         "against real wallets is safest with network disabled. Disconnect and try "
@@ -472,13 +492,17 @@ def create_app(host="127.0.0.1"):
                 render_template(
                     "auto_unlock.html",
                     network_status=network_status,
-                    wallet_paths=_known_wallet_paths(),
+                    wallet_paths=scoped_wallet_paths or known_wallet_paths,
+                    scoped_wallet_path=wallet_path if scoped_wallet_paths else None,
                     error="No enabled vault entries to try. Save at least one password in the vault first.",
                 ),
                 400,
             )
 
-        job_id = run_job(_run_auto_unlock_job, allow_online=allow_online, secret=True, kind="auto-unlock", label="all known wallets")
+        label = wallet_path if scoped_wallet_paths else "all known wallets"
+        job_id = run_job(
+            _run_auto_unlock_job, allow_online=allow_online, wallet_paths=scoped_wallet_paths, secret=True, kind="auto-unlock", label=label
+        )
         return redirect(url_for("auto_unlock_status", job_id=job_id))
 
     @app.route("/auto-unlock/status/<job_id>")
@@ -1194,7 +1218,7 @@ def _known_wallet_paths():
     return sorted(p for p in paths if Path(p).is_file())
 
 
-def _run_auto_unlock_job(allow_online=False):
+def _run_auto_unlock_job(allow_online=False, wallet_paths=None):
     """
     Batch unlock: every enabled vault entry tried against every known
     wallet file, in one job. Deliberately does NOT reuse
@@ -1205,8 +1229,12 @@ def _run_auto_unlock_job(allow_online=False):
     Calls run_unlock/run_exodus_unlock directly instead, unmodified, and
     owns its own single cleanup after the whole loop -- same file-only-
     secrets discipline as item_unlock(), just batched.
+
+    :param wallet_paths: optional -- restricts the run to exactly these
+        wallets (the "Try unlock" action from a single Findings row)
+        instead of every known wallet file.
     """
-    wallet_paths = _known_wallet_paths()
+    wallet_paths = wallet_paths if wallet_paths is not None else _known_wallet_paths()
     vault_pairs = resolve_vault_entries_with_values([e["name"] for e in list_vault_entries()])
 
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:

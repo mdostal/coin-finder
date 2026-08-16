@@ -86,6 +86,9 @@ below) always sort to the top.</p>
         </form>
       </td>
       <td>
+        {% if f.source_path %}
+        <a href="{{ url_for('auto_unlock_form', wallet_path=f.source_path) }}" class="btn-secondary" style="display:inline-block;text-decoration:none" title="Try every saved vault password against this wallet file.">Try unlock</a>
+        {% endif %}
         {% if f.coin == "Bitcoin" %}
         <form method="post" action="{{ url_for('item_crawl') }}" style="display:inline" title="Crawl the transaction graph outward from this address -- co-spent and related addresses, balances, last activity. Helps tell a genuinely new find apart from a sub-wallet of one you already know.">
           <input type="hidden" name="addresses" value="{{ f.address }}">
