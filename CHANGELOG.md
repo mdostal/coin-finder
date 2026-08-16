@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-08-15
+
+### Fixed
+
+- **The auto-unlock page blocked on a vault round-trip.** Same root cause
+  as 0.32.2's wizard-page fix, reintroduced live: `GET /auto-unlock`
+  called `list_vault_entries()` inline for a display count, confirmed
+  15s from this app's own subprocess context. Removed the inline call
+  entirely -- the real vault-entries check already happens in the POST
+  handler that starts the job, a less frequent action.
+
 ## [0.38.0] - 2026-08-15
 
 ### Added
