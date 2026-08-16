@@ -79,16 +79,20 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None):
     }
 
 
-def check_balances(output_dir, progress_callback=None):
+def check_balances(output_dir, progress_callback=None, checkpoint_path=None):
     """
     Stage 2 -- the slow part (real network calls, one per matched
     address). Requires find() to have already run against this exact
     output_dir; reads its wallet_analysis.json as input.
+
+    :param checkpoint_path: optional -- see tools.check_wallet_balances.check_wallet_balances().
     """
     paths = _paths(output_dir)
 
     print("Running wallet balance check...")
-    check_wallet_balances(paths["analyze_output"], paths["scan_output"], progress_callback=progress_callback)
+    check_wallet_balances(
+        paths["analyze_output"], paths["scan_output"], progress_callback=progress_callback, checkpoint_path=checkpoint_path
+    )
     inconclusive_output = os.path.join(paths["sub_dir"], "inconclusive_balances.json")
     if os.path.exists(inconclusive_output):
         print(f"Some addresses are still inconclusive after retries -- see {inconclusive_output}.")

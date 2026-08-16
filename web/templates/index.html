@@ -36,6 +36,26 @@
 </div>
 {% endif %}
 
+{% if interrupted_balance_checks %}
+<div class="banner warning">
+  <strong>{{ interrupted_balance_checks | length }} interrupted balance check{{ "s" if interrupted_balance_checks | length != 1 else "" }}</strong>
+  never finished. Addresses already confirmed a real balance won't be
+  re-checked -- resuming only checks what's left.
+  <ul style="margin:0.5rem 0 0 1.25rem">
+    {% for b in interrupted_balance_checks %}
+    <li>
+      <code>{{ b.output_dir }}</code>
+      -- {{ b.addresses_confirmed_so_far }} address{{ "es" if b.addresses_confirmed_so_far != 1 else "" }} already confirmed
+      <form method="post" action="{{ url_for('scans_view_check_balances') }}" style="display:inline">
+        <input type="hidden" name="output_dir" value="{{ b.output_dir }}">
+        <button type="submit" class="btn-secondary">Resume</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% if findings_count and findings_count > 0 %}
 <div class="card">
   <a href="{{ url_for('findings_page') }}" style="text-decoration:none">

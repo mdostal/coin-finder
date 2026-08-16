@@ -33,7 +33,7 @@ def test_pipeline_wires_relationship_graph_from_scan_output(tmp_path):
         mock_build_graph.return_value = graph
         mock_render_report.return_value = report_text
 
-        def fake_check(input_file, output_file, progress_callback=None):
+        def fake_check(input_file, output_file, progress_callback=None, checkpoint_path=None):
             with open(output_file, "w") as f:
                 json.dump(scan_data, f)
 
@@ -67,7 +67,7 @@ def test_pipeline_forwards_progress_callback_to_check_wallet_balances(tmp_path):
 
         mock_analyze.side_effect = _fake_analyze({})
 
-        def fake_check(input_file, output_file, progress_callback=None):
+        def fake_check(input_file, output_file, progress_callback=None, checkpoint_path=None):
             with open(output_file, "w") as f:
                 json.dump(scan_data, f)
 
@@ -173,7 +173,9 @@ def test_check_balances_requires_a_prior_find(tmp_path):
          patch("run_pipeline.filter_wallet_balances"), \
          patch("run_pipeline.build_relationship_graph", return_value={"nodes": {}, "edges": {}, "signals": {}}), \
          patch("run_pipeline.render_graph_report", return_value=""):
-        mock_check.side_effect = lambda input_file, output_file, progress_callback=None: open(output_file, "w").write("{}")
+        mock_check.side_effect = lambda input_file, output_file, progress_callback=None, checkpoint_path=None: open(
+            output_file, "w"
+        ).write("{}")
 
         run_pipeline.check_balances(str(output_dir))
 

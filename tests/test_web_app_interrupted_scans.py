@@ -62,3 +62,39 @@ def test_index_shows_no_banner_when_no_checkpoints_exist(client, tmp_path):
 
     assert resp.status_code == 200
     assert b"interrupted scan" not in resp.data.lower()
+
+
+def _write_balance_checkpoint(output_root, scan_name, results):
+    checks_dir = output_root / scan_name / "checks"
+    checks_dir.mkdir(parents=True)
+    (checks_dir / "balance_checkpoint.json").write_text(
+        json.dumps({"input_file": str(checks_dir / "wallet_analysis.json"), "results": results})
+    )
+
+
+def test_index_shows_interrupted_balance_check_with_resume_action(client, tmp_path):
+    output_root = tmp_path / "ui_output"
+    _write_balance_checkpoint(
+        output_root,
+        "old-drive",
+        {"walletA.dat": {"Bitcoin": {"1abc": 0.5, "1def": None}}},
+    )
+
+    with patch("web.app.DEFAULT_OUTPUT_ROOT", output_root):
+        resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert b"interrupted balance check" in resp.data.lower()
+    assert str(output_root / "old-drive").encode() in resp.data
+    assert b"1 address" in resp.data  # only the confirmed one counts
+
+
+def test_index_shows_no_balance_banner_when_no_balance_checkpoints_exist(client, tmp_path):
+    output_root = tmp_path / "ui_output"
+    output_root.mkdir()
+
+    with patch("web.app.DEFAULT_OUTPUT_ROOT", output_root):
+        resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert b"interrupted balance check" not in resp.data.lower()

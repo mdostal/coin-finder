@@ -115,6 +115,7 @@ def create_app(host="127.0.0.1"):
             findings_needs_review_count=sum(1 for f in findings if f["balance"] != 0.0),
             scan_index_count=len(list_scanned_files()),
             interrupted_scans=_interrupted_scans(),
+            interrupted_balance_checks=_interrupted_balance_checks(),
         )
 
     @app.route("/scan-index/clear", methods=["POST"])
@@ -1300,6 +1301,34 @@ def _find_checkpoint_path(output_dir):
     return str(Path(output_dir) / "checks" / "scan_checkpoint.json")
 
 
+def _interrupted_balance_checks():
+    """
+    Same idea as _interrupted_scans() but for the balance-check stage --
+    every balance_checkpoint.json left behind by a check that never
+    finished. Resuming is a POST to /scans/view/check-balances with the
+    same output_dir, same route the "Check balances" button already uses.
+    """
+    if not DEFAULT_OUTPUT_ROOT.is_dir():
+        return []
+    interrupted = []
+    for checkpoint_path in DEFAULT_OUTPUT_ROOT.glob("*/checks/balance_checkpoint.json"):
+        try:
+            with open(checkpoint_path) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        output_dir = str(checkpoint_path.parent.parent)
+        confirmed = sum(
+            1
+            for coins in data.get("results", {}).values()
+            for addresses in coins.values()
+            for balance in addresses.values()
+            if balance is not None
+        )
+        interrupted.append({"output_dir": output_dir, "addresses_confirmed_so_far": confirmed})
+    return interrupted
+
+
 def _interrupted_scans():
     """
     Every scan_checkpoint.json left behind by a scan that never finished
@@ -1367,11 +1396,22 @@ def _run_find_job(input_dir, job_id, index_db_path=None):
     return summary
 
 
+def _balance_checkpoint_path(output_dir):
+    return str(Path(output_dir) / "checks" / "balance_checkpoint.json")
+
+
 def _run_check_balances_job(output_dir, job_id):
-    """Stage 2 -- the slow part. Requires _run_find_job to have already populated output_dir."""
+    """
+    Stage 2 -- the slow part (real network calls). Requires _run_find_job
+    to have already populated output_dir. checkpoint_path makes this
+    resumable across a quit/update/crash the same way the scan stage is:
+    addresses already confirmed a real balance don't get re-checked when
+    this same output_dir's balance check is run again.
+    """
     run_pipeline.check_balances(
         output_dir,
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+        checkpoint_path=_balance_checkpoint_path(output_dir),
     )
 
     balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
