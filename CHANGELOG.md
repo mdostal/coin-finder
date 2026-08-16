@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.45.2] - 2026-08-16
+
+### Fixed
+
+- **Unlock actually works now.** The most severe bug found this session:
+  BTCRecover was never bundled into the packaged app at all, so every
+  unlock attempt in every installed build failed with "BTCRecover is
+  not installed." Fixed, then a second, deeper bug surfaced immediately
+  once bundled -- a frozen build can't shell out to a helper script the
+  way a normal Python install can -- also fixed. Verified live,
+  repeatedly, against the real packaged app until a real password was
+  actually found.
+
 ## [0.45.1] - 2026-08-16
 
 ### Fixed
