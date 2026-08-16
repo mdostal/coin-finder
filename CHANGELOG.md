@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-08-15
+
+### Added
+
+- **Group view: cross-crawl overlap detection.** Every transaction-graph
+  "Graph" run is now persisted in full (previously ephemeral -- gone once
+  the job finished). A new Group view page (linked from Findings) merges
+  every saved crawl run and surfaces addresses discovered by more than one
+  separate crawl -- the actual "these two independently-found wallets are
+  probably related" signal, e.g. a suspected mining wallet and its holding
+  wallet showing up as neighbors from two different Graph runs. A table
+  view for v1 (not an interactive node graph, by design -- answers the
+  real question without a new JS dependency). Saved crawl-run history can
+  be cleared independently of findings (confirm-guarded, never touches
+  findings.db).
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `group-view-graph`) -- same self-authored, no-live-teammates
+  adaptation as this repo's earlier `transaction-graph-crawler` and
+  `wallet-relationship-graph` epics.
+
 ## [0.33.0] - 2026-08-15
 
 ### Added
