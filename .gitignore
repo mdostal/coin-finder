@@ -253,6 +253,8 @@ cython_debug/
 !.pHive/epics/confidence-scored-related-accounts/**
 !.pHive/epics/cloud-connection-reliability/
 !.pHive/epics/cloud-connection-reliability/**
+!.pHive/epics/cytoscape-graph-rebuild/
+!.pHive/epics/cytoscape-graph-rebuild/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
