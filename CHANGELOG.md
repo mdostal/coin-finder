@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-08-16
+
+### Added
+
+- **Find results now survive an app restart.** Previously, a completed
+  scan's file list and coin counts only ever lived in memory -- every app
+  restart (including every update install) silently lost them unless a
+  balance check had already run. Every Find now writes its results
+  durably to disk, indexed in a new "Past scans" list (Sources -> Past
+  scans) so you can always get back to what a scan found, with the same
+  selective check-balances/graph/fork-coins actions available from there
+  too.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `durable-scan-history`).
+
 ## [0.39.0] - 2026-08-16
 
 ### Added
