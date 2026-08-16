@@ -10,6 +10,16 @@
 {% elif job.status == "error" %}
 <div class="banner error">{{ job.error }}</div>
 {% elif job.result %}
+{% if job.kind == "crawl" and job.result.results %}
+<div class="card">
+  <h3 style="margin-top:0">Cluster graph</h3>
+  <canvas id="graph-canvas" width="900" height="600" style="max-width:100%;border:1px solid var(--border);"></canvas>
+  <p class="subtle">Ring distance = hops from the seed address(es); a line connects each address to
+  the one that led to it. Hover a node for detail, click to copy its address.</p>
+</div>
+<script type="application/json" id="graph-data">{{ job.result.results | tojson }}</script>
+<script src="{{ url_for('static', filename='graph.js') }}"></script>
+{% endif %}
 <div class="card"><pre>{{ job.result.report }}</pre></div>
 {% endif %}
 

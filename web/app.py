@@ -552,7 +552,12 @@ def create_app(host="127.0.0.1"):
     @app.route("/findings")
     def findings_page():
         include_archived = request.args.get("include_archived") == "1"
-        return render_template("findings.html", findings=list_findings(include_archived=include_archived), include_archived=include_archived)
+        return render_template(
+            "findings.html",
+            findings=list_findings(include_archived=include_archived),
+            include_archived=include_archived,
+            overlap_count=len(find_overlap_addresses()),
+        )
 
     @app.route("/findings/archive", methods=["POST"])
     def findings_archive():

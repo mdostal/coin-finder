@@ -54,7 +54,15 @@ def test_group_view_clear(mock_clear, client):
 
 
 @patch("web.app.find_overlap_addresses")
-def test_findings_page_links_to_group_view(mock_overlap, client):
+def test_findings_page_links_to_group_view_when_overlaps_exist(mock_overlap, client):
+    """
+    Superseded by the visual-transaction-graph epic: the link is now a
+    proactive banner shown only when there's something to see, not an
+    always-present subtle link -- see
+    test_web_app_graph_render.py's overlap-banner tests for the
+    hides-when-empty counterpart.
+    """
+    mock_overlap.return_value = {"1shared": {"balance": 2.5, "runs": []}}
     with patch("web.app.list_findings", return_value=[]):
         resp = client.get("/findings")
     assert resp.status_code == 200

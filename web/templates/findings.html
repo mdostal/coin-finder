@@ -14,13 +14,20 @@ below) always sort to the top.</p>
   <form method="post" action="{{ url_for('findings_clear_all') }}" style="display:inline" onsubmit="return confirm('Clear ALL findings? This deletes every row -- watched, archived, everything -- and cannot be undone.');">
     <button type="submit" class="btn-secondary">Clear all findings</button>
   </form>
-  <a href="{{ url_for('group_view_page') }}" class="subtle">Group view (cross-crawl overlaps)</a>
   {% if include_archived %}
   <a href="{{ url_for('findings_page') }}" class="subtle">Hide archived</a>
   {% else %}
   <a href="{{ url_for('findings_page', include_archived='1') }}" class="subtle">Show archived</a>
   {% endif %}
 </div>
+
+{% if overlap_count %}
+<div class="banner" style="margin-top:1rem">
+  <strong>{{ overlap_count }} address(es)</strong> discovered by more than one saved Graph run --
+  likely related wallets worth a closer look.
+  <a href="{{ url_for('group_view_page') }}">View group overlap &rarr;</a>
+</div>
+{% endif %}
 
 {% if findings %}
 {% set has_bitcoin_findings = findings | selectattr("coin", "equalto", "Bitcoin") | list %}
