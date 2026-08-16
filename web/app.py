@@ -13,7 +13,7 @@ import run_pipeline
 from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
 from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
-from tools.check_wallet_balances import load_service, _check_balance_with_retries
+from tools.check_wallet_balances import check_wallet_balances, load_service, _check_balance_with_retries
 from config.wallet import WALLET_SERVICES
 from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addresses, render_cluster_report
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
@@ -185,6 +185,21 @@ def create_app(host="127.0.0.1"):
         output_dir = job["result"]["output_dir"]
         balances_job_id = create_job(kind="check-balances", label=job["label"])
         start_job(balances_job_id, _run_check_balances_job, output_dir, balances_job_id)
+        return redirect(url_for("scan_balances_status", job_id=balances_job_id))
+
+    @app.route("/scan/<job_id>/check-balances-selected", methods=["POST"])
+    def scan_check_balances_selected(job_id):
+        job = get_job(job_id)
+        if job is None or job.get("kind") != "find" or job["status"] != "done":
+            abort(404)
+
+        selected_files = request.form.getlist("files")
+        if not selected_files:
+            return render_template("scan.html", job_id=job_id, job=job, error="Select at least one file first."), 400
+
+        output_dir = job["result"]["output_dir"]
+        balances_job_id = create_job(kind="check-balances", label=f"{len(selected_files)} selected file(s)")
+        start_job(balances_job_id, _run_check_balances_selected_job, output_dir, selected_files, balances_job_id)
         return redirect(url_for("scan_balances_status", job_id=balances_job_id))
 
     @app.route("/scan/balances/<job_id>")
@@ -1123,6 +1138,48 @@ def _run_check_balances_job(output_dir, job_id):
                     record_finding(coin, address, balance, source_path=file_path, source_label="scan")
 
     return {"output_dir": output_dir}
+
+
+def _run_check_balances_selected_job(output_dir, selected_files, job_id):
+    """
+    Same finding-recording step as _run_check_balances_job, but scoped to
+    a chosen subset of files -- and, critically, writing to an isolated
+    location (output_dir/selections/<job_id>/), never
+    output_dir/checks/wallet_balances.json. That path belongs to the
+    whole-scan flow and may already hold real results for files outside
+    this selection; overwriting it here would silently destroy them.
+
+    No filter/relationship-graph stage (unlike run_pipeline.check_balances) --
+    both are about correlating across the whole scan, which a hand-picked
+    subset doesn't need, and skipping keeps a "just check these files" run
+    fast.
+    """
+    full_analysis = _read_json(Path(output_dir) / "checks" / "wallet_analysis.json") or {}
+    subset = {path: full_analysis[path] for path in selected_files if path in full_analysis}
+
+    selection_dir = Path(output_dir) / "selections" / job_id
+    checks_dir = selection_dir / "checks"
+    checks_dir.mkdir(parents=True, exist_ok=True)
+
+    subset_input_path = checks_dir / "wallet_analysis.json"
+    with open(subset_input_path, "w") as f:
+        json.dump(subset, f)
+
+    balances_path = checks_dir / "wallet_balances.json"
+    check_wallet_balances(
+        str(subset_input_path),
+        str(balances_path),
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
+
+    balances = _read_json(balances_path)
+    if balances:
+        for file_path, crypto_wallets in balances.items():
+            for coin, addresses in crypto_wallets.items():
+                for address, balance in addresses.items():
+                    record_finding(coin, address, balance, source_path=file_path, source_label="scan")
+
+    return {"output_dir": str(selection_dir)}
 
 
 def _read_json(path):
