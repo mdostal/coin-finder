@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-08-16
+
+### Added
+
+- **Scans survive an app quit, update, or crash now.** A directory scan's
+  file walk used to have zero checkpointing -- interrupting it (including
+  for an update) threw away all progress, forcing a full restart from
+  nothing. It now checkpoints every 200 directories or 20 seconds, and
+  re-scanning the same folder picks up from where it stopped instead of
+  starting over. The scan page also now surfaces any interrupted scan
+  with a one-click Resume button.
+
 ## [0.46.0] - 2026-08-16
 
 ### Added
