@@ -245,6 +245,8 @@ cython_debug/
 !.pHive/epics/scan-file-list-and-selective-actions/**
 !.pHive/epics/durable-scan-history/
 !.pHive/epics/durable-scan-history/**
+!.pHive/epics/parallel-balance-checks/
+!.pHive/epics/parallel-balance-checks/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

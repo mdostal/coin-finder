@@ -1,0 +1,94 @@
+id: pbc-01
+epic: parallel-balance-checks
+title: Worker-per-coin concurrency in check_wallet_balances
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+description: >
+  Restructure check_wallet_balances() to run one ThreadPoolExecutor worker
+  per coin instead of one fully serial loop over every address of every
+  coin of every file. Each worker still processes its own coin's
+  addresses sequentially, in original order, with the existing
+  retry/backoff -- only the across-coin structure changes from serial to
+  concurrent. Function signature, output file shapes, and every existing
+  call site are unchanged.
+acceptance_criteria:
+  - check_wallet_balances(input_file, output_file, coins_to_check=...,
+    inconclusive_output=..., progress_callback=...) keeps its exact
+    existing signature and return value shape.
+  - Every existing test in tests/test_check_wallet_balances.py passes
+    unmodified (all are single-coin, so worker-per-coin concurrency is a
+    no-op for them -- one coin means one worker thread).
+  - A new test proves genuine concurrency: two coins' mock services,
+    synchronized via threading.Event so each blocks until the other has
+    started its call, both complete -- proving the calls actually overlap
+    in wall-clock time, not just that the code runs without error.
+  - checked_count/progress_callback updates are thread-safe (a
+    threading.Lock around the shared counter + callback invocation) --
+    verified by a test with multiple coins x multiple addresses each,
+    asserting total call count equals total addresses and every
+    (current, total) pair from 1..N appears exactly once (order not
+    asserted, since cross-coin interleaving is legitimately
+    nondeterministic).
+  - Output correctness: with multiple coins across multiple files, the
+    final results dict has the exact same keys/values a serial run would
+    produce (built via mocked services with deterministic return values,
+    compared against the expected nested dict).
+  - No change to _check_balance_with_retries(), service classes, or
+    REQUEST_TIMEOUT_SECONDS -- concurrency is added only at the
+    per-coin-worker level.
+steps:
+  - phase: research
+    notes: >
+      Confirmed via tools/check_wallet_balances.py:61-133 -- fully serial
+      today. services/*.py -- 21 independent service classes, no shared
+      rate limit to serialize across. Existing tests
+      (tests/test_check_wallet_balances.py) are all single-coin, so a
+      worker-per-coin design is a behavior-preserving no-op for every one
+      of them.
+  - phase: test-spec
+    notes: >
+      Add to tests/test_check_wallet_balances.py: (1) concurrency proof
+      test using threading.Event-gated mock services for two coins, (2)
+      thread-safety test with multiple coins x multiple addresses
+      asserting the full (current, total) set (not exact order), (3)
+      multi-coin output-correctness test against an expected nested dict.
+      Confirm all pass red (concurrency proof test in particular must
+      fail against the current serial implementation, since serial
+      execution can't have both coins' calls overlap).
+  - phase: implement
+    notes: >
+      tools/check_wallet_balances.py: replace the nested
+      file/coin/address loop with (a) a precomputed per-coin list of
+      (file_path, address) pairs in original order, (b) pre-created
+      results[file_path] = {} entries for every file upfront, (c) a
+      ThreadPoolExecutor(max_workers=len(coins_present)) submitting one
+      _check_coin_balances(coin, pairs, ...) task per coin, (d) a
+      threading.Lock guarding the shared counter/inconclusive-dict/
+      progress_callback call.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - tools/check_wallet_balances.py
+    - tests/test_check_wallet_balances.py
+design_decisions:
+  - Worker granularity is per-coin, not per-address or per-file -- matches
+    exactly what was asked ("each org has its own and can be running at
+    the same time") and keeps each individual API's own call stream
+    sequential/backoff-respecting, avoiding any risk of one coin's API
+    rate-limiting or banning the app for hammering it with N concurrent
+    requests.
+  - max_workers = number of distinct coins actually present in this run
+    (not a fixed pool size) -- bounded naturally by the ~21 configured
+    services, no tuning knob needed.
+risks:
+  - Thread-safety of the shared counter/inconclusive dict/progress
+    callback -- addressed by a single lock around all three, kept as the
+    only shared-mutation surface.
+references:
+  - tools/check_wallet_balances.py
+  - services/__init__.py (REQUEST_TIMEOUT_SECONDS)
+  - config/wallet.py (WALLET_SERVICES)
+  - tests/test_check_wallet_balances.py
