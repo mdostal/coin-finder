@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-08-16
+
+### Fixed
+
+- **The transaction graph is now actually readable.** A real crawl with
+  a few hundred discovered addresses used to render as an unreadable
+  blob -- seed addresses stacked on top of each other, and every address
+  found at the same hop-distance crammed onto one fixed-size ring with
+  no way to zoom in. Replaced the renderer with Cytoscape.js (a real,
+  established graph library) -- proper ring spacing at any node count,
+  real zoom and pan, same hover-for-detail and click-to-copy as before.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `cytoscape-graph-rebuild`).
+
 ## [0.44.0] - 2026-08-16
 
 ### Fixed
