@@ -150,6 +150,98 @@ def list_run_edges(db_path=DEFAULT_DB_PATH):
         conn.close()
 
 
+# Weights, not a claim of precision -- co-spend is strong evidence (common-
+# input-ownership: building the tx requires every input's private key),
+# output is weaker (a real transfer, but transfers to third parties happen
+# too), cross-run corroboration (independently rediscovered by a separate
+# crawl) is a bonus on top of direct evidence, never a standalone signal.
+_COSPEND_WEIGHT = 5
+_OUTPUT_WEIGHT = 2
+_CROSS_RUN_BONUS = 3
+_HIGH_THRESHOLD = 10
+_MEDIUM_THRESHOLD = 4
+
+
+def _confidence_label(score):
+    if score >= _HIGH_THRESHOLD:
+        return "High"
+    if score >= _MEDIUM_THRESHOLD:
+        return "Medium"
+    return "Low"
+
+
+def compute_confidence_scores(known_addresses, db_path=DEFAULT_DB_PATH):
+    """
+    Ranks every discovered address that is NOT already known against how
+    strongly it's directly linked -- by real, distinct transactions -- to
+    the known set. Deliberately conservative: only DIRECT edges to a known
+    address count (no transitive/multi-hop credit), so this never inflates
+    a loose, several-hops-away association into a confident suggestion.
+
+    Every entry carries its raw breakdown alongside the label -- a
+    confidence_label is never returned without the counts that produced it,
+    matching every other confidence signal in this app (crawl_wallet_cluster's
+    seed/co-spend/output tags, render_cluster_report's explicit "candidate,
+    not certain" framing). These are suggestions to investigate, not
+    findings -- a candidate becomes a real finding only once its balance is
+    actually checked.
+
+    :param known_addresses: the addresses already confirmed (typically
+        every Bitcoin address in web.findings.list_findings()).
+    :return: [{"address", "score", "confidence_label",
+        "direct_cospend_count", "direct_output_count", "cross_run_count"},
+        ...], highest score first. Only addresses with a nonzero score
+        (i.e. at least one direct edge to a known address) are included.
+    """
+    known_addresses = set(known_addresses)
+
+    conn = _connect(db_path)
+    try:
+        edge_rows = conn.execute("SELECT DISTINCT from_address, to_address, edge_type, txid FROM run_edges").fetchall()
+        run_count_rows = conn.execute("SELECT address, COUNT(DISTINCT run_id) AS run_count FROM run_addresses GROUP BY address").fetchall()
+    finally:
+        conn.close()
+
+    run_counts = {row["address"]: row["run_count"] for row in run_count_rows}
+
+    cospend_txids = {}
+    output_txids = {}
+    for row in edge_rows:
+        frm, to, edge_type, txid = row["from_address"], row["to_address"], row["edge_type"], row["txid"]
+        if frm in known_addresses and to not in known_addresses:
+            candidate = to
+        elif to in known_addresses and frm not in known_addresses:
+            candidate = frm
+        else:
+            continue  # neither side known (no direct evidence yet), or both known (nothing new to suggest)
+
+        bucket = cospend_txids if edge_type == "co-spend" else output_txids
+        bucket.setdefault(candidate, set()).add(txid)
+
+    candidates = set(cospend_txids) | set(output_txids)
+    scored = []
+    for address in candidates:
+        cospend_count = len(cospend_txids.get(address, ()))
+        output_count = len(output_txids.get(address, ()))
+        cross_run_count = run_counts.get(address, 0)
+        cross_run_bonus = _CROSS_RUN_BONUS if cross_run_count > 1 else 0
+
+        score = _COSPEND_WEIGHT * cospend_count + _OUTPUT_WEIGHT * output_count + cross_run_bonus
+        scored.append(
+            {
+                "address": address,
+                "score": score,
+                "confidence_label": _confidence_label(score),
+                "direct_cospend_count": cospend_count,
+                "direct_output_count": output_count,
+                "cross_run_count": cross_run_count,
+            }
+        )
+
+    scored.sort(key=lambda entry: entry["score"], reverse=True)
+    return scored
+
+
 def find_overlap_addresses(db_path=DEFAULT_DB_PATH):
     """
     The actual group-view signal: every address discovered by MORE THAN ONE

@@ -31,7 +31,7 @@ from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
-from web.crawl_runs import clear_all_crawl_runs, find_overlap_addresses, list_crawl_runs, record_crawl_run
+from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, list_crawl_runs, record_crawl_run
 from web.scan_history import clear_scan_history, list_scan_history, record_scan
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
@@ -557,7 +557,12 @@ def create_app(host="127.0.0.1"):
             findings=list_findings(include_archived=include_archived),
             include_archived=include_archived,
             overlap_count=len(find_overlap_addresses()),
+            related_count=len(compute_confidence_scores(_known_bitcoin_addresses())),
         )
+
+    @app.route("/findings/related")
+    def findings_related():
+        return render_template("related_accounts.html", candidates=compute_confidence_scores(_known_bitcoin_addresses()))
 
     @app.route("/findings/archive", methods=["POST"])
     def findings_archive():
@@ -926,6 +931,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "findings_clear_all": "findings",
     "group_view_page": "findings",
     "group_view_clear": "findings",
+    "findings_related": "findings",
     # About -- update mechanics + network transparency.
     "network_page": "about",
     "update_page": "about",
@@ -950,6 +956,21 @@ def _split_lines(raw):
     if not raw:
         return []
     return [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def _known_bitcoin_addresses():
+    """
+    The "known accounts" set for confidence scoring -- Bitcoin findings
+    with a real, nonzero balance, or explicitly watched. NOT every
+    Bitcoin finding: _run_crawl_job already record_finding()s every
+    single address a crawl discovers (co-spend/output partners included,
+    regardless of balance) -- caught live, this meant every scored
+    candidate was already "known" the instant its own discovery crawl
+    finished, making scoring return nothing. A zero-balance address a
+    crawl happened to touch isn't one of "our other accounts"; a real
+    balance or an explicit watch is.
+    """
+    return [f["address"] for f in list_findings(include_archived=True) if f["coin"] == "Bitcoin" and (f.get("balance") or f.get("watched"))]
 
 
 DEFAULT_CRAWL_GENERATIONS = 2

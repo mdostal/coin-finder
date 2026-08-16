@@ -3,6 +3,7 @@ import time
 
 from web.crawl_runs import (
     clear_all_crawl_runs,
+    compute_confidence_scores,
     find_overlap_addresses,
     list_crawl_runs,
     list_run_edges,
@@ -142,3 +143,133 @@ def test_record_crawl_run_with_empty_edges_list_writes_nothing(tmp_path):
     db_path = tmp_path / "crawl_runs.db"
     record_crawl_run(["1seed"], SAMPLE_RESULTS, edges=[], db_path=db_path)
     assert list_run_edges(db_path=db_path) == []
+
+
+def _address_info(confidence="co-spend", generation=1, balance=None):
+    return {"confidence": confidence, "generation": generation, "balance": balance, "last_activity_timestamp": None, "dormant_years": None}
+
+
+def test_compute_confidence_scores_excludes_addresses_with_no_edge_evidence(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1known"], {"1known": _address_info("seed", 0), "1unrelated": _address_info()}, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known"], db_path=db_path)
+
+    assert scores == []
+
+
+def test_compute_confidence_scores_weighs_co_spend_evidence_with_a_known_address(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    results = {"1known": _address_info("seed", 0), "1candidate": _address_info()}
+    edges = [{"from": "1known", "to": "1candidate", "type": "co-spend", "txid": "tx1"}]
+    record_crawl_run(["1known"], results, edges=edges, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known"], db_path=db_path)
+
+    assert len(scores) == 1
+    assert scores[0]["address"] == "1candidate"
+    assert scores[0]["direct_cospend_count"] == 1
+    assert scores[0]["direct_output_count"] == 0
+    assert scores[0]["score"] > 0
+
+
+def test_compute_confidence_scores_ranks_co_spend_above_output_evidence(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    results = {
+        "1known": _address_info("seed", 0),
+        "1cospend_candidate": _address_info(),
+        "1output_candidate": _address_info("output"),
+    }
+    edges = [
+        {"from": "1known", "to": "1cospend_candidate", "type": "co-spend", "txid": "tx1"},
+        {"from": "1known", "to": "1output_candidate", "type": "output", "txid": "tx2"},
+    ]
+    record_crawl_run(["1known"], results, edges=edges, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known"], db_path=db_path)
+    by_address = {s["address"]: s for s in scores}
+
+    assert by_address["1cospend_candidate"]["score"] > by_address["1output_candidate"]["score"]
+
+
+def test_compute_confidence_scores_additional_transactions_increase_score_but_not_linearly_per_bonus(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    results = {"1known": _address_info("seed", 0), "1candidate": _address_info()}
+    two_tx_edges = [
+        {"from": "1known", "to": "1candidate", "type": "co-spend", "txid": "tx1"},
+        {"from": "1known", "to": "1candidate", "type": "co-spend", "txid": "tx2"},
+    ]
+    record_crawl_run(["1known"], results, edges=two_tx_edges, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known"], db_path=db_path)
+
+    assert scores[0]["direct_cospend_count"] == 2
+
+
+def test_compute_confidence_scores_excludes_addresses_already_known(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    results = {"1known": _address_info("seed", 0), "1alsoknown": _address_info()}
+    edges = [{"from": "1known", "to": "1alsoknown", "type": "co-spend", "txid": "tx1"}]
+    record_crawl_run(["1known"], results, edges=edges, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known", "1alsoknown"], db_path=db_path)
+
+    assert scores == []
+
+
+def test_compute_confidence_scores_deduplicates_edges_across_separate_runs(tmp_path):
+    """Same txid recorded by two separate saved runs (e.g. the candidate
+    was independently re-discovered) must not double the transaction
+    count -- it's the same real-world transaction."""
+    db_path = tmp_path / "crawl_runs.db"
+    results = {"1known": _address_info("seed", 0), "1candidate": _address_info()}
+    edges = [{"from": "1known", "to": "1candidate", "type": "co-spend", "txid": "tx1"}]
+    record_crawl_run(["1known"], results, edges=edges, db_path=db_path)
+    record_crawl_run(["1known"], results, edges=edges, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known"], db_path=db_path)
+
+    assert scores[0]["direct_cospend_count"] == 1
+
+
+def test_compute_confidence_scores_cross_run_bonus_requires_direct_evidence_too(tmp_path):
+    """Cross-run corroboration is a bonus on top of direct evidence, not a
+    standalone signal -- an address appearing in multiple runs but never
+    directly linked to a known address in the recorded edges scores 0."""
+    db_path = tmp_path / "crawl_runs.db"
+    results = {"1seed": _address_info("seed", 0), "1candidate": _address_info()}
+    record_crawl_run(["1seed"], results, db_path=db_path)
+    record_crawl_run(["1otherseed"], results, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known-address-not-present"], db_path=db_path)
+
+    assert scores == []
+
+
+def test_compute_confidence_scores_sorted_highest_first(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    results = {
+        "1known": _address_info("seed", 0),
+        "1strong": _address_info(),
+        "1weak": _address_info("output"),
+    }
+    edges = [
+        {"from": "1known", "to": "1strong", "type": "co-spend", "txid": "tx1"},
+        {"from": "1known", "to": "1weak", "type": "output", "txid": "tx2"},
+    ]
+    record_crawl_run(["1known"], results, edges=edges, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known"], db_path=db_path)
+
+    assert [s["address"] for s in scores] == ["1strong", "1weak"]
+
+
+def test_compute_confidence_scores_labels_are_derived_from_score_not_arbitrary(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    results = {"1known": _address_info("seed", 0), "1candidate": _address_info()}
+    edges = [{"from": "1known", "to": "1candidate", "type": "co-spend", "txid": "tx1"}]
+    record_crawl_run(["1known"], results, edges=edges, db_path=db_path)
+
+    scores = compute_confidence_scores(["1known"], db_path=db_path)
+
+    assert scores[0]["confidence_label"] in ("High", "Medium", "Low")

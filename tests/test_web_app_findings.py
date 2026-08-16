@@ -19,7 +19,11 @@ def test_findings_page_loads(mock_list, client):
     ]
     resp = client.get("/findings")
     assert resp.status_code == 200
-    mock_list.assert_called_once_with(include_archived=False)
+    # Called twice: once for the display list (respecting the
+    # include_archived query param), once internally for the
+    # confidence-scoring known-address set (always wants every known
+    # address, archived or not -- an archived finding is still known).
+    mock_list.assert_any_call(include_archived=False)
 
 
 @patch("web.app.list_findings")
@@ -40,7 +44,7 @@ def test_findings_page_include_archived_query_param(mock_list, client):
     mock_list.return_value = []
     resp = client.get("/findings?include_archived=1")
     assert resp.status_code == 200
-    mock_list.assert_called_once_with(include_archived=True)
+    mock_list.assert_any_call(include_archived=True)
 
 
 @patch("web.app.archive")

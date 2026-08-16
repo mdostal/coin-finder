@@ -29,6 +29,14 @@ below) always sort to the top.</p>
 </div>
 {% endif %}
 
+{% if related_count %}
+<div class="banner" style="margin-top:1rem">
+  <strong>{{ related_count }} candidate account(s)</strong> directly linked to a known finding by
+  real transactions -- confidence-scored, not certain.
+  <a href="{{ url_for('findings_related') }}">View related accounts &rarr;</a>
+</div>
+{% endif %}
+
 {% if findings %}
 {% set has_bitcoin_findings = findings | selectattr("coin", "equalto", "Bitcoin") | list %}
 {% if has_bitcoin_findings %}

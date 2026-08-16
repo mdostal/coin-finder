@@ -88,3 +88,85 @@ def test_findings_page_shows_overlap_banner_when_addresses_overlap(mock_overlaps
     assert resp.status_code == 200
     assert b'href="/findings/group-view"' in resp.data
     assert b"2" in resp.data
+
+
+@patch("web.app.compute_confidence_scores")
+def test_findings_page_hides_related_accounts_link_when_nothing_scores(mock_scores, client):
+    mock_scores.return_value = []
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b'href="/findings/related"' not in resp.data
+
+
+@patch("web.app.compute_confidence_scores")
+def test_findings_page_shows_related_accounts_banner_when_candidates_exist(mock_scores, client):
+    mock_scores.return_value = [{"address": "1candidate", "score": 10, "confidence_label": "High", "direct_cospend_count": 2, "direct_output_count": 0, "cross_run_count": 1}]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b'href="/findings/related"' in resp.data
+
+
+@patch("web.app.compute_confidence_scores")
+def test_findings_related_page_shows_empty_state(mock_scores, client):
+    mock_scores.return_value = []
+
+    resp = client.get("/findings/related")
+
+    assert resp.status_code == 200
+    assert b"no" in resp.data.lower()
+
+
+@patch("web.app.compute_confidence_scores")
+def test_findings_related_page_shows_scored_candidates_with_breakdown(mock_scores, client):
+    mock_scores.return_value = [
+        {"address": "1strong", "score": 12, "confidence_label": "High", "direct_cospend_count": 2, "direct_output_count": 1, "cross_run_count": 2},
+    ]
+
+    resp = client.get("/findings/related")
+
+    assert resp.status_code == 200
+    assert b"1strong" in resp.data
+    assert b"High" in resp.data
+    assert b"2" in resp.data  # direct_cospend_count appears somewhere in the breakdown
+    assert b"candidate" in resp.data.lower()  # explicit non-certainty framing
+
+
+@patch("web.app.compute_confidence_scores")
+def test_findings_related_page_only_scores_bitcoin_findings_as_known(mock_scores, client):
+    with patch(
+        "web.app.list_findings",
+        return_value=[{"coin": "Bitcoin", "address": "1btc", "balance": 0.5, "watched": 0}, {"coin": "Ethereum", "address": "0xabc", "balance": 0.5, "watched": 0}],
+    ):
+        client.get("/findings/related")
+
+    known_addresses_arg = mock_scores.call_args[0][0]
+    assert list(known_addresses_arg) == ["1btc"]
+
+
+@patch("web.app.compute_confidence_scores")
+def test_known_addresses_excludes_zero_balance_crawl_noise(mock_scores, client):
+    """
+    Regression: _run_crawl_job record_finding()s every discovered address
+    regardless of balance -- a zero-balance address a crawl happened to
+    touch must not count as "known" (it would make every scored
+    candidate instantly "already known" the moment its own discovery
+    crawl finishes, exactly the bug caught live during this story).
+    """
+    with patch(
+        "web.app.list_findings",
+        return_value=[
+            {"coin": "Bitcoin", "address": "1zero", "balance": 0.0, "watched": 0},
+            {"coin": "Bitcoin", "address": "1real", "balance": 0.5, "watched": 0},
+            {"coin": "Bitcoin", "address": "1watched", "balance": None, "watched": 1},
+        ],
+    ):
+        client.get("/findings/related")
+
+    known_addresses_arg = list(mock_scores.call_args[0][0])
+    assert "1zero" not in known_addresses_arg
+    assert "1real" in known_addresses_arg
+    assert "1watched" in known_addresses_arg
