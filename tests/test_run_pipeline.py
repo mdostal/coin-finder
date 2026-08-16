@@ -101,8 +101,68 @@ def test_find_returns_summary_without_checking_balances(tmp_path):
         "files_found": 2,
         "coin_counts": {"Bitcoin": 3, "Litecoin": 1},
         "total_address_instances": 4,
+        "files": [
+            {"path": "walletA.dat", "coins": {"Bitcoin": ["1abc", "1def"]}},
+            {"path": "walletB.dat", "coins": {"Bitcoin": ["1ghi"], "Litecoin": ["Labc"]}},
+        ],
     }
     assert (output_dir / "checks" / "wallet_analysis.json").exists()
+
+
+def test_find_sorts_files_by_total_address_count_descending(tmp_path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets"), \
+         patch("run_pipeline.analyze_wallets") as mock_analyze, \
+         patch("run_pipeline.check_wallet_balances"):
+        mock_analyze.side_effect = _fake_analyze(
+            {
+                "sparse.dat": {"Bitcoin": ["1a"]},
+                "dense.dat": {"Bitcoin": ["1b", "1c"], "Litecoin": ["Lb", "Lc", "Ld"]},
+                "medium.dat": {"Bitcoin": ["1d", "1e"]},
+            }
+        )
+
+        summary = run_pipeline.find(str(input_dir), str(output_dir))
+
+    paths_in_order = [f["path"] for f in summary["files"]]
+    assert paths_in_order == ["dense.dat", "medium.dat", "sparse.dat"]
+
+
+def test_find_files_summary_includes_the_actual_addresses_not_just_counts(tmp_path):
+    """A caller (e.g. a selective graph/fork-coins action) needs the real
+    addresses, not just how many were found -- same analysis dict is
+    already in memory, no reason to only expose counts."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets"), \
+         patch("run_pipeline.analyze_wallets") as mock_analyze, \
+         patch("run_pipeline.check_wallet_balances"):
+        mock_analyze.side_effect = _fake_analyze({"wallet.dat": {"Bitcoin": ["1abc", "1def"]}})
+
+        summary = run_pipeline.find(str(input_dir), str(output_dir))
+
+    assert summary["files"][0]["coins"]["Bitcoin"] == ["1abc", "1def"]
+
+
+def test_find_files_summary_never_includes_a_zero_coin_file(tmp_path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets"), \
+         patch("run_pipeline.analyze_wallets") as mock_analyze, \
+         patch("run_pipeline.check_wallet_balances"):
+        mock_analyze.side_effect = _fake_analyze({"empty.dat": {}, "real.dat": {"Bitcoin": ["1a"]}})
+
+        summary = run_pipeline.find(str(input_dir), str(output_dir))
+
+    paths = [f["path"] for f in summary["files"]]
+    assert paths == ["real.dat"]
 
 
 def test_check_balances_requires_a_prior_find(tmp_path):

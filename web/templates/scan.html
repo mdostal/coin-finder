@@ -30,6 +30,30 @@
     loosely-matching coin (OKCash, DigiByte, Ripple) against a directory full of source/doc text
     usually means false positives, not real addresses. Skim the numbers before committing to the
     slow stage below.</p>
+
+    <h3>Files matched</h3>
+    <table>
+      <thead><tr><th></th><th>File</th><th>Coins matched</th></tr></thead>
+      <tbody>
+        {% for f in job.result.files %}
+        <tr>
+          <td>
+            {% if "Bitcoin" in f.coins %}
+            <input type="checkbox" class="bulk-select" value="{{ f.path }}" data-addresses="{{ f.coins.Bitcoin | join(',') }}">
+            {% else %}
+            <input type="checkbox" class="bulk-select" value="{{ f.path }}">
+            {% endif %}
+          </td>
+          <td><code>{{ f.path }}</code></td>
+          <td>
+            {% for coin, addresses in f.coins.items() %}
+            {{ coin }} ({{ addresses | length }}){{ ", " if not loop.last }}
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
     {% else %}
     <p class="empty">No wallet-shaped files found.</p>
     {% endif %}

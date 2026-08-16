@@ -56,11 +56,22 @@ def find(input_dir, output_dir, index_db_path=None):
         for coin, addresses in coins.items():
             coin_counts[coin] = coin_counts.get(coin, 0) + len(addresses)
 
+    # Same `analysis` dict already loaded above to build coin_counts --
+    # no new I/O. Full address lists per coin (not just counts) so a
+    # caller can act on them directly (e.g. sfl-02's selective graph/
+    # fork-coins actions) without a second read of wallet_analysis.json.
+    # Sorted most-address-dense-file-first (the ones most likely worth
+    # checking), stable on ties (Python's sort preserves analyze_wallets'
+    # own file order for equal counts).
+    files = [{"path": file_path, "coins": coins} for file_path, coins in analysis.items() if coins]
+    files.sort(key=lambda f: sum(len(addrs) for addrs in f["coins"].values()), reverse=True)
+
     return {
         "output_dir": output_dir,
         "files_found": len(analysis),
         "coin_counts": coin_counts,
         "total_address_instances": sum(coin_counts.values()),
+        "files": files,
     }
 
 
