@@ -12,6 +12,7 @@
 /web/bound_targets.json
 /web/mounts_state.json
 /web/findings.db
+/web/crawl_runs.db
 
 # Portunus-unavailable fallback vault (plaintext local store) -- never commit
 /web/vault_fallback.env

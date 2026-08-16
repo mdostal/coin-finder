@@ -411,6 +411,15 @@ def create_app(host="127.0.0.1"):
         clear_all_findings()
         return redirect(url_for("findings_page"))
 
+    @app.route("/findings/group-view")
+    def group_view_page():
+        return render_template("group_view.html", overlaps=find_overlap_addresses(), runs=list_crawl_runs())
+
+    @app.route("/findings/group-view/clear", methods=["POST"])
+    def group_view_clear():
+        clear_all_crawl_runs()
+        return redirect(url_for("group_view_page"))
+
     @app.route("/item/stage", methods=["POST"])
     def item_stage():
         file_path = (request.form.get("file_path") or "").strip()
@@ -718,6 +727,8 @@ _NAV_GROUP_BY_ENDPOINT = {
     "findings_watch": "findings",
     "findings_unwatch": "findings",
     "findings_clear_all": "findings",
+    "group_view_page": "findings",
+    "group_view_clear": "findings",
     # About -- update mechanics + network transparency.
     "network_page": "about",
     "update_page": "about",

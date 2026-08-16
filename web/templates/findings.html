@@ -14,6 +14,7 @@ below) always sort to the top.</p>
   <form method="post" action="{{ url_for('findings_clear_all') }}" style="display:inline" onsubmit="return confirm('Clear ALL findings? This deletes every row -- watched, archived, everything -- and cannot be undone.');">
     <button type="submit" class="btn-secondary">Clear all findings</button>
   </form>
+  <a href="{{ url_for('group_view_page') }}" class="subtle">Group view (cross-crawl overlaps)</a>
   {% if include_archived %}
   <a href="{{ url_for('findings_page') }}" class="subtle">Hide archived</a>
   {% else %}
