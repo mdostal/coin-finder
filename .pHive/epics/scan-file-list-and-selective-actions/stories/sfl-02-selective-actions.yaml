@@ -1,0 +1,89 @@
+id: sfl-02-selective-actions
+epic: scan-file-list-and-selective-actions
+title: Selective check-balances + bulk graph/fork-coins for selected files
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [sfl-01-expose-file-list]
+
+description: |
+  Wire the per-file checkboxes from sfl-01 to real actions: check balances
+  for just the selected files (new route, isolated output, never
+  overwrites the full scan's own results), or graph/check-fork-coins their
+  Bitcoin addresses directly (reusing the existing /item/crawl and
+  /item/fork-coins routes unmodified, same bulk-select JS pattern as
+  findings.html/findings.js).
+
+acceptance_criteria:
+  - "Given POST /scan/<job_id>/check-balances-selected with a list of file paths, then it runs check_wallet_balances() against a filtered subset containing only those files, writing to an isolated output location that never touches the full scan's own wallet_balances.json"
+  - "Given that job completes, then it records findings the same way _run_check_balances_job does, and renders through the existing scan_balances.html template"
+  - "Given zero files selected, then the route refuses with an error and starts no job"
+  - "Given the Find results page, then a bulk toolbar lets you check+submit 'Check balances for selected', 'Graph selected', or 'Check fork coins for selected' -- the latter two reusing /item/crawl and /item/fork-coins unmodified, sourcing Bitcoin addresses from the selected files' own analysis data"
+  - "Given a selected file has no Bitcoin addresses, then Graph/Check-fork-coins simply contribute nothing from it (no error) -- only Bitcoin addresses are ever sent to those two Bitcoin-only tools"
+
+steps:
+  - id: research
+    description: Re-confirm findings.js's exact bulk-select pattern (checkbox collection, formaction override) before adapting it for file-sourced addresses.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the new route (isolated output, no-selection refusal, finding-recording) and the bulk toolbar's Bitcoin-address extraction, modeled on tests/test_web_app.py and tests/test_web_app_findings.py.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: |
+      Add POST /scan/<job_id>/check-balances-selected + its job function to
+      web/app.py; add the bulk toolbar to scan.html with checkboxes
+      carrying data-addresses (Bitcoin only); new web/static/scan.js
+      (adapted from findings.js) for the JS collection step.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: |
+      Confirm the selective check-balances path writes to an isolated
+      location and never overwrites the full scan's own wallet_balances.json
+      (a real risk called out in design-discussion.md §3) -- verify with a
+      direct test asserting the full-scan output file's mtime/content is
+      unchanged after a selective run.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: |
+      Commit on feat/scan-file-list-and-selective-actions, bump
+      version_bump: minor across all four version sources, CHANGELOG
+      entry, rebuild sidecar + tauri build, gh release, install after
+      confirming 0 jobs running.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/app.py
+      purpose: "_run_check_balances_job (~line 1110) is the reference for the finding-recording step; scan_check_balances (~line 179) is the reference route shape."
+    - path: tools/check_wallet_balances.py
+      purpose: "check_wallet_balances(input_file, output_file, ...) -- takes a plain path, no run_pipeline.check_balances() wrapper needed for a selective run."
+    - path: web/static/findings.js
+      purpose: "The exact bulk-select-checkbox + formaction-override pattern to adapt (findings.js collects checkbox values directly; this needs data-addresses instead, since one file can carry several addresses)."
+    - path: web/templates/scan_balances.html
+      purpose: "The existing results template this story's new route renders through, unmodified."
+
+files_to_modify:
+  - file: web/app.py
+    change: "Add POST /scan/<job_id>/check-balances-selected + _run_check_balances_selected_job."
+  - file: web/templates/scan.html
+    change: "Bulk toolbar: checkboxes with data-addresses, three action buttons."
+  - file: web/static/scan.js
+    change: "New file -- bulk-select JS adapted from findings.js (data-addresses union instead of checkbox values)."
+  - file: tests/test_web_app.py
+    change: "Extend with the new route's tests."
+
+design_decisions:
+  - decision: "Selective check-balances writes to an isolated output location, not output_dir/checks/wallet_balances.json."
+    rationale: "That path is the full scan's own shared result file -- a selective run overwriting it would silently destroy previously-computed results for files not in this selection. Isolated per-job output avoids that entirely."
+  - decision: "No filter/relationship-graph stage for a selective run."
+    rationale: "Both are about correlating across the whole scan; a hand-picked subset doesn't need them, and skipping keeps a 'just check these two files' run fast, matching the user's own 'fire off just balance check' framing."
+
+risks:
+  - severity: medium
+    description: "Overwriting the full scan's shared results file would be a real, silent data-loss bug."
+    mitigation: "Isolated output location (own design decision above) plus an explicit review-step test asserting the full scan's own output file is untouched after a selective run."

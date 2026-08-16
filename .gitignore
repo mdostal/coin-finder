@@ -240,6 +240,8 @@ cython_debug/
 !.pHive/epics/editable-vault-entries/**
 !.pHive/epics/auto-unlock/
 !.pHive/epics/auto-unlock/**
+!.pHive/epics/scan-file-list-and-selective-actions/
+!.pHive/epics/scan-file-list-and-selective-actions/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
