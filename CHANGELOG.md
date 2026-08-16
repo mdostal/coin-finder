@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-08-15
+
+### Fixed
+
+- **External links (rclone.org, github.com, etc.) opened *inside* the app's
+  own window, with no back button and no way out short of force-quitting.**
+  The first attempt at a fix relied on JS calling
+  `window.__TAURI__.opener.openUrl()`, which never actually worked: Tauri
+  only injects that bridge into origins it trusts by default, and the page
+  this app shows is served by its own local sidecar at
+  `http://127.0.0.1:5050` -- a plain HTTP origin that doesn't automatically
+  qualify, a known Tauri limitation
+  (tauri-apps/tauri#7009, tauri-apps/tauri#11934). Reproduced and confirmed
+  live before shipping this fix: the link opened in-window exactly as
+  reported.
+  Rewritten to intercept navigation on the **Rust side** instead
+  (`on_navigation` in `src-tauri/src/lib.rs`): any navigation that isn't
+  the bundled loading page or the sidecar's own origin is cancelled and
+  handed to the OS default browser via the opener plugin, called directly
+  from Rust. This doesn't depend on any JS bridge being present at all, so
+  it can't have the same failure mode. The now-dead client-side
+  interceptor (`web/static/external-links.js`) and its now-unnecessary
+  `opener:default` capability permission were removed along with it.
+
 ## [0.31.0] - 2026-08-15
 
 ### Added

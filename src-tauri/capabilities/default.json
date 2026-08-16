@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window. Grants permission to execute the bundled coin-finder sidecar (by its registered externalBin name, sidecar-scoped, with a fixed argument list) plus Tauri's own default core permissions (window/event/webview management etc). No filesystem plugin, no HTTP/network plugin beyond the sidecar itself, no shell access beyond this one named command, no updater, no analytics/telemetry.",
+  "description": "Capability for the main window. Grants permission to execute the bundled coin-finder sidecar (by its registered externalBin name, sidecar-scoped, with a fixed argument list) plus Tauri's own default core permissions (window/event/webview management etc). External links (rclone.org, github.com, etc.) are opened in the OS default browser via a Rust-side on_navigation hook in src-tauri/src/lib.rs, which calls the opener plugin directly from Rust -- that path doesn't go through the JS invoke bridge at all, so no opener permission is needed here. No filesystem plugin, no HTTP/network plugin beyond the sidecar itself, no shell access beyond the one named sidecar command, no updater, no analytics/telemetry.",
   "windows": ["main"],
   "permissions": [
     "core:default",

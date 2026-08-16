@@ -22,7 +22,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -51,6 +52,27 @@ pub fn healthz_url(host: &str, port: u16) -> String {
 
 pub fn app_url(host: &str, port: u16) -> String {
     format!("http://{host}:{port}/")
+}
+
+/// True for navigation the window should perform itself: the bundled
+/// `tauri://localhost/loading.html` page, or any page served by our own
+/// sidecar (every route the Flask app renders is a same-origin full-page
+/// navigation, not an SPA, so this has to cover the whole app, not just the
+/// first load). Anything else -- rclone.org, github.com, electrum.org, any
+/// external link this app ever renders -- is not.
+///
+/// This intentionally does NOT depend on `window.__TAURI__` being injected
+/// into the sidecar's page. It isn't: Tauri only injects the IPC bridge
+/// into origins it trusts by default, and `http://127.0.0.1:5050` (a plain
+/// remote-looking origin as far as the webview is concerned, even though
+/// it's our own sidecar) doesn't qualify without extra config that has its
+/// own known bugs matching bare IP addresses
+/// (https://github.com/tauri-apps/tauri/issues/7009). Deciding this in
+/// Rust via `on_navigation` sidesteps that whole class of bug -- it runs
+/// regardless of what JS is or isn't available on the page.
+pub fn is_internal_navigation(url: &tauri::Url) -> bool {
+    url.scheme() == "tauri"
+        || (url.host_str() == Some(SIDECAR_HOST) && url.port() == Some(SIDECAR_PORT))
 }
 
 /// Cheap liveness probe against the sidecar's `/healthz` route (see
@@ -213,8 +235,40 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(sidecar_state.clone())
         .setup(move |app| {
+            // Built imperatively (not via tauri.conf.json's `windows`
+            // array) specifically so `on_navigation` can be attached --
+            // that hook is builder-only, there's no way to bolt it onto a
+            // window Tauri auto-created from config. This is also the
+            // fix for a real bug hit in testing: an external link
+            // (rclone.org) opened *inside* this window with no way back,
+            // because the old fix relied on JS calling
+            // `window.__TAURI__.opener.openUrl()`, and that bridge was
+            // never actually present on the sidecar's origin. Blocking
+            // and redirecting non-internal navigation here in Rust
+            // doesn't have that dependency.
+            let nav_app_handle = app.handle().clone();
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("loading.html".into()))
+                .title("Coin Finder")
+                .inner_size(1200.0, 850.0)
+                .on_navigation(move |url| {
+                    if is_internal_navigation(url) {
+                        return true;
+                    }
+                    if let Err(err) = nav_app_handle
+                        .opener()
+                        .open_url(url.to_string(), None::<&str>)
+                    {
+                        eprintln!(
+                            "coin-finder: failed to open external url {url} in browser: {err}"
+                        );
+                    }
+                    false
+                })
+                .build()?;
+
             // Must return immediately -- see spawn_sidecar_in_background's
             // doc comment.
             spawn_sidecar_in_background(app.handle().clone(), sidecar_state.clone());
@@ -265,6 +319,30 @@ mod tests {
     #[test]
     fn app_url_matches_flask_root() {
         assert_eq!(app_url("127.0.0.1", 5050), "http://127.0.0.1:5050/");
+    }
+
+    #[test]
+    fn internal_navigation_allows_bundled_loading_page() {
+        let url = tauri::Url::parse("tauri://localhost/loading.html").unwrap();
+        assert!(is_internal_navigation(&url));
+    }
+
+    #[test]
+    fn internal_navigation_allows_sidecar_origin() {
+        let url = tauri::Url::parse("http://127.0.0.1:5050/mounts").unwrap();
+        assert!(is_internal_navigation(&url));
+    }
+
+    #[test]
+    fn internal_navigation_rejects_external_host() {
+        let url = tauri::Url::parse("https://rclone.org/").unwrap();
+        assert!(!is_internal_navigation(&url));
+    }
+
+    #[test]
+    fn internal_navigation_rejects_localhost_wrong_port() {
+        let url = tauri::Url::parse("http://127.0.0.1:9999/").unwrap();
+        assert!(!is_internal_navigation(&url));
     }
 
     fn spawn_fake_healthz_server(status_line: &'static str) -> String {
