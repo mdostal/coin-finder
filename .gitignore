@@ -13,6 +13,7 @@
 /web/mounts_state.json
 /web/findings.db
 /web/crawl_runs.db
+/web/scan_index.db
 
 # Portunus-unavailable fallback vault (plaintext local store) -- never commit
 /web/vault_fallback.env
@@ -231,6 +232,8 @@ cython_debug/
 !.pHive/epics/findings-dashboard/**
 !.pHive/epics/group-view-graph/
 !.pHive/epics/group-view-graph/**
+!.pHive/epics/scan-dedup-index/
+!.pHive/epics/scan-dedup-index/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

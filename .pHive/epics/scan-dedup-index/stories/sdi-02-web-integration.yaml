@@ -1,0 +1,64 @@
+id: sdi-02-web-integration
+epic: scan-dedup-index
+title: Wire into the web app (on by default) + management UI
+status: pending
+complexity: low
+methodology: tdd
+depends_on: [sdi-01-scan-index-core]
+
+description: |
+  Wire sdi-01's dedup index into the web app's scan flow, on by default
+  (the multi-drive, multi-day scanning use case is the whole point of this
+  epic), with an opt-out checkbox and a small management card (count +
+  clear) on the scan page.
+
+acceptance_criteria:
+  - "Given a normal scan via the web UI, when _run_find_job runs, then it passes tools.scan_index.DEFAULT_DB_PATH as index_db_path by default"
+  - "Given the scan form's dedup checkbox is unchecked, when a scan starts, then index_db_path is None for that run (dedup off)"
+  - "Given the scan page, then it shows how many files are in the dedup index and offers a confirm-guarded 'Clear index' action, mirroring findings_clear_all/group_view_clear"
+
+steps:
+  - id: research
+    description: Confirm start_scan()/_run_find_job()'s current signature and index.html's existing form fields.
+    agent: researcher
+  - id: test-spec
+    description: Write failing route tests for the checkbox threading and the clear-index action, modeled on tests/test_web_app_group_view.py.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Add the checkbox to index.html's scan form; thread it through start_scan -> _run_find_job -> run_pipeline.find(); add GET count + POST clear route; small card on index.html.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm the checkbox defaults to checked (on), and clear only touches scan_index.db, never findings.db or crawl_runs.db.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: |
+      Commit on feat/scan-dedup-index, bump version_bump: minor across all
+      four version sources, CHANGELOG entry, rebuild sidecar + tauri build,
+      gh release, install after confirming 0 jobs running.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/app.py
+      purpose: "start_scan() (~line 144) and _run_find_job() (~line 921) -- the two call sites that need the new param threaded through."
+    - path: web/templates/index.html
+      purpose: "The scan form -- add the checkbox + management card here."
+    - path: web/templates/findings.html
+      purpose: "The confirm-guarded clear-action pattern to reuse verbatim."
+
+files_to_modify:
+  - file: web/app.py
+    change: "Thread a dedup_index form checkbox through start_scan -> _run_find_job; add GET/POST routes for the management card."
+  - file: web/templates/index.html
+    change: "Add the checkbox (default checked) to the scan form, plus a small dedup-index count + clear card."
+  - file: tests/test_web_app_scan_index.py
+    change: "New file -- route tests."
+
+design_decisions:
+  - decision: "On by default in the web app, opt-out via checkbox."
+    rationale: "The user's own stated use case is exactly multi-drive, multi-day scanning where dedup is the whole point -- opt-in would mean most scans never benefit from it."

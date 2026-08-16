@@ -1,0 +1,39 @@
+name: scan-dedup-index
+title: Persistent Scan Dedup Index
+description: >
+  Skip re-analyzing files already deep-scanned (by content hash, so a
+  renamed/relocated copy on a different drive/backup is still recognized)
+  so a multi-day, multi-drive scanning session only spends work on
+  genuinely new files.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, sqlite-persistence, pipeline-stage]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Python codebase, same as every prior epic."
+    sqlite-persistence: "New scan_index.db, same _connect/_SCHEMA shape as web/findings.py and web/crawl_runs.py."
+    pipeline-stage: "Hooks into tools/analyze_wallets.py + run_pipeline.py's existing find() stage, not a new pipeline stage."
+  confidence: high
+  gate_decisions:
+    note: >
+      No live multi-agent dispatch -- same adaptation as every prior epic
+      this session. Small scope, design discussion only, straight to
+      stories.
+
+stories:
+  - id: sdi-01-scan-index-core
+    title: Content-hash dedup index + analyze_wallets/find() opt-in wiring
+    complexity: medium
+    depends_on: []
+  - id: sdi-02-web-integration
+    title: Wire into the web app (on by default) + management UI
+    complexity: low
+    depends_on: [sdi-01-scan-index-core]
