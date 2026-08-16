@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-08-16
+
+### Added
+
+- **Confidence-scored related-account suggestions.** Findings now
+  surfaces a ranked list of candidate addresses directly linked to a
+  known finding by real, distinct transactions -- co-spend evidence
+  weighted highest, transfers lower, independent rediscovery by a
+  separate crawl as a bonus. Every candidate shows its full evidence
+  breakdown in words alongside a High/Medium/Low label, never a bare
+  score -- these are candidates worth investigating, not confirmed
+  findings. Reachable from a new banner on Findings, or directly at
+  Findings -> Related accounts.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `confidence-scored-related-accounts`, third of the technical
+  track this session).
+
 ## [0.42.0] - 2026-08-16
 
 ### Added
