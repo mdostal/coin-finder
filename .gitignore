@@ -249,6 +249,8 @@ cython_debug/
 !.pHive/epics/parallel-balance-checks/**
 !.pHive/epics/visual-transaction-graph/
 !.pHive/epics/visual-transaction-graph/**
+!.pHive/epics/confidence-scored-related-accounts/
+!.pHive/epics/confidence-scored-related-accounts/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

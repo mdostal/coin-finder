@@ -1,0 +1,119 @@
+id: csr-01
+epic: confidence-scored-related-accounts
+title: Full edge tracking, persisted across every saved crawl run
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+description: >
+  crawl_wallet_cluster()'s BFS records only the FIRST co-spend/output
+  relationship that discovers a new address, discarding every other
+  transaction linking already-known addresses -- exactly the evidence
+  "numerous transactions and interactions" scoring needs. Adds an
+  edges_out accumulator (backward-compatible optional parameter -- every
+  existing caller/test is completely unaffected) capturing every distinct
+  (from, to, type, txid) relationship observed, and persists it to a new
+  run_edges table in web/crawl_runs.db so scoring (csr-02) can aggregate
+  across every saved crawl run ever made, not just the most recent one.
+acceptance_criteria:
+  - crawl_wallet_cluster() gains an optional edges_out=None parameter.
+    When None (the default), behavior is 100% unchanged -- every existing
+    test/call site needs zero modifications. When a list is passed, the
+    function appends one dict per distinct relationship observed:
+    {"from", "to", "type": "co-spend"|"output", "txid"}.
+  - Co-spend edges are symmetric evidence (same-tx common ownership) --
+    from/to are normalized (sorted) before appending so the same
+    real-world transaction observed from either address's own processing
+    pass collapses to one canonical edge, not two directionally-swapped
+    duplicates.
+  - Output edges keep sender->receiver direction as-is (directional by
+    construction: "known_address is an input, output_addr is a vout").
+  - No edge is recorded twice for the exact same (from, to, type, txid)
+    triple within one crawl_wallet_cluster() call -- proven with a
+    scenario where two frontier addresses' own transaction fetches both
+    surface the same underlying transaction.
+  - web/crawl_runs.py gains a run_edges table
+    (run_id, from_address, to_address, edge_type, txid) and
+    record_crawl_run(seed_addresses, results, edges=None, db_path=...)
+    accepts an optional edges list, writing one row per edge alongside
+    its existing runs/run_addresses writes -- edges=None (the default)
+    behaves exactly as record_crawl_run does today, zero change for
+    existing callers that don't pass it.
+  - web/app.py's _run_crawl_job passes edges_out=[] to
+    crawl_wallet_cluster and forwards the collected list to
+    record_crawl_run's new edges parameter.
+steps:
+  - phase: research
+    notes: >
+      tools/crawl_transaction_graph.py:123-146 -- each address's own
+      transactions are fetched and processed exactly ONCE ever (only
+      when it first enters the BFS frontier; already-discovered
+      addresses are never re-added to next_frontier), so within a single
+      crawl_wallet_cluster() call there is no risk of the SAME address's
+      tx list being scanned twice. The double-counting risk is real
+      relationship evidence appearing from BOTH ends (address A's scan
+      finds a co-spend with B; B's own later scan of its own txs also
+      finds the same tx, co-spending with A) -- a naive (from, to)
+      pair without normalization would record this as two distinct rows.
+      web/crawl_runs.py's existing runs/run_addresses tables and
+      _connect/_SCHEMA/_MIGRATIONS pattern is the template to extend.
+  - phase: test-spec
+    notes: >
+      tests/test_crawl_transaction_graph.py: edges_out=None is a
+      complete no-op (existing tests keep passing); a populated
+      edges_out list records the expected co-spend/output edges for a
+      known scenario; co-spend edge normalization test (from/to sorted
+      regardless of which address's processing pass discovered it);
+      output edge direction-preservation test.
+      tests/test_crawl_runs.py: record_crawl_run(..., edges=[...])
+      writes to run_edges; edges=None writes nothing new (existing
+      behavior preserved); a new list_run_edges() or similar getter for
+      the test to verify against.
+  - phase: implement
+    notes: >
+      tools/crawl_transaction_graph.py: crawl_wallet_cluster gains
+      edges_out=None; inside the co-spend loop, if edges_out is not
+      None, append {"from": min(address, co_spend), "to":
+      max(address, co_spend), "type": "co-spend", "txid": tx["txid"]};
+      inside the output loop, append {"from": address, "to":
+      output_addr, "type": "output", "txid": tx["txid"]} unconditionally
+      on direction. web/crawl_runs.py: _SCHEMA gains
+      run_edges(run_id INTEGER NOT NULL, from_address TEXT NOT NULL,
+      to_address TEXT NOT NULL, edge_type TEXT NOT NULL, txid TEXT NOT
+      NULL); record_crawl_run gains edges=None param, executemany's the
+      rows when provided. web/app.py: _run_crawl_job builds edges = []
+      then crawl_wallet_cluster(seeds, max_generations=max_generations,
+      edges_out=edges), then record_crawl_run(seeds, results,
+      edges=edges).
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - tools/crawl_transaction_graph.py
+    - web/crawl_runs.py
+    - web/app.py
+    - tests/test_crawl_transaction_graph.py
+    - tests/test_crawl_runs.py
+design_decisions:
+  - Optional out-parameter (edges_out), not a changed return type --
+    crawl_wallet_cluster() is called from 9+ existing test files besides
+    this epic's own; a tuple return would force touching every one of
+    them for a change none of them care about. An out-param keeps every
+    existing caller byte-identical.
+  - Co-spend normalization (sorted from/to) but NOT output normalization
+    -- co-spend is genuinely symmetric evidence (both addresses are
+    inputs on the same tx, ownership doesn't have a "direction"); output
+    is a real transfer with real directionality that scoring may want to
+    weight differently (e.g. "sent large sums to X" vs "received small
+    sums from X" could matter later, even though this epic's scoring in
+    csr-02 doesn't yet split on it).
+risks:
+  - Getting the normalization/dedup key wrong is the single biggest
+    correctness risk in this whole epic -- an inflated score from
+    double-counted evidence is exactly the false-hope failure mode the
+    epic design discussion calls out. Directly tested, not just
+    implemented and assumed correct.
+references:
+  - tools/crawl_transaction_graph.py
+  - web/crawl_runs.py
+  - web/app.py:1005 (_run_crawl_job)

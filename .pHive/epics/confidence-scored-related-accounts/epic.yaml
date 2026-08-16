@@ -1,0 +1,34 @@
+name: confidence-scored-related-accounts
+title: Confidence-scored suggestions of likely related accounts
+description: >
+  crawl_wallet_cluster()'s BFS only records the first co-spend/output
+  edge to a newly-discovered address and silently drops every other
+  transaction linking already-known addresses -- exactly the "numerous
+  transactions and interactions" evidence needed for real confidence
+  scoring. Adds full edge tracking persisted across every saved crawl
+  run, then a weighted, transparent confidence score ranking candidate
+  related accounts against the known-findings set. Urgent, top priority.
+target_codebase: .
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session, with extra care given the real financial stakes disclosed
+      directly by the user: every score is presented as a ranked,
+      transparent, explained candidate, never as certainty.
+stories:
+  - id: csr-01
+    title: Full edge tracking, persisted across every saved crawl run
+    complexity: medium
+    depends_on: []
+  - id: csr-02
+    title: Weighted confidence scoring + ranked related-accounts view
+    complexity: medium
+    depends_on: [csr-01]

@@ -1,0 +1,116 @@
+id: csr-02
+epic: confidence-scored-related-accounts
+title: Weighted confidence scoring + ranked related-accounts view
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [csr-01]
+description: >
+  With csr-01's real edge evidence persisted across every saved crawl
+  run, compute a transparent, weighted confidence score per candidate
+  address (any discovered address that is NOT already a known finding)
+  and surface it as a ranked "Related accounts" view -- the actual
+  suggestion the user asked for, always shown with its full evidence
+  breakdown, never as a bare number or a claim of certainty.
+acceptance_criteria:
+  - compute_confidence_scores(known_addresses, db_path=...) in
+    web/crawl_runs.py returns every candidate address (present in
+    run_addresses, absent from known_addresses) with a nonzero score,
+    sorted highest-score-first. Each entry carries the raw breakdown
+    (direct_cospend_count, direct_output_count, cross_run_count) plus a
+    coarse confidence_label ("High"/"Medium"/"Low") derived from
+    threshold buckets on the weighted score -- never the label alone.
+  - Weighting: co-spend evidence with a known address weighted highest
+    (5x), output evidence weighted lower (2x), cross-run corroboration
+    (also discovered by a separate independent crawl) adds a flat bonus
+    (3x) -- each additional distinct transaction of an already-counted
+    type adds incrementally (not re-triggering a flat per-type bonus),
+    matching the design discussion's "same underlying fact, not
+    independent facts" reasoning.
+  - A candidate address that is itself already a known finding (in
+    known_addresses) is excluded from results -- scoring surfaces NEW
+    candidates, not accounts already confirmed.
+  - New GET /findings/related route: known_addresses = every Bitcoin
+    address in list_findings() (Bitcoin-only, matching every other
+    Graph-adjacent feature's existing scope), renders
+    compute_confidence_scores(known_addresses) through a new
+    related_accounts.html template -- one row per candidate, its score
+    breakdown spelled out in words (not just numbers), a link to run
+    Graph directly against that address, and explicit framing that these
+    are candidates, not confirmed findings.
+  - findings.html gains a banner (same "silent when nothing to see"
+    convention as the existing overlap banner) linking to
+    /findings/related only when at least one nonzero-score candidate
+    exists.
+  - Empty state (zero candidates, e.g. no crawls saved yet, or nothing
+    scores above zero) renders a clear explanation, not a blank page.
+steps:
+  - phase: research
+    notes: >
+      web/crawl_runs.py's existing find_overlap_addresses() SQL pattern
+      (GROUP BY ... HAVING COUNT(DISTINCT run_id) > 1) is the template
+      for the cross-run-count sub-query; run_edges (csr-01) is the new
+      table this story's core query joins against. web/findings.py's
+      list_findings() is the known-addresses source, filtered to
+      coin == "Bitcoin" (Graph/crawl is Bitcoin-only throughout this
+      app, same established scoping as every other Graph-adjacent
+      feature this session).
+  - phase: test-spec
+    notes: >
+      tests/test_crawl_runs.py: compute_confidence_scores with a
+      constructed run_edges/run_addresses fixture -- known co-spend
+      evidence scores higher than known output evidence; multiple
+      distinct co-spend transactions with a known address score higher
+      than one, but not by re-triggering the flat bonus per transaction;
+      cross-run corroboration adds its bonus; an address already in
+      known_addresses is excluded even with strong edge evidence.
+      tests/test_web_app_*.py (new file): GET /findings/related renders
+      the ranked list with its breakdown; findings.html shows/hides the
+      related-accounts banner correctly (empty vs nonempty).
+  - phase: implement
+    notes: >
+      web/crawl_runs.py: compute_confidence_scores(known_addresses,
+      db_path=DEFAULT_DB_PATH) -- one query joining run_edges against
+      known_addresses for direct evidence, one query for cross-run
+      counts (reusing find_overlap_addresses' pattern), combined and
+      weighted in Python (not a single mega-SQL query -- clearer to
+      read, and the weighting logic belongs in Python where it can be
+      unit-tested directly against constructed inputs).
+      web/app.py: new findings_related route; findings_page route
+      computes related_count the same way it already computes
+      overlap_count.
+      New web/templates/related_accounts.html following the
+      group_view.html list-page pattern. findings.html: new banner
+      block alongside the existing overlap banner.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/crawl_runs.py
+    - web/app.py
+    - web/templates/related_accounts.html (new)
+    - web/templates/findings.html
+    - tests/test_crawl_runs.py
+    - tests/test_web_app_graph_render.py (or a new test file)
+design_decisions:
+  - Bitcoin-only known_addresses (filtered from list_findings()) --
+    matches the established, already-disclosed Bitcoin-only scoping of
+    every Graph/crawl/fork-coin feature in this app (Blockstream API
+    dependency), not a new restriction invented for this story.
+  - Score breakdown always shown alongside the label -- a bare "High
+    confidence" with no visible reasoning is exactly the kind of
+    unverifiable claim this app's existing confidence-tagging discipline
+    (crawl_wallet_cluster's seed/co-spend/output labels,
+    render_cluster_report's explicit non-certainty framing) has always
+    avoided.
+risks:
+  - Threshold tuning (what score counts as High/Medium/Low) is
+    necessarily somewhat arbitrary on day one -- mitigated by keeping the
+    raw breakdown always visible so the label is a convenience, not the
+    only information given, and by choosing conservative thresholds
+    (real co-spend evidence required to reach High) rather than
+    optimizing for a longer "High confidence" list.
+references:
+  - web/crawl_runs.py (find_overlap_addresses, run_edges from csr-01)
+  - web/findings.py (list_findings)
+  - web/templates/group_view.html (list-page precedent)
