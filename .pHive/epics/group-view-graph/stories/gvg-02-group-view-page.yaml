@@ -1,0 +1,125 @@
+id: gvg-02-group-view-page
+epic: group-view-graph
+title: Group-view page (overlap detection) + manage/clear action
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [gvg-01-crawl-run-persistence]
+
+description: |
+  Build the actual "group view" the user asked for: a page that merges every
+  saved crawl run (gvg-01) and surfaces addresses discovered by more than
+  one separate run -- the signal that two independently-found wallets are
+  probably related. Plus a way to clear all saved crawl-run data, mirroring
+  the findings clear-all action shipped this session.
+
+acceptance_criteria:
+  - "Given two or more saved crawl runs whose discovered-address sets share an address, when find_overlap_addresses() is called, then it returns that address grouped with every run/seed that found it and the confidence/generation each time"
+  - "Given zero or one saved crawl run (no possible overlap), when find_overlap_addresses() is called, then it returns an empty result -- never an error"
+  - "Given GET /findings/group-view, then it renders a table of overlap addresses sorted by balance descending, or an explicit empty state ('No overlaps yet -- run Graph on a couple more findings') when there are none"
+  - "Given POST /findings/group-view/clear, then every saved crawl run is deleted and the group-view page reflects zero runs -- confirm-guarded in the UI exactly like findings_clear_all (onsubmit=\"return confirm(...)\")"
+  - "Given the Findings page, then it links to /findings/group-view from its existing action bar"
+
+steps:
+  - id: research
+    description: Confirm gvg-01's final crawl_runs.py schema/function signatures before writing the overlap query against them.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests for find_overlap_addresses() (multiple runs sharing
+      an address; zero overlap case; confidence/generation preserved per
+      run) and for the two new Flask routes, modeled on
+      tests/test_web_app_findings.py's existing patterns.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: |
+      Add find_overlap_addresses() + clear_all_crawl_runs() to
+      web/crawl_runs.py; add GET /findings/group-view and POST
+      /findings/group-view/clear to web/app.py; new template
+      web/templates/group_view.html ({% import "_macros.html" as m with
+      context %}, not a bare import); link from findings.html's action bar.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review the overlap SQL query correctness, empty-state handling, and that the clear action is confirm-guarded and destructive-but-scoped (crawl_runs.db only, never touches findings.db).
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: |
+      Commit on feat/group-view-graph, bump version_bump: minor across
+      web/_version.py + src-tauri/tauri.conf.json + src-tauri/Cargo.toml +
+      package.json, add CHANGELOG.md entry, rebuild PyInstaller sidecar +
+      npm run tauri:build, gh release, install to /Applications after
+      confirming 0 jobs running.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    languages: [python]
+    frameworks: [flask]
+    templating: [jinja2]
+  key_files:
+    - path: web/crawl_runs.py
+      purpose: "Built by gvg-01 -- record_crawl_run/list_crawl_runs already exist; this story adds find_overlap_addresses() and clear_all_crawl_runs() to the same module."
+    - path: web/findings.py
+      purpose: "clear_all_findings() (hard DELETE FROM findings) is the exact pattern clear_all_crawl_runs() should mirror."
+    - path: web/templates/findings.html
+      purpose: "The 'Clear all findings' button's onsubmit=\"return confirm(...)\" pattern to reuse verbatim for the new clear action."
+    - path: web/app.py
+      purpose: "_NAV_GROUP_BY_ENDPOINT dict needs the two new route endpoint names added (-> \"findings\", matching findings_watch/findings_clear_all's entries)."
+
+files_to_modify:
+  - file: web/crawl_runs.py
+    change: "Add find_overlap_addresses(db_path=...) and clear_all_crawl_runs(db_path=...)."
+  - file: web/app.py
+    change: "Import find_overlap_addresses, clear_all_crawl_runs; add GET /findings/group-view and POST /findings/group-view/clear routes; add both endpoint names to _NAV_GROUP_BY_ENDPOINT."
+  - file: web/templates/group_view.html
+    change: "New file -- overlap table + empty state + clear button."
+  - file: web/templates/findings.html
+    change: "Add a link to /findings/group-view in the existing action-bar card."
+  - file: tests/test_crawl_runs.py
+    change: "Extend gvg-01's test file with find_overlap_addresses/clear_all_crawl_runs tests."
+  - file: tests/test_web_app_group_view.py
+    change: "New file -- route tests for GET /findings/group-view and POST /findings/group-view/clear, modeled on tests/test_web_app_findings.py."
+
+code_examples:
+  - title: "The confirm-guarded destructive-action pattern to reuse verbatim"
+    file: web/templates/findings.html
+    snippet: |
+      <form method="post" action="{{ url_for('findings_clear_all') }}" style="display:inline" onsubmit="return confirm('Clear ALL findings? This deletes every row -- watched, archived, everything -- and cannot be undone.');">
+        <button type="submit" class="btn-secondary">Clear all findings</button>
+      </form>
+  - title: "The hard-delete pattern to mirror for crawl runs"
+    file: web/findings.py
+    snippet: |
+      def clear_all_findings(db_path=DEFAULT_DB_PATH):
+          conn = _connect(db_path)
+          try:
+              conn.execute("DELETE FROM findings")
+              conn.commit()
+          finally:
+              conn.close()
+
+design_decisions:
+  - decision: "Overlap query lives in crawl_runs.py (gvg-01's module), not a new module."
+    rationale: "It's a read query over the same two tables gvg-01 already owns -- no reason to split storage and query logic across files."
+  - decision: "Table view for v1, not an interactive node graph."
+    rationale: "Explicitly scoped out in design-discussion.md §4 at the user's own direction -- a sortable overlap table answers the real question without a new JS dependency or layout algorithm."
+
+risks:
+  - severity: low
+    description: "The overlap table may render empty on first ship (needs 2+ real crawl runs to have anything to show)."
+    mitigation: "Acceptance criteria explicitly requires a clear, non-error empty state -- this is an expected, normal state, not a bug."
+
+references:
+  - path: web/app.py
+    relevant_excerpt: |
+      _NAV_GROUP_BY_ENDPOINT = {
+          ...
+          "findings_watch": "findings",
+          "findings_unwatch": "findings",
+          "findings_clear_all": "findings",
+      }

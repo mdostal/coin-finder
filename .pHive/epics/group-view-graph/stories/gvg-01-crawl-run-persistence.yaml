@@ -1,0 +1,135 @@
+id: gvg-01-crawl-run-persistence
+epic: group-view-graph
+title: Persist every crawl run's full result to disk
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  web/app.py's _run_crawl_job() calls tools/crawl_transaction_graph.py's
+  crawl_wallet_cluster() and gets back a full result dict
+  ({address: {confidence, generation, balance, last_activity_timestamp,
+  dormant_years}}), but only ever writes the flattened balance into
+  findings.db via record_finding() -- the crawl run itself (which seed(s)
+  produced which discoveries, at what confidence/generation) is thrown away
+  once the job's in-memory result is gone. Add a new sqlite-backed module,
+  web/crawl_runs.py, that persists every crawl run in full, so a later
+  "group view" (story gvg-02) can query across all saved runs.
+
+acceptance_criteria:
+  - "Given a completed crawl_wallet_cluster() result, when record_crawl_run(seed_addresses, results) is called, then a new run row and one child row per discovered address are persisted to crawl_runs.db"
+  - "Given _run_crawl_job() runs a real crawl, when it completes, then record_crawl_run() is called with the same seed addresses and results already used for the existing record_finding() loop -- no change to record_finding()'s own behavior"
+  - "Given list_crawl_runs() is called, then it returns every saved run newest-first, each with its seed addresses and discovered-address count"
+  - "Given a pre-existing crawl_runs.db from before any future schema change, when _connect() runs, then it migrates in place via the same ALTER TABLE + OperationalError-catch pattern web/findings.py already uses (no crash, no data loss)"
+  - "Given crawl_runs.db does not exist yet, when any function in this module is called, then app_data_dir() creates the parent directory automatically, matching web/findings.py's _connect()"
+
+steps:
+  - id: research
+    description: Confirm the exact shape of crawl_wallet_cluster()'s return value and _run_crawl_job()'s call site before writing the schema.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests for record_crawl_run(), list_crawl_runs(), and the
+      migration path, modeled directly on tests/test_findings.py's existing
+      test shapes (tmp_path-based db_path, no mocking needed -- these are
+      real sqlite files in a temp dir).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: |
+      Write web/crawl_runs.py and wire record_crawl_run() into
+      _run_crawl_job() (web/app.py, ~line 754-773) right after the existing
+      record_finding() loop.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review schema design (two tables, not one denormalized blob), migration correctness, and that _run_crawl_job()'s existing behavior is unchanged.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit on feat/group-view-graph.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    languages: [python]
+    frameworks: [flask]
+    storage: [sqlite]
+  key_files:
+    - path: web/findings.py
+      purpose: "The exact pattern to follow -- _connect()/_SCHEMA/_MIGRATIONS, all functions taking an optional db_path kwarg defaulting to DEFAULT_DB_PATH under app_data_dir()."
+    - path: web/app.py
+      purpose: "_run_crawl_job() (~line 754) is the one call site that needs a single new line added; the existing record_finding() loop right above it must stay unchanged."
+    - path: tools/crawl_transaction_graph.py
+      purpose: "crawl_wallet_cluster()'s return shape (~line 106) is exactly what gets persisted -- no new fields to compute."
+    - path: web/paths.py
+      purpose: "app_data_dir() -- the local-storage root every other persistent file in this project uses."
+
+files_to_modify:
+  - file: web/crawl_runs.py
+    change: "New file -- record_crawl_run, list_crawl_runs, plus the shared helpers list_run_addresses/DEFAULT_DB_PATH that gvg-02's find_overlap_addresses() will build on."
+  - file: web/app.py
+    change: "Import record_crawl_run; add one call in _run_crawl_job() after the existing record_finding() loop."
+  - file: tests/test_crawl_runs.py
+    change: "New file -- unit tests for record_crawl_run/list_crawl_runs/migration, modeled on tests/test_findings.py."
+
+code_examples:
+  - title: "The exact _connect/_SCHEMA/_MIGRATIONS pattern to replicate"
+    file: web/findings.py
+    snippet: |
+      _SCHEMA = """
+      CREATE TABLE IF NOT EXISTS findings (
+          coin TEXT NOT NULL, address TEXT NOT NULL, ...
+          PRIMARY KEY (coin, address)
+      )
+      """
+      _MIGRATIONS = [("watched", "INTEGER NOT NULL DEFAULT 0"), ...]
+
+      def _connect(db_path):
+          db_path = Path(db_path)
+          db_path.parent.mkdir(parents=True, exist_ok=True)
+          conn = sqlite3.connect(str(db_path))
+          conn.row_factory = sqlite3.Row
+          conn.execute(_SCHEMA)
+          for column, definition in _MIGRATIONS:
+              try:
+                  conn.execute(f"ALTER TABLE findings ADD COLUMN {column} {definition}")
+              except sqlite3.OperationalError:
+                  pass  # already migrated
+          return conn
+  - title: "The exact call site to extend"
+    file: web/app.py
+    snippet: |
+      def _run_crawl_job(addresses):
+          ...
+          results = crawl_wallet_cluster(seeds)
+          ...
+          for address, info in results.items():
+              record_finding("Bitcoin", address, info.get("balance"), source_label="crawl_transaction_graph")
+          # <-- add record_crawl_run(seeds, results) here
+          return {"report": render_cluster_report(results), "results": results}
+
+design_decisions:
+  - decision: "Two tables (runs, run_addresses) instead of one denormalized table or a JSON blob column."
+    rationale: "gvg-02's overlap query needs 'GROUP BY address HAVING COUNT(DISTINCT run_id) > 1' -- a plain indexed SQL query. A JSON-blob-per-run design would force scanning and parsing every run in Python instead."
+  - decision: "New db file (crawl_runs.db), not new columns on findings.db."
+    rationale: "A crawl run has a one-to-many relationship with discovered addresses, and the same address can appear in many runs -- doesn't fit findings.py's (coin, address) primary-key model at all."
+
+risks:
+  - severity: low
+    description: "Only unit-testable in isolation until gvg-02's overlap query exists to prove the data shape is actually useful."
+    mitigation: "gvg-01's own acceptance criteria (persist + list) are independently correct and testable without gvg-02; gvg-02 depends on this story and will exercise it end-to-end."
+
+references:
+  - path: web/findings.py
+    relevant_excerpt: |
+      def set_watched(coin, address, watched, note="", db_path=DEFAULT_DB_PATH):
+          conn = _connect(db_path)
+          try:
+              conn.execute("UPDATE findings SET watched = ?, watch_note = ? WHERE coin = ? AND address = ?", ...)
+              conn.commit()
+          finally:
+              conn.close()

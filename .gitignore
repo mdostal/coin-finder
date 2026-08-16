@@ -228,6 +228,8 @@ cython_debug/
 !.pHive/epics/web-ui-wizard-and-mounting/**
 !.pHive/epics/findings-dashboard/
 !.pHive/epics/findings-dashboard/**
+!.pHive/epics/group-view-graph/
+!.pHive/epics/group-view-graph/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
