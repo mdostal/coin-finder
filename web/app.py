@@ -114,6 +114,7 @@ def create_app(host="127.0.0.1"):
             findings_count=len(findings),
             findings_needs_review_count=sum(1 for f in findings if f["balance"] != 0.0),
             scan_index_count=len(list_scanned_files()),
+            interrupted_scans=_interrupted_scans(),
         )
 
     @app.route("/scan-index/clear", methods=["POST"])
@@ -1295,18 +1296,60 @@ def _run_drive_scan_job(output_dir, query):
     return {"report": "\n".join(lines), "manifest": manifest, "output_dir": output_dir}
 
 
+def _find_checkpoint_path(output_dir):
+    return str(Path(output_dir) / "checks" / "scan_checkpoint.json")
+
+
+def _interrupted_scans():
+    """
+    Every scan_checkpoint.json left behind by a scan that never finished
+    -- app quit, update, crash, mid-walk -- across every scan this app has
+    ever started. Surfaced on the scan page so resuming one is a click,
+    not "remember the exact folder path and re-run scan yourself."
+    _run_find_job resumes automatically (same input_dir -> same
+    output_dir -> same checkpoint_path) the moment that same folder is
+    scanned again -- this is purely the "so the user knows to" discovery
+    layer on top of that.
+    """
+    if not DEFAULT_OUTPUT_ROOT.is_dir():
+        return []
+    interrupted = []
+    for checkpoint_path in DEFAULT_OUTPUT_ROOT.glob("*/checks/scan_checkpoint.json"):
+        try:
+            with open(checkpoint_path) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        start_path = data.get("start_path")
+        if not start_path or not Path(start_path).is_dir():
+            continue
+        interrupted.append(
+            {
+                "input_dir": start_path,
+                "dirs_checked": len(data.get("completed_dirs", [])),
+                "wallets_found_so_far": len(data.get("potential_wallets", [])),
+            }
+        )
+    return interrupted
+
+
 def _run_find_job(input_dir, job_id, index_db_path=None):
     """
     Stage 1 -- search + analyze + hidden-volume detection. Fast: no
-    network calls. Deliberately does NOT run check_wallet_balances --
-    that's _run_check_balances_job, a separate job kicked off only once
-    you've seen these results and decided it's worth the slow stage.
+    network calls (the walk itself can still take a long time against a
+    huge mounted drive, which is what checkpoint_path is for). Deliberately
+    does NOT run check_wallet_balances -- that's _run_check_balances_job, a
+    separate job kicked off only once you've seen these results and
+    decided it's worth the slow stage.
 
     :param index_db_path: see run_pipeline.find() -- None disables the
         content-hash dedup index, a path enables it.
     """
     output_dir = str(DEFAULT_OUTPUT_ROOT / Path(input_dir).name)
-    summary = run_pipeline.find(input_dir, output_dir, index_db_path=index_db_path)
+    Path(output_dir, "checks").mkdir(parents=True, exist_ok=True)
+    summary = run_pipeline.find(
+        input_dir, output_dir, index_db_path=index_db_path, checkpoint_path=_find_checkpoint_path(output_dir)
+    )
 
     hidden_volumes = scan_for_hidden_volumes(input_dir)
     summary["hidden_volumes_report"] = render_hidden_volumes_report(hidden_volumes)

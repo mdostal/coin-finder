@@ -22,7 +22,7 @@ def _paths(output_dir):
     }
 
 
-def find(input_dir, output_dir, index_db_path=None):
+def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None):
     """
     Stage 1 -- search + analyze only. No network calls, so it's fast
     regardless of how many addresses turn up. Returns a summary (files
@@ -36,6 +36,10 @@ def find(input_dir, output_dir, index_db_path=None):
     :param index_db_path: optional -- see tools.analyze_wallets.analyze_wallets().
         None (default) skips a file already analyzed in a prior scan
         (elsewhere, at any path) from being re-analyzed here.
+    :param checkpoint_path: optional -- see tools.search_wallets.search_for_wallets().
+        Lets the (potentially very long) file-walk stage survive an app
+        quit/update/crash mid-scan by resuming from the directories
+        already checked instead of starting over.
     :return: {"output_dir", "files_found", "coin_counts", "total_address_instances"}
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -43,7 +47,7 @@ def find(input_dir, output_dir, index_db_path=None):
     Path(paths["sub_dir"]).mkdir(parents=True, exist_ok=True)
 
     print("Running wallet search...")
-    search_for_wallets(input_dir, paths["search_output"])
+    search_for_wallets(input_dir, paths["search_output"], checkpoint_path=checkpoint_path)
 
     print("Running wallet analysis...")
     analyze_wallets(paths["search_output"], paths["analyze_output"], index_db_path=index_db_path)

@@ -13,6 +13,29 @@
 </div>
 {% endif %}
 
+{% if interrupted_scans %}
+<div class="banner warning">
+  <strong>{{ interrupted_scans | length }} interrupted scan{{ "s" if interrupted_scans | length != 1 else "" }}</strong>
+  never finished (app quit, update, or crash mid-scan). Nothing was lost --
+  re-scanning the same folder picks up from where it stopped instead of
+  starting over.
+  <ul style="margin:0.5rem 0 0 1.25rem">
+    {% for s in interrupted_scans %}
+    <li>
+      <code>{{ s.input_dir }}</code>
+      -- {{ s.dirs_checked }} director{{ "y" if s.dirs_checked == 1 else "ies" }} already
+      checked, {{ s.wallets_found_so_far }} potential wallet{{ "s" if s.wallets_found_so_far != 1 else "" }} found so far
+      <form method="post" action="{{ url_for('start_scan') }}" style="display:inline">
+        <input type="hidden" name="input_dir" value="{{ s.input_dir }}">
+        <input type="hidden" name="dedup_index" value="1">
+        <button type="submit" class="btn-secondary">Resume</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% if findings_count and findings_count > 0 %}
 <div class="card">
   <a href="{{ url_for('findings_page') }}" style="text-decoration:none">
