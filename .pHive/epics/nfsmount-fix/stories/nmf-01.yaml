@@ -1,0 +1,71 @@
+id: nmf-01
+epic: nfsmount-fix
+title: Switch to nfsmount, capture real diagnostics on failure
+status: pending
+complexity: small
+methodology: tdd
+depends_on: []
+description: >
+  mount() runs `rclone mount`, which Homebrew's macOS rclone build does
+  not support at all (confirmed via brew info rclone's own caveat and a
+  live reproduction). Switch to `rclone nfsmount` (same binary, works,
+  verified live against the user's real Drive) and stop discarding
+  stderr so a future failure is diagnosable instead of a bare "ERROR"
+  pill with no information.
+acceptance_criteria:
+  - mount() invokes `rclone nfsmount` (not `rclone mount`) with the same
+    flags as before (--read-only, --vfs-cache-mode minimal).
+  - mount() redirects stderr to a real log file instead of DEVNULL;
+    the log path is tracked in mounts_state.json alongside the existing
+    pid/mount_point/started_at fields.
+  - list_mounts() includes a "log_path" (or equivalent) field per entry
+    so the UI can link to or display it.
+  - mounts.html shows the last few lines of that log inline when a
+    mount's health is ERROR, instead of just the bare status pill.
+  - unmount()/is_mounted() behavior is unchanged (both already
+    mechanism-agnostic).
+steps:
+  - phase: research
+    notes: >
+      Confirmed live: `rclone mount` fails immediately on this Homebrew
+      install with "rclone mount is not supported on MacOS when rclone
+      is installed via Homebrew"; `rclone nfsmount` with identical flags
+      successfully mounted the user's real Google Drive (real file
+      listing observed). brew info rclone's own caveat names nfsmount
+      as the documented alternative -- not a workaround this session
+      invented.
+  - phase: test-spec
+    notes: >
+      tests/test_mounts.py: update test_mount_starts_rclone_read_only's
+      "mount" in args assertion to "nfsmount" in args (list membership,
+      not substring -- confirmed this needs an explicit change, not
+      auto-passing). New test: mount() opens a log file for stderr
+      (not DEVNULL) and records its path in the state entry.
+  - phase: implement
+    notes: >
+      web/mounts.py: mount() changes the Popen args list's "mount" ->
+      "nfsmount"; opens a log file (e.g. app_data_dir() /
+      "mount-logs" / f"{remote_name}.log") and passes it as stderr=
+      instead of DEVNULL; records log_path in the state dict.
+      list_mounts() passes log_path through. web/templates/mounts.html:
+      when a row's health is ERROR, show the log file's last lines
+      (read server-side in the mounts_page route, not client-side).
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/mounts.py
+    - web/app.py
+    - web/templates/mounts.html
+    - tests/test_mounts.py
+design_decisions:
+  - Log file, not stdout capture into mounts_state.json directly --
+    rclone's own stderr can be verbose/long-running (a live mount process
+    keeps writing to it); a file is the natural sink, JSON state stays
+    small and just points at it.
+risks:
+  - None beyond the epic design discussion's Risks section.
+references:
+  - web/mounts.py
+  - Live reproduction (this session): rclone mount vs rclone nfsmount
+    against the user's real "Dostal Drive" remote.

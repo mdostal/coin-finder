@@ -255,6 +255,8 @@ cython_debug/
 !.pHive/epics/cloud-connection-reliability/**
 !.pHive/epics/cytoscape-graph-rebuild/
 !.pHive/epics/cytoscape-graph-rebuild/**
+!.pHive/epics/nfsmount-fix/
+!.pHive/epics/nfsmount-fix/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
