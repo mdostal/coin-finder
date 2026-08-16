@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-08-15
+
+### Added
+
+- **Persistent, content-hash scan dedup index.** Scanning overlapping
+  drives/backups no longer re-analyzes the same file twice -- a file's
+  exact content is hashed and checked against every prior scan, so a
+  backup copy at a different path on a different drive is still
+  recognized and skipped, reusing its previously found addresses instead
+  of re-running the regex pass. On by default for multi-drive/multi-day
+  scanning sessions, with an opt-out checkbox and a confirm-guarded clear
+  action on the home page.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `scan-dedup-index`).
+
 ## [0.34.0] - 2026-08-15
 
 ### Added
