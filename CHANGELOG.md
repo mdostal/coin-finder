@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-08-16
+
+### Added
+
+- **Search Gmail for wallet/exchange clues.** New Email page (`/gmail`)
+  searches Gmail for old exchange signup/withdrawal emails, wallet
+  mentions, and wallet-like attachments -- extends this project's search
+  beyond disk/cloud storage to email. Connects via its own vault-bound
+  OAuth flow (client id/secret and refresh token stored in Portunus, not
+  a plaintext file); email body/attachment content flows straight from
+  Gmail's API to local disk, never through an AI assistant's own
+  context. Only sender/subject/date/matched-address (public info) is
+  ever shown.
+
 ## [0.48.0] - 2026-08-16
 
 ### Fixed
