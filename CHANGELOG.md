@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-08-16
+
+### Fixed
+
+- **Balance checks no longer tick one address at a time.** Concurrency
+  used to stop at the coin boundary -- every address of the SAME coin
+  (almost always mostly Bitcoin) still ran strictly serially in a single
+  thread, while other coins' threads sat idle after finishing in a
+  second. Every address is now its own task in a shared pool, capped at
+  5 concurrent requests per coin so a real API doesn't get hammered.
+  Also now resumable across a quit/update/crash, same as scans got in
+  v0.47.0 -- confirmed balances aren't re-checked on the next run.
+
 ## [0.47.0] - 2026-08-16
 
 ### Added
