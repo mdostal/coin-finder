@@ -22,6 +22,26 @@ def _vault_secret_name(remote_name):
     return f"rclone-{remote_name}-client-secret"
 
 
+def _looks_like_google_client_id(client_id):
+    """
+    A real Google OAuth client ID always ends in this suffix -- catches
+    the exact mistake confirmed live this session: a made-up value
+    ("mathew.dostal-drive") typed into the Advanced field, which Google
+    correctly (but confusingly, five minutes later, as a browser error
+    page) rejects with "Error 401: invalid_client". Rejecting it here,
+    before any subprocess call, turns that into an immediate, specific,
+    in-app error instead.
+    """
+    return client_id.endswith(".apps.googleusercontent.com")
+
+
+VERIFY_TIMEOUT_SECONDS = 30
+
+
+def _cleanup_partial_remote(remote_name):
+    subprocess.run(["rclone", "config", "delete", remote_name], capture_output=True, text=True)
+
+
 def create_remote(remote_name, kind="gdrive", client_id="", client_secret="", scope=DEFAULT_SCOPE, progress_callback=None):
     """
     Runs `rclone config create` for a Google Drive (or GCS) remote, replacing
@@ -36,6 +56,16 @@ def create_remote(remote_name, kind="gdrive", client_id="", client_secret="", sc
     until that finishes (or times out on rclone's own side), which is why
     the caller runs it as a background job.
 
+    Critically, `rclone config create` writes the remote's config section
+    to disk essentially immediately -- independent of whether the OAuth
+    handshake that follows ever actually completes. Confirmed live this
+    session: a failed or abandoned sign-in leaves a permanent, tokenless,
+    non-functional remote sitting in rclone.conf, indistinguishable from a
+    working one by exit code alone. This function verifies the remote
+    actually works (a real read against it) before ever reporting success,
+    and deletes the partial remote on any failure -- a failed attempt must
+    never leave broken state behind.
+
     If a client_secret is given, it is routed through the vault (Portunus)
     exactly like every other secret this project handles -- written via
     `add_vault_entry` (temp file, never a CLI argument in this function's
@@ -48,7 +78,10 @@ def create_remote(remote_name, kind="gdrive", client_id="", client_secret="", sc
 
     :param remote_name: the rclone remote name, e.g. "gdrive".
     :param kind: "gdrive" or "gcs" -- selects the rclone backend type.
-    :param client_id: optional -- blank uses rclone's own shared client id.
+    :param client_id: optional -- blank uses rclone's own shared client id
+        (the default, recommended path -- most people should never need
+        to fill this in). If given, must look like a real Google OAuth
+        client ID (ends in .apps.googleusercontent.com).
     :param client_secret: optional, paired with client_id.
     :param scope: one of SCOPE_CHOICES' keys.
     :param progress_callback: optional callable(current, total, message).
@@ -56,6 +89,17 @@ def create_remote(remote_name, kind="gdrive", client_id="", client_secret="", sc
     """
     if progress_callback is None:
         progress_callback = lambda current, total, message="": None
+
+    if client_id and not _looks_like_google_client_id(client_id):
+        return {
+            "ok": False,
+            "report": (
+                f"'{client_id}' doesn't look like a real Google OAuth client ID -- those always end in "
+                "\".apps.googleusercontent.com\" (get the real value from Google Cloud Console). "
+                "Leave this field blank to use the built-in default instead -- that's what most people want, "
+                "and it works without any of this."
+            ),
+        }
 
     if remote_name in list_remotes():
         return {"ok": False, "report": f"A remote named '{remote_name}' already exists. Pick a different name, or remove it first from the Mounts page."}
@@ -65,9 +109,11 @@ def create_remote(remote_name, kind="gdrive", client_id="", client_secret="", sc
     if kind == "gdrive":
         args += ["scope", scope]
 
+    total_steps = 3
     resolved_secret = None
     if client_id and client_secret:
-        progress_callback(1, 3, "Storing your client secret in the vault")
+        total_steps = 4
+        progress_callback(1, total_steps, "Storing your client secret in the vault")
         secret_name = _vault_secret_name(remote_name)
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
             f.write(client_secret)
@@ -80,17 +126,30 @@ def create_remote(remote_name, kind="gdrive", client_id="", client_secret="", sc
         [(_, resolved_secret)] = resolve_vault_entries_with_values([secret_name])
         args += ["client_id", client_id, "client_secret", resolved_secret]
 
-    progress_callback(2, 3, "Opening your browser to sign in to Google -- approve access there, this will finish automatically")
+    progress_callback(total_steps - 1, total_steps, "Opening your browser to sign in to Google -- approve access there, this will finish automatically")
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
+        _cleanup_partial_remote(remote_name)
         return {"ok": False, "report": "Timed out waiting for the Google sign-in to complete (5 minutes). Nothing was saved -- try again from the Mounts page."}
     finally:
         resolved_secret = None  # best-effort scrub of the one local reference to the raw value
 
-    progress_callback(3, 3, "Done")
-
     if result.returncode != 0:
+        _cleanup_partial_remote(remote_name)
         return {"ok": False, "report": f"rclone could not create the remote:\n{result.stderr.strip() or result.stdout.strip()}"}
 
+    progress_callback(total_steps, total_steps, "Verifying the connection actually works")
+    verify = subprocess.run(["rclone", "lsd", f"{remote_name}:", "--max-depth", "1"], capture_output=True, text=True, timeout=VERIFY_TIMEOUT_SECONDS)
+    if verify.returncode != 0:
+        _cleanup_partial_remote(remote_name)
+        return {
+            "ok": False,
+            "report": (
+                f"'{remote_name}' didn't actually finish signing in -- rclone couldn't read anything from it just now. "
+                f"Nothing was saved; try again from the Mounts page.\n{verify.stderr.strip() or verify.stdout.strip()}"
+            ),
+        }
+
+    progress_callback(total_steps, total_steps, "Done")
     return {"ok": True, "report": f"Connected -- '{remote_name}' is ready. Head to the Mounts page to attach and scan it."}
