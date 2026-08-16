@@ -6,7 +6,7 @@ from pathlib import Path
 REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, REPO_ROOT)
 
-from tools.unlock_wallet import check_network_status  # reused, not duplicated
+from tools.unlock_wallet import check_network_status, script_runner_prefix  # reused, not duplicated
 
 
 def find_exodus2hashcat_script():
@@ -30,7 +30,7 @@ def extract_exodus_hash(seed_seco_path, script_path=None):
         )
 
     result = subprocess.run(
-        [sys.executable, script_path, seed_seco_path],
+        script_runner_prefix() + [script_path, seed_seco_path],
         capture_output=True,
         text=True,
     )

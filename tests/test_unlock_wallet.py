@@ -1,11 +1,12 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from tools.unlock_wallet import find_btcrecover_script, run_unlock
+from tools.unlock_wallet import find_btcrecover_script, run_unlock, script_runner_prefix
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENDOR_SCRIPT = os.path.join(REPO_ROOT, "vendor", "btcrecover", "btcrecover.py")
@@ -68,6 +69,27 @@ def test_find_btcrecover_script_returns_none_when_absent(tmp_path, monkeypatch):
     monkeypatch.setattr("tools.unlock_wallet.REPO_ROOT", str(tmp_path))
 
     assert find_btcrecover_script() is None
+
+
+@patch("tools.unlock_wallet.is_frozen", return_value=False)
+def test_script_runner_prefix_uses_sys_executable_when_not_frozen(mock_frozen):
+    assert script_runner_prefix() == [sys.executable]
+
+
+@patch("tools.unlock_wallet.is_frozen", return_value=True)
+def test_script_runner_prefix_uses_sibling_runner_when_frozen(mock_frozen):
+    """
+    Regression test for a real bug hit live: in a frozen build,
+    sys.executable is this app's OWN binary (only knows how to run
+    itself) -- [sys.executable, some_script.py, ...] crashes trying to
+    parse the script path as a CLI argument of its own. Confirmed via a
+    real unlock attempt against the packaged app.
+    """
+    prefix = script_runner_prefix()
+
+    assert len(prefix) == 1
+    assert Path(prefix[0]).name == "coin-finder-script-runner"
+    assert Path(prefix[0]).parent == Path(sys.executable).parent
 
 
 @requires_vendor

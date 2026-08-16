@@ -3,7 +3,30 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from web.paths import is_frozen
+
 REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+
+
+def script_runner_prefix():
+    """
+    The command prefix to run an arbitrary vendored .py script (btcrecover.py,
+    exodus2hashcat.py) as a subprocess.
+
+    In a normal source/dev environment, sys.executable is a real Python
+    interpreter -- [sys.executable, script.py, *args] works directly. In a
+    FROZEN build, sys.executable is this app's OWN binary (it only knows how
+    to run itself, via entrypoint.py) -- confirmed live, that command
+    crashes trying to parse the script path as a CLI argument of its own.
+    `coin-finder-script-runner` (a second executable bundled as a sibling of
+    the main one, see packaging/pyinstaller/script_runner.py +
+    coin_finder_ui.spec's MERGE()) exists specifically to runpy.run_path()
+    the given script with the given args instead.
+    """
+    if is_frozen():
+        return [str(Path(sys.executable).parent / "coin-finder-script-runner")]
+    return [sys.executable]
 
 # Mirrors BTCRecover's own utilities/net_check.py approach exactly: short TCP
 # connections to well-known public DNS resolvers, reachable from almost any
@@ -79,7 +102,7 @@ def run_unlock(wallet_path, candidates_file, btcrecover_script=None, allow_onlin
         )
 
     return subprocess.run(
-        [sys.executable, btcrecover_script, "--wallet", wallet_path, "--passwordlist", candidates_file, "--no-progress"],
+        script_runner_prefix() + [btcrecover_script, "--wallet", wallet_path, "--passwordlist", candidates_file, "--no-progress"],
         capture_output=True,
         text=True,
     )
