@@ -119,6 +119,14 @@ def test_wizard_cloud_connect_requires_a_name(mock_installed, mock_remotes, mock
     assert b"Enter a name" in resp.data
 
 
+@patch("web.app.ai_assist.has_api_key")
+def test_ai_assist_status_reports_whether_a_key_is_saved(mock_has_key, client):
+    mock_has_key.return_value = True
+    resp = client.get("/ai-assist/status")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"has_key": True}
+
+
 @patch("web.app.ai_assist.ask")
 def test_ai_assist_ask_returns_answer_as_json(mock_ask, client):
     mock_ask.return_value = "Use drive.readonly."

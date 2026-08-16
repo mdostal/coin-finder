@@ -79,34 +79,38 @@ contents only when something actually needs to read it.</p>
 
 <div class="card">
   <h3 style="margin-top:0">Not sure about a step? Ask AI</h3>
-  {% if ai_key_set %}
-  <div id="ai-assist">
+
+  <p id="ai-checking" class="subtle">Checking for a saved API key&hellip;</p>
+
+  <div id="ai-assist" style="display:none">
     <label>Question</label>
     <textarea id="ai-question" rows="2" placeholder="What's the difference between the access levels? / Where do I get a client id?"></textarea>
     <button type="button" id="ai-ask-btn">Ask</button>
     <div id="ai-answer" class="subtle" style="margin-top:0.75rem"></div>
+    <form method="post" action="{{ url_for('ai_assist_key_clear') }}" style="margin-top:0.75rem">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <button type="submit" class="btn-secondary">Forget saved API key</button>
+    </form>
   </div>
+
+  <div id="ai-key-form" style="display:none">
+    <p class="subtle">Bring your own <a href="https://console.anthropic.com/settings/keys">Anthropic API key</a>
+    to get a plain-English answer to anything on this page (client id, scopes,
+    whatever's unclear) instead of guessing. Optional -- everything above
+    works without this. The key is stored in the vault (Portunus), and each
+    question here sends only your typed question plus this page's own
+    context to Anthropic's API, never any wallet data. See the
+    <a href="{{ url_for('network_page') }}">Network</a> page for the full
+    accounting.</p>
+    <form method="post" action="{{ url_for('ai_assist_key') }}">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <label>Anthropic API key</label>
+      <input type="password" name="api_key" placeholder="sk-ant-..." required>
+      <button type="submit">Save key</button>
+    </form>
+  </div>
+
   <script src="{{ url_for('static', filename='ai_assist.js') }}"></script>
-  <form method="post" action="{{ url_for('ai_assist_key_clear') }}" style="margin-top:0.75rem">
-    <input type="hidden" name="kind" value="{{ kind }}">
-    <button type="submit" class="btn-secondary">Forget saved API key</button>
-  </form>
-  {% else %}
-  <p class="subtle">Bring your own <a href="https://console.anthropic.com/settings/keys">Anthropic API key</a>
-  to get a plain-English answer to anything on this page (client id, scopes,
-  whatever's unclear) instead of guessing. Optional -- everything above
-  works without this. The key is stored in the vault (Portunus), and each
-  question here sends only your typed question plus this page's own
-  context to Anthropic's API, never any wallet data. See the
-  <a href="{{ url_for('network_page') }}">Network</a> page for the full
-  accounting.</p>
-  <form method="post" action="{{ url_for('ai_assist_key') }}">
-    <input type="hidden" name="kind" value="{{ kind }}">
-    <label>Anthropic API key</label>
-    <input type="password" name="api_key" placeholder="sk-ant-..." required>
-    <button type="submit">Save key</button>
-  </form>
-  {% endif %}
 </div>
 
 <div class="card">

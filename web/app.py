@@ -557,7 +557,6 @@ def create_app(host="127.0.0.1"):
             remotes=list_remotes(),
             scope_choices=SCOPE_CHOICES,
             default_scope=DEFAULT_SCOPE,
-            ai_key_set=ai_assist.has_api_key(),
         )
 
     @app.route("/wizard/cloud/connect", methods=["POST"])
@@ -577,7 +576,6 @@ def create_app(host="127.0.0.1"):
                     remotes=list_remotes(),
                     scope_choices=SCOPE_CHOICES,
                     default_scope=DEFAULT_SCOPE,
-                    ai_key_set=ai_assist.has_api_key(),
                     error="Enter a name for this connection.",
                 ),
                 400,
@@ -586,6 +584,21 @@ def create_app(host="127.0.0.1"):
         job_id = create_job(kind="connect-remote", label=remote_name)
         start_job(job_id, _run_connect_remote_job, job_id, remote_name, kind, client_id, client_secret, scope)
         return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/ai-assist/status")
+    def ai_assist_status():
+        """
+        Deliberately its own endpoint, fetched by JS after the wizard page
+        has already rendered, never inline in wizard_cloud()'s own render.
+        has_api_key() calls into the vault (Portunus), which -- confirmed
+        live -- can take upwards of 10-15s to answer from this app's own
+        subprocess context (its own agent-facing gating, not a bug in this
+        call), even though the same call from a normal terminal is instant.
+        Blocking the wizard's main page render on that would make the
+        whole page look hung for that long; this way only the small AI
+        panel waits, while the actual setup form is usable immediately.
+        """
+        return {"has_key": ai_assist.has_api_key()}
 
     @app.route("/ai-assist/ask", methods=["POST"])
     def ai_assist_ask():
@@ -650,6 +663,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "wizard_choose": "sources",
     "wizard_cloud": "sources",
     "wizard_cloud_connect": "sources",
+    "ai_assist_status": "sources",
     "ai_assist_ask": "sources",
     "ai_assist_key": "sources",
     "ai_assist_key_clear": "sources",

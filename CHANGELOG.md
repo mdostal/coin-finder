@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.32.2] - 2026-08-15
+
+### Fixed
+
+- **The cloud setup wizard page took 15+ seconds to load, even after the
+  0.32.1 hang fix.** Root cause wasn't a hang this time -- `portunus`
+  itself is just slow (confirmed: 10-15s) when invoked from this app's own
+  subprocess context, vs. instant from a normal terminal (looks like
+  portunus's own agent-facing gating behavior, not a bug in it). The
+  wizard page called `ai_assist.has_api_key()` inline, blocking the whole
+  page's render on that one vault round-trip. Moved the check to its own
+  endpoint (`GET /ai-assist/status`), fetched by JS after the page has
+  already rendered -- the actual setup form (name a connection, pick a
+  scope, connect) is usable immediately; only the small "Ask AI" panel
+  waits on its own, independent of everything else on the page.
+
 ## [0.32.1] - 2026-08-15
 
 ### Fixed
