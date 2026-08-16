@@ -22,6 +22,40 @@
 <script src="{{ url_for('static', filename='vendor/cytoscape.min.js') }}"></script>
 <script src="{{ url_for('static', filename='graph.js') }}"></script>
 {% endif %}
+{% if job.kind == "gmail-scan" and job.result.results is defined %}
+<div class="card">
+  <h3 style="margin-top:0">Gmail search results</h3>
+  <p class="subtle">Addresses shown are public identifiers, safe to display same as
+  everywhere else in this app -- nothing else from an email's body is shown here.
+  Open the saved JSON or any downloaded attachment directly on disk to review further.</p>
+  {% if job.result.results %}
+  <table>
+    <thead><tr><th>From</th><th>Subject</th><th>Date</th><th>Addresses found</th><th>Attachment saved</th></tr></thead>
+    <tbody>
+      {% for r in job.result.results %}
+      <tr>
+        <td>{{ r.from }}</td>
+        <td>{{ r.subject }}</td>
+        <td>{{ r.date }}</td>
+        <td>
+          {% for coin, addrs in r.addresses.items() %}
+          <div>{{ coin }}: {% for a in addrs %}<code>{{ a }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+          {% endfor %}
+        </td>
+        <td>
+          {% for path in r.attachments_saved %}
+          <div><code>{{ path }}</code></div>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No matching emails found.</p>
+  {% endif %}
+</div>
+{% endif %}
 <div class="card"><pre>{{ job.result.report }}</pre></div>
 {% endif %}
 

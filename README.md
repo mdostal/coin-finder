@@ -55,6 +55,7 @@ project/
 │   ├── check_fork_coins.py   # Standalone: checks found Bitcoin addresses on fork coins (Bitcoin Cash, Bitcoin Gold)
 │   ├── unlock_exodus_wallet.py # Standalone: offline-gated wrapper around hashcat for Exodus wallet password testing
 │   ├── scan_google_drive.py  # Standalone: slow-crawls Google Drive for wallet-like files, downloads to local disk
+│   ├── scan_gmail.py         # Standalone: searches Gmail for wallet/exchange clues, vault-bound OAuth, downloads to local disk
 │   ├── extract_private_key.py # Standalone: offline-gated WIF extraction from an unencrypted wallet.dat, self-verifying
 │   ├── generate_wallet_report.py # Standalone: recoverability report (software ID, encryption, on-chain dormancy)
 ├── web/                       # Local web UI (Flask) tying every tool above into one app
@@ -491,7 +492,46 @@ other tool in this project can scan them exactly like a local drive.
 
 ---
 
-### 14. Private Key Extraction (`extract_private_key.py`)
+### 14. Gmail Adapter (`scan_gmail.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Searches Gmail
+for old exchange signup/withdrawal emails, wallet mentions, and wallet-like
+attachments (`wallet.dat`, backups, etc.) -- for each matching message,
+extracts sender/subject/date, regex-matches known cryptocurrency address
+patterns in the body, and downloads any wallet-like attachment directly to
+local disk.
+
+- **Vault-bound OAuth, not a plaintext credential file:** unlike the Google
+  Drive adapter above, this tool's OAuth client id/secret and the resulting
+  refresh token are all stored in your vault (Portunus) -- never a
+  `credentials.json`/`token.json` on disk. Same reason as everywhere else in
+  this project: an email's body can contain exactly the kind of secret (a
+  seed phrase, a private key someone emailed themselves years ago) that
+  must never flow through an AI assistant's own context -- it flows
+  straight from Gmail's API to local disk instead. Set it up from the
+  **Email** page in the [local web UI](#local-web-ui-webapppy) (`/gmail`):
+  1. Go to the [Google Cloud Console](https://console.cloud.google.com/),
+     create a project (or reuse the one from the Drive adapter above).
+  2. Enable the **Gmail API** for that project.
+  3. Create an **OAuth client ID** credential of type **Desktop app**.
+  4. Paste its client ID and client secret into the Email page -- both go
+     straight into the vault. The next step opens a real browser window for
+     one-time consent; nothing is searched until you approve it.
+- **What gets shown to you (and to any AI assistant helping with this
+  project):** sender, subject, date, and any matched address -- all public
+  identifiers, safe the same way a filename is safe. The email body itself,
+  and any attachment's raw content, never leave this tool -- they're either
+  regex-matched (addresses only) or written straight to disk (attachments).
+- **Usage**:
+  ```bash
+  python tools/scan_gmail.py <output_dir> [--query "..." ...] [--max-results 200]
+  ```
+  Defaults to a built-in set of queries covering known exchanges, wallet
+  mentions, and wallet-like attachments if `--query` isn't given.
+
+---
+
+### 15. Private Key Extraction (`extract_private_key.py`)
 
 **Standalone tool -- not part of the default pipeline run, and the highest-stakes
 tool in this project.** For an **unencrypted** Bitcoin Core `wallet.dat` (no
@@ -545,7 +585,7 @@ an actual balance -- see
 
 ---
 
-### 15. Wallet Recoverability Report (`generate_wallet_report.py`)
+### 16. Wallet Recoverability Report (`generate_wallet_report.py`)
 
 **Standalone tool -- not part of the default pipeline run.** Produces a
 Markdown report for one `wallet.dat`: file metadata, deterministically

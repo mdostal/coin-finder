@@ -20,6 +20,13 @@ from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_h
 from tools.find_seed_phrases import find_candidate_phrases, scan_directory
 from tools.match_seed_phrases import load_phrases_from_file, match_phrases, render_match_report
 from tools.scan_google_drive import get_drive_service, scan_drive_for_wallets
+from tools.scan_gmail import (
+    DEFAULT_QUERIES as DEFAULT_GMAIL_QUERIES,
+    bind_gmail_account,
+    is_gmail_bound,
+    scan_gmail_for_wallet_clues,
+    unbind_gmail_account,
+)
 from tools.scan_wallet_dat import check_addresses_balances, scan_wallet_for_addresses
 from tools.extract_private_key import extract_wif_for_address
 from web.findings import archive, archive_all_zero_balance, clear_all_findings, list_findings, record_finding, set_watched, unarchive
@@ -668,6 +675,53 @@ def create_app(host="127.0.0.1"):
         job_id = run_job(_run_drive_scan_job, output_dir, query, kind="drive-scan", label=output_dir)
         return redirect(url_for("item_result", job_id=job_id))
 
+    @app.route("/gmail")
+    def gmail_form():
+        return render_template(
+            "gmail.html",
+            bound=is_gmail_bound(),
+            default_queries=DEFAULT_GMAIL_QUERIES,
+            default_output_dir=str(DEFAULT_OUTPUT_ROOT / "gmail"),
+            error=None,
+        )
+
+    @app.route("/gmail/connect", methods=["POST"])
+    def gmail_connect():
+        client_id = (request.form.get("client_id") or "").strip()
+        client_secret = request.form.get("client_secret") or ""
+        if not client_id or not client_secret:
+            return (
+                render_template(
+                    "gmail.html",
+                    bound=is_gmail_bound(),
+                    default_queries=DEFAULT_GMAIL_QUERIES,
+                    default_output_dir=str(DEFAULT_OUTPUT_ROOT / "gmail"),
+                    error="Enter both the client ID and client secret.",
+                ),
+                400,
+            )
+
+        job_id = create_job(kind="gmail-connect", label="Gmail")
+        start_job(job_id, _run_gmail_connect_job, client_id, client_secret, job_id)
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/gmail/disconnect", methods=["POST"])
+    def gmail_disconnect():
+        unbind_gmail_account()
+        return redirect(url_for("gmail_form"))
+
+    @app.route("/gmail/search", methods=["POST"])
+    def gmail_search():
+        if not is_gmail_bound():
+            abort(409)
+
+        output_dir = (request.form.get("output_dir") or "").strip() or str(DEFAULT_OUTPUT_ROOT / "gmail")
+        queries = [q.strip() for q in (request.form.get("queries") or "").splitlines() if q.strip()] or None
+
+        job_id = create_job(kind="gmail-scan", label="Gmail search")
+        start_job(job_id, _run_gmail_scan_job, output_dir, queries, job_id)
+        return redirect(url_for("item_result", job_id=job_id))
+
     @app.route("/targets")
     def targets_page():
         return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), error=None)
@@ -904,7 +958,7 @@ def create_app(host="127.0.0.1"):
 # "Network" item landed on the same page, which read as pointless -- real
 # on-page tabs plus a deliberate order fixes both complaints at once.
 _NAV_GROUPS = {
-    "sources": {"label": "Sources", "tabs": [("Scan", "index"), ("Cloud — Mounts", "mounts_page"), ("Cloud — Google Drive", "drive_form"), ("Manage", "targets_page")]},
+    "sources": {"label": "Sources", "tabs": [("Scan", "index"), ("Cloud — Mounts", "mounts_page"), ("Cloud — Google Drive", "drive_form"), ("Email", "gmail_form"), ("Manage", "targets_page")]},
     "unlock": {"label": "Unlock", "tabs": [("Try", "item_unlock_form"), ("Vault", "vault_page"), ("Extract Key", "item_extract_key_form")]},
     "about": {"label": "About", "tabs": [("Update", "update_page"), ("Network", "network_page")]},
 }
@@ -934,6 +988,10 @@ _NAV_GROUP_BY_ENDPOINT = {
     "mounts_bind": "sources",
     "drive_form": "sources",
     "drive_scan": "sources",
+    "gmail_form": "sources",
+    "gmail_connect": "sources",
+    "gmail_disconnect": "sources",
+    "gmail_search": "sources",
     "start_scan": "sources",
     "scan_status": "sources",
     "scan_check_balances": "sources",
@@ -1295,6 +1353,28 @@ def _run_drive_scan_job(output_dir, query):
     lines.append(f"Scan {output_dir} next (from the home page) to check balances and everything else.")
 
     return {"report": "\n".join(lines), "manifest": manifest, "output_dir": output_dir}
+
+
+def _run_gmail_connect_job(client_id, client_secret, job_id):
+    """
+    Reuses tools/scan_gmail.py's exact vault-bound OAuth flow -- no
+    reimplementation. Runs in a background job because it can open a real
+    local browser window for one-time OAuth consent, which would
+    otherwise block the request thread.
+    """
+    return bind_gmail_account(
+        client_id, client_secret, progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message)
+    )
+
+
+def _run_gmail_scan_job(output_dir, queries, job_id):
+    results = scan_gmail_for_wallet_clues(
+        output_dir,
+        queries=queries,
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
+    report = f"{len(results)} matching email(s) found. Results (and any wallet-like attachments) saved to {output_dir}."
+    return {"report": report, "results": results, "output_dir": output_dir}
 
 
 def _find_checkpoint_path(output_dir):
