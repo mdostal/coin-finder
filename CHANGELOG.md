@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-08-15
+
+### Added
+
+- **Editable Vault entries.** Previously add/revoke only -- now each
+  saved password's description can be edited in place via Portunus's own
+  `retag` command, which never touches the underlying secret value.
+  Planned and built via `/plugin-hive:plan` + `/plugin-hive:execute`
+  (epic `editable-vault-entries`).
+
 ## [0.36.0] - 2026-08-15
 
 ### Added
