@@ -194,13 +194,24 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
 
 
 def unmount(remote_name, state_path=DEFAULT_STATE_PATH):
-    """Unmounts and drops the tracked state entry. A no-op for an untracked remote."""
+    """
+    Unmounts and drops the tracked state entry. A no-op for an untracked
+    remote.
+
+    Confirmed live: plain `umount` fails on this NFS-served mount with
+    "Resource busy -- try 'diskutil unmount'" even when nothing is
+    actually reading from it -- macOS's own error message names the
+    real fix. `diskutil unmount` is tried first; a plain `umount` is
+    the fallback for any platform where `diskutil` isn't on PATH.
+    """
     state = _load_state(state_path)
     entry = state.get(remote_name)
     if entry is None:
         return
 
-    subprocess.run(["umount", entry["mount_point"]], capture_output=True)
+    result = subprocess.run(["diskutil", "unmount", entry["mount_point"]], capture_output=True)
+    if result.returncode != 0:
+        subprocess.run(["umount", entry["mount_point"]], capture_output=True)
     del state[remote_name]
     _save_state(state_path, state)
 
