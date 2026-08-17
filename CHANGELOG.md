@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.51.3] - 2026-08-17
+
+### Fixed
+
+- **Disconnecting a mounted cloud drive from the Cloud Mounts page could
+  silently fail.** macOS refuses a plain unmount on this kind of mount
+  ("Resource busy") when nothing is actually reading from it -- the app
+  now uses the correct disconnect command, so the app's own tracking of
+  what's mounted stays in sync with reality instead of thinking a drive
+  is disconnected when it's still fully live underneath.
+
 ## [0.51.2] - 2026-08-17
 
 ### Fixed

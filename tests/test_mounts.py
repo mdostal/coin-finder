@@ -84,6 +84,41 @@ def test_mount_captures_stderr_to_a_log_file_not_devnull(mock_popen, tmp_path):
     assert Path(state["gdrive"]["log_path"]).parent == tmp_path
 
 
+@patch("web.mounts.subprocess.run")
+def test_unmount_tries_diskutil_unmount_first(mock_run, tmp_path):
+    """
+    Regression test for a real failure hit live: plain `umount` refused
+    this NFS-served mount with "Resource busy -- try 'diskutil unmount'"
+    even with nothing reading from it -- the state entry got dropped
+    anyway (since the old code never checked the return code), leaving
+    the app's own tracking out of sync with a mount that was still very
+    much alive.
+    """
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    state_path = tmp_path / "mounts_state.json"
+    state_path.write_text(json.dumps({"gdrive": {"pid": 1, "mount_point": "/tmp/mnt", "started_at": 0, "log_path": "/tmp/x.log"}}))
+
+    unmount("gdrive", state_path=state_path)
+
+    args = mock_run.call_args_list[0][0][0]
+    assert args[0] == "diskutil"
+    assert args[1] == "unmount"
+    assert "/tmp/mnt" in args
+
+
+@patch("web.mounts.subprocess.run")
+def test_unmount_falls_back_to_plain_umount_when_diskutil_fails(mock_run, tmp_path):
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="some error")
+    state_path = tmp_path / "mounts_state.json"
+    state_path.write_text(json.dumps({"gdrive": {"pid": 1, "mount_point": "/tmp/mnt", "started_at": 0, "log_path": "/tmp/x.log"}}))
+
+    unmount("gdrive", state_path=state_path)
+
+    assert mock_run.call_count == 2
+    second_call_args = mock_run.call_args_list[1][0][0]
+    assert second_call_args[0] == "umount"
+
+
 @patch("web.mounts.os.listdir")
 @patch("web.mounts.os.kill")
 @patch("web.mounts.subprocess.Popen")
