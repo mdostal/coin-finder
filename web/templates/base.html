@@ -8,6 +8,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='icon/icon-16.png') }}">
 <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icon/icon-180.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script>document.documentElement.setAttribute("data-theme", localStorage.getItem("coin-finder-theme") || "dark");</script>
 </head>
 <body>
 <header class="topbar">
@@ -22,6 +23,7 @@
         <span class="dot{{ ' idle' if running_jobs_count == 0 }}"></span>{{ running_jobs_count }} running
       </a>
       <span id="conn-status" class="conn-status conn-unknown" title="Checking network status...">&bull; checking&hellip;</span>
+      <button type="button" id="theme-toggle" class="btn-secondary theme-toggle-btn">Light mode</button>
     </nav>
   </div>
 </header>
@@ -30,5 +32,7 @@
 </div>
 <script src="{{ url_for('static', filename='connectivity.js') }}"></script>
 <script src="{{ url_for('static', filename='browse.js') }}"></script>
+<script src="{{ url_for('static', filename='theme.js') }}"></script>
+<script src="{{ url_for('static', filename='path-chip.js') }}"></script>
 </body>
 </html>

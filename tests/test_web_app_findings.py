@@ -122,3 +122,39 @@ def test_findings_clear_all(mock_clear_all, client):
     resp = client.post("/findings/clear-all", follow_redirects=False)
     assert resp.status_code == 302
     mock_clear_all.assert_called_once()
+
+
+@patch("web.app.list_findings")
+def test_findings_page_shows_a_real_coin_icon_for_known_coins(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b"coin-icons/btc.svg" in resp.data
+
+
+@patch("web.app.list_findings")
+def test_findings_page_falls_back_to_initials_badge_for_a_coin_with_no_icon_asset(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Diamond Coin", "address": "1abc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b"coin-icons/" not in resp.data
+    assert b"DMD" in resp.data
+
+
+@patch("web.app.list_findings")
+def test_findings_page_truncates_a_long_source_path_but_keeps_the_full_value_for_copy_and_hover(mock_list, client):
+    long_path = "/Volumes/OldDrive/nested/three/computers/deep/backup-folder/another-backup/wallet-files/2015/backup_wallet.dat"
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": long_path, "source_label": "scan", "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b"backup_wallet.dat" in resp.data  # the useful, end-of-path part is visible
+    assert f'data-path="{long_path}"'.encode() in resp.data  # full path preserved for Copy
+    assert f'title="{long_path}"'.encode() in resp.data  # full path preserved for hover
+    # the truncated display text starts with an ellipsis, not the real start of the path
+    assert "…ther-backup/wallet-files/2015/backup_wallet.dat".encode() in resp.data

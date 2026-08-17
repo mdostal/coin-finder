@@ -81,16 +81,18 @@ def list_findings(include_archived=False, db_path=DEFAULT_DB_PATH):
     """
     :return: [{"coin", "address", "balance", "source_path", "source_label",
         "status", "first_seen_at", "last_checked_at", "watched",
-        "watch_note"}, ...], watched findings first, newest-checked within
-        each group -- a watched hypothesis (e.g. "suspected mining-wallet
-        chain") should never scroll off the bottom of a long list.
+        "watch_note"}, ...], watched findings first, then any finding with
+        a real confirmed non-zero balance, then everything else
+        newest-checked first. A real find must never be one recheck away
+        from scrolling off the bottom of a long, mostly-zero-balance list
+        just because something else happened to be checked more recently.
     """
     conn = _connect(db_path)
     try:
         query = "SELECT * FROM findings"
         if not include_archived:
             query += " WHERE status != 'archived'"
-        query += " ORDER BY watched DESC, last_checked_at DESC"
+        query += " ORDER BY watched DESC, (balance IS NOT NULL AND balance > 0) DESC, last_checked_at DESC"
         rows = conn.execute(query).fetchall()
         return [dict(row) for row in rows]
     finally:

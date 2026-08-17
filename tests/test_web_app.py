@@ -30,6 +30,15 @@ def test_index_page_loads(client):
     assert resp.status_code == 200
 
 
+def test_every_page_ships_a_theme_toggle(client):
+    """Real ask: this app is dark-by-default but must let the user switch
+    to a light theme -- the toggle button + its script must be present on
+    every page (base.html), not just some."""
+    resp = client.get("/")
+    assert b'id="theme-toggle"' in resp.data
+    assert b'src="/static/theme.js"' in resp.data
+
+
 def test_unknown_job_returns_404(client):
     resp = client.get("/api/jobs/does-not-exist")
     assert resp.status_code == 404

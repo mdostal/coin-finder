@@ -2,6 +2,68 @@
 <span class="status-pill status-{{ status }}">{{ status }}</span>
 {% endmacro %}
 
+{# icon: real logo file under web/static/coin-icons/ (spothq/cryptocurrency-
+   icons, CC0) when one exists for this coin -- initials, color used either
+   as a fallback (no icon available, e.g. Diamond Coin/Helium/Shiba Inu --
+   niche enough that a general icon pack doesn't carry them) or as the
+   title/background tint alongside the icon. #}
+{% set _coin_badge_specs = {
+  "Bitcoin": ("₿", "#f7931a", "btc"),
+  "Bitcoin Cash": ("BCH", "#8dc351", "bch"),
+  "Bitcoin Gold": ("BTG", "#eba631", "btg"),
+  "Bitcoin SV": ("BSV", "#eab300", "bsv"),
+  "Binance Coin": ("BNB", "#f0b90b", "bnb"),
+  "Cardano": ("ADA", "#3468d1", "ada"),
+  "Cosmos": ("ATOM", "#2e3148", "atom"),
+  "Diamond Coin": ("DMD", "#7fd6e8", None),
+  "Digibyte": ("DGB", "#0066cc", "dgb"),
+  "Dogecoin": ("Đ", "#c2a633", "doge"),
+  "Ethereum": ("Ξ", "#627eea", "eth"),
+  "Ethereum Classic": ("ETC", "#328332", "etc"),
+  "Feathercoin": ("FTC", "#578dc0", "ftc"),
+  "Helium": ("HNT", "#4ba3a3", None),
+  "IOTA": ("IOTA", "#131f37", "miota"),
+  "Litecoin": ("Ł", "#345d9d", "ltc"),
+  "Monero": ("XMR", "#ff6600", "xmr"),
+  "OKCash": ("OK", "#4794b3", "ok"),
+  "Ripple": ("XRP", "#23292f", "xrp"),
+  "Tether": ("USDT", "#26a17b", "usdt"),
+  "Shiba Inu": ("SHIB", "#ffa409", None),
+  "Zcash": ("ZEC", "#f4b728", "zec"),
+} %}
+{% macro coin_badge(coin) %}
+  {% set spec = _coin_badge_specs.get(coin) %}
+  {% if spec and spec[2] %}
+  <span class="coin-badge coin-badge-icon" style="background:{{ spec[1] }}22;border-color:{{ spec[1] }}55" title="{{ coin }}">
+    <img src="{{ url_for('static', filename='coin-icons/' + spec[2] + '.svg') }}" alt="{{ coin }}">
+  </span>
+  {% elif spec %}
+  <span class="coin-badge" style="background:{{ spec[1] }}22;color:{{ spec[1] }};border-color:{{ spec[1] }}55" title="{{ coin }}">{{ spec[0] }}</span>
+  {% else %}
+  {% set hue = (coin | length * 47) % 360 %}
+  <span class="coin-badge" style="background:hsl({{ hue }} 55% 45% / 0.15);color:hsl({{ hue }} 65% 65%);border-color:hsl({{ hue }} 55% 45% / 0.4)" title="{{ coin }}">{{ (coin[:2] if coin else "?") | upper }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro path_chip(path, max_chars=48) %}
+{# Truncated from the START, in plain Python string slicing -- not a CSS
+   bidi trick (direction:rtl + text-overflow), which looked right at
+   first but reorders the weak-direction "/" separators in a real path
+   and leaves a stray slash at the visual end. Keeping the LAST
+   max_chars characters shows the actual filename -- the useful part
+   when a drive is nested 3 computers deep -- instead of a generic
+   mount-point prefix. Full path always available via native hover
+   tooltip + a Copy button (clipboard), no separate expand UI needed. #}
+{% set display = path %}
+{% if path and path | length > max_chars %}
+{% set display = "…" + path[-(max_chars - 1):] %}
+{% endif %}
+<span class="path-chip">
+  <code class="path-chip-text" title="{{ path }}">{{ display }}</code>
+  <button type="button" class="path-chip-copy btn-secondary" data-path="{{ path }}" title="Copy full path">Copy</button>
+</span>
+{% endmacro %}
+
 {% macro table(rows) %}
   {% if rows %}
   <table>

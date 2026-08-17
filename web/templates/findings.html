@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}coin-finder -- findings{% endblock %}
 {% block content %}
 <h2>Findings</h2>
 <p>Every wallet/address/balance ever found across every scan, in one place --
 persists across restarts, so it accumulates across a multi-day, multi-session
 crawl instead of vanishing when a job finishes. Watched findings (marked
-below) always sort to the top.</p>
+below) always sort to the top, real balances sort right after them.</p>
 
 <div class="card">
   <form method="post" action="{{ url_for('findings_archive_all_zero') }}" style="display:inline">
@@ -49,74 +50,84 @@ below) always sort to the top.</p>
   <button type="submit" form="bulk-form" formaction="{{ url_for('item_crawl') }}" class="btn-secondary">Graph selected</button>
   <button type="submit" form="bulk-form" formaction="{{ url_for('item_fork_coins') }}" class="btn-secondary">Check fork coins selected</button>
   <p class="subtle" style="margin:0.5rem 0 0">Both run against every checked
-  row at once, as one background job -- same tools as the per-row buttons
+  row at once, as one background job -- same tools as the per-finding actions
   below, just batched.</p>
 </div>
 {% endif %}
 
-<table>
-  <thead>
-    <tr><th></th><th>Coin</th><th>Address</th><th>Balance</th><th>Source</th><th>Status</th><th>Watch</th><th></th></tr>
-  </thead>
-  <tbody>
-    {% for f in findings %}
-    <tr class="{{ 'watched-row' if f.watched }}">
-      <td>
-        {% if f.coin == "Bitcoin" %}
-        <input type="checkbox" class="bulk-select" value="{{ f.address }}">
-        {% endif %}
-      </td>
-      <td>{{ f.coin }}</td>
-      <td>{{ f.address }}</td>
-      <td>{% if f.balance is none %}<span class="subtle">inconclusive</span>{% else %}{{ f.balance }}{% endif %}</td>
-      <td>{{ f.source_label or "" }}{% if f.source_path %} ({{ f.source_path }}){% endif %}</td>
-      <td>{{ f.status }}</td>
-      <td>
-        <form method="post" action="{{ url_for('findings_watch' if not f.watched else 'findings_unwatch') }}">
-          <input type="hidden" name="coin" value="{{ f.coin }}">
-          <input type="hidden" name="address" value="{{ f.address }}">
-          {% if include_archived %}<input type="hidden" name="include_archived" value="1">{% endif %}
-          {% if f.watched %}
-          <p class="subtle" style="margin:0 0 0.35rem">&#9733; {{ f.watch_note or "watched" }}</p>
-          <button type="submit" class="btn-secondary">Unwatch</button>
-          {% else %}
-          <input type="text" name="note" placeholder="why? e.g. suspected mining-wallet chain" style="margin-bottom:0.35rem">
-          <button type="submit" class="btn-secondary">&#9733; Watch</button>
-          {% endif %}
-        </form>
-      </td>
-      <td>
-        {% if f.source_path %}
-        <a href="{{ url_for('auto_unlock_form', wallet_path=f.source_path) }}" class="btn-secondary" style="display:inline-block;text-decoration:none" title="Try every saved vault password against this wallet file.">Try unlock</a>
-        {% endif %}
-        {% if f.coin == "Bitcoin" %}
-        <form method="post" action="{{ url_for('item_crawl') }}" style="display:inline" title="Crawl the transaction graph outward from this address -- co-spent and related addresses, balances, last activity. Helps tell a genuinely new find apart from a sub-wallet of one you already know.">
-          <input type="hidden" name="addresses" value="{{ f.address }}">
-          <button type="submit" class="btn-secondary">Graph</button>
-        </form>
-        <form method="post" action="{{ url_for('item_fork_coins') }}" style="display:inline" title="Check this same address for a balance on Bitcoin's forks (Bitcoin Cash, Bitcoin Gold, Bitcoin SV) -- they share the same address/keys.">
-          <input type="hidden" name="addresses" value="{{ f.address }}">
-          <button type="submit" class="btn-secondary">Check fork coins</button>
-        </form>
-        {% endif %}
-        {% if f.status == "archived" %}
-        <form method="post" action="{{ url_for('findings_unarchive') }}" style="display:inline">
-          <input type="hidden" name="coin" value="{{ f.coin }}">
-          <input type="hidden" name="address" value="{{ f.address }}">
-          <button type="submit" class="btn-secondary">Unarchive</button>
-        </form>
+<div class="finding-list">
+  {% for f in findings %}
+  <div class="finding-card{{ ' watched-row watched' if f.watched }}{{ ' has-balance-row has-balance' if f.balance }}">
+    <div class="finding-card-select">
+      {% if f.coin == "Bitcoin" %}
+      <input type="checkbox" class="bulk-select" value="{{ f.address }}">
+      {% endif %}
+    </div>
+    {{ m.coin_badge(f.coin) }}
+    <div class="finding-card-main">
+      <div class="finding-card-top">
+        <code>{{ f.address }}</code>
+        {% if f.balance is none %}
+        <span class="subtle">inconclusive</span>
+        {% elif f.balance %}
+        <strong class="balance-found">{{ f.balance }} {{ f.coin }}</strong>
         {% else %}
-        <form method="post" action="{{ url_for('findings_archive') }}" style="display:inline">
-          <input type="hidden" name="coin" value="{{ f.coin }}">
-          <input type="hidden" name="address" value="{{ f.address }}">
-          <button type="submit" class="btn-secondary">Archive</button>
-        </form>
+        <span class="subtle">0 {{ f.coin }}</span>
         {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+        {{ m.status_pill(f.status) }}
+      </div>
+      <div class="finding-card-sub subtle">
+        {{ f.coin }}{% if f.source_label or f.source_path %} &middot; found via {{ f.source_label or "scan" }}{% if f.source_path %} &middot; {{ m.path_chip(f.source_path) }}{% endif %}{% endif %}
+        {% if f.watched %}<br><span class="watch-note">&#9733; {{ f.watch_note or "watched" }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="finding-card-actions">
+      <form method="post" action="{{ url_for('findings_watch' if not f.watched else 'findings_unwatch') }}" class="watch-form">
+        <input type="hidden" name="coin" value="{{ f.coin }}">
+        <input type="hidden" name="address" value="{{ f.address }}">
+        {% if include_archived %}<input type="hidden" name="include_archived" value="1">{% endif %}
+        {% if f.watched %}
+        <button type="submit" class="btn-secondary">Unwatch</button>
+        {% else %}
+        <input type="text" name="note" placeholder="why watch this?">
+        <button type="submit" class="btn-secondary">&#9733; Watch</button>
+        {% endif %}
+      </form>
+      <details>
+        <summary class="btn-secondary">More actions</summary>
+        <div class="more-actions-panel">
+          {% if f.source_path %}
+          <a href="{{ url_for('auto_unlock_form', wallet_path=f.source_path) }}" class="btn-secondary" style="display:inline-block;text-decoration:none;text-align:center" title="Try every saved vault password against this wallet file.">Try unlock</a>
+          {% endif %}
+          {% if f.coin == "Bitcoin" %}
+          <form method="post" action="{{ url_for('item_crawl') }}" title="Crawl the transaction graph outward from this address -- co-spent and related addresses, balances, last activity. Helps tell a genuinely new find apart from a sub-wallet of one you already know.">
+            <input type="hidden" name="addresses" value="{{ f.address }}">
+            <button type="submit" class="btn-secondary">Graph</button>
+          </form>
+          <form method="post" action="{{ url_for('item_fork_coins') }}" title="Check this same address for a balance on Bitcoin's forks (Bitcoin Cash, Bitcoin Gold, Bitcoin SV) -- they share the same address/keys.">
+            <input type="hidden" name="addresses" value="{{ f.address }}">
+            <button type="submit" class="btn-secondary">Check fork coins</button>
+          </form>
+          {% endif %}
+          {% if f.status == "archived" %}
+          <form method="post" action="{{ url_for('findings_unarchive') }}">
+            <input type="hidden" name="coin" value="{{ f.coin }}">
+            <input type="hidden" name="address" value="{{ f.address }}">
+            <button type="submit" class="btn-secondary">Unarchive</button>
+          </form>
+          {% else %}
+          <form method="post" action="{{ url_for('findings_archive') }}">
+            <input type="hidden" name="coin" value="{{ f.coin }}">
+            <input type="hidden" name="address" value="{{ f.address }}">
+            <button type="submit" class="btn-secondary">Archive</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+  </div>
+  {% endfor %}
+</div>
 <script src="{{ url_for('static', filename='findings.js') }}"></script>
 {% else %}
 <p class="empty">No findings yet -- run a scan first.</p>

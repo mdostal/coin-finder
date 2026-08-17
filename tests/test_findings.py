@@ -90,6 +90,47 @@ def test_set_watched_stores_note_and_sorts_to_top(tmp_path):
     assert findings[1]["watched"] == 0
 
 
+def test_a_real_balance_sorts_above_more_recently_checked_zero_balances(tmp_path):
+    """
+    Regression test for the real ask: a genuine find must not be one
+    recheck away from scrolling off the bottom of a long, mostly-zero
+    -balance list just because something else happened to be checked
+    more recently.
+    """
+    db_path = tmp_path / "findings.db"
+    record_finding("Bitcoin", "1hasbalance", 0.015, db_path=db_path)
+    time.sleep(0.01)
+    record_finding("Bitcoin", "1checkedlater", 0.0, db_path=db_path)
+
+    findings = list_findings(db_path=db_path)
+    assert findings[0]["address"] == "1hasbalance"
+    assert findings[1]["address"] == "1checkedlater"
+
+
+def test_watched_still_outranks_a_real_balance(tmp_path):
+    db_path = tmp_path / "findings.db"
+    record_finding("Bitcoin", "1hasbalance", 0.015, db_path=db_path)
+    record_finding("Bitcoin", "1watchedzero", 0.0, db_path=db_path)
+    set_watched("Bitcoin", "1watchedzero", True, note="suspected chain", db_path=db_path)
+
+    findings = list_findings(db_path=db_path)
+    assert findings[0]["address"] == "1watchedzero"
+    assert findings[1]["address"] == "1hasbalance"
+
+
+def test_inconclusive_none_balance_does_not_outrank_zero(tmp_path):
+    """balance IS NOT NULL AND balance > 0 must not accidentally treat an
+    inconclusive (None) balance as somehow better than a confirmed 0.0 --
+    neither is a real find, so relative order between them doesn't matter,
+    but a real find (non-zero) must still outrank both."""
+    db_path = tmp_path / "findings.db"
+    record_finding("Bitcoin", "1hasbalance", 0.5, db_path=db_path)
+    record_finding("Bitcoin", "1inconclusive", None, db_path=db_path)
+
+    findings = list_findings(db_path=db_path)
+    assert findings[0]["address"] == "1hasbalance"
+
+
 def test_set_watched_false_clears_the_flag(tmp_path):
     db_path = tmp_path / "findings.db"
     record_finding("Bitcoin", "1abc", 0.0, db_path=db_path)

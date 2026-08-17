@@ -21,9 +21,17 @@ probably related (a mining wallet and its holding wallet, for example).
   </thead>
   <tbody>
     {% for address, info in overlaps.items() %}
-    <tr>
+    <tr class="{{ 'has-balance-row' if info.balance }}">
       <td>{{ address }}</td>
-      <td>{% if info.balance is none %}<span class="subtle">inconclusive</span>{% else %}{{ info.balance }}{% endif %}</td>
+      <td>
+        {% if info.balance is none %}
+        <span class="subtle">inconclusive</span>
+        {% elif info.balance %}
+        <strong class="balance-found">{{ info.balance }}</strong>
+        {% else %}
+        <span class="subtle">0</span>
+        {% endif %}
+      </td>
       <td>
         {% for run in info.runs %}
         <div>{{ run.seed_addresses | join(", ") }} <span class="subtle">({{ run.confidence }}, gen {{ run.generation }})</span></div>
