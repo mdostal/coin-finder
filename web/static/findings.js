@@ -63,6 +63,29 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Submits a POST with one hidden <input name="fieldName"> per value,
+  // then navigates there -- used instead of a GET `?fieldName=...&
+  // fieldName=...` query string for bulk selections, which can carry
+  // enough repeated params to exceed the server's URI-length limit long
+  // before Flask ever sees the request (confirmed live: a 414 "URI Too
+  // Long" on a large bulk "Try unlock selected" selection). A form body
+  // has no comparable practical size ceiling for this.
+  function submitBulkSelection(actionUrl, fieldName, values) {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = actionUrl;
+    form.style.display = "none";
+    values.forEach((value) => {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = fieldName;
+      input.value = value;
+      form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+  }
+
   if (bulkTryUnlock) {
     bulkTryUnlock.addEventListener("click", () => {
       const paths = Array.from(document.querySelectorAll(".bulk-select:checked"))
@@ -72,26 +95,23 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("Check at least one finding with a known wallet file first.");
         return;
       }
-      const params = new URLSearchParams();
-      paths.forEach((p) => params.append("wallet_path", p));
-      // Navigates to the same auto-unlock confirmation page the
-      // per-finding "Try unlock" link uses -- no job starts on this
-      // click, same safety gate (network check, vault check, explicit
-      // Run) as every other unlock entry point.
-      window.location.href = `${bulkTryUnlock.dataset.unlockUrl}?${params.toString()}`;
+      // Posts to the same auto-unlock confirmation page the per-finding
+      // "Try unlock" link uses -- no job starts on this click, same
+      // safety gate (network check, vault check, explicit Run) as every
+      // other unlock entry point.
+      submitBulkSelection(bulkTryUnlock.dataset.unlockConfirmUrl, "wallet_path", paths);
     });
   }
 
   if (bulkExtractKeys) {
     bulkExtractKeys.addEventListener("click", () => {
-      // bpk-02: mirrors bulk-try-unlock's click-to-navigate pattern above,
-      // but filters to data-key-extractable="1" (bpk-01) rows and builds
-      // one "wallet_path\taddress" pair per row -- extraction is
-      // per-address, not per-wallet, so a bare source-path list (like
-      // Try-unlock's) isn't enough here. The server re-derives and
-      // re-filters this same candidate set on its own before running
-      // anything -- this client-side filter is a UX nicety, not the real
-      // safety check.
+      // bpk-02: mirrors bulk-try-unlock's pattern above, but filters to
+      // data-key-extractable="1" (bpk-01) rows and builds one
+      // "wallet_path\taddress" pair per row -- extraction is per-address,
+      // not per-wallet, so a bare source-path list (like Try-unlock's)
+      // isn't enough here. The server re-derives and re-filters this
+      // same candidate set on its own before running anything -- this
+      // client-side filter is a UX nicety, not the real safety check.
       const pairs = Array.from(document.querySelectorAll(".bulk-select:checked"))
         .filter((cb) => cb.dataset.keyExtractable === "1" && cb.dataset.sourcePath)
         .map((cb) => `${cb.dataset.sourcePath}\t${cb.value}`);
@@ -99,9 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("None of the checked findings have a known extractable key -- run Check credential status first if you haven't yet.");
         return;
       }
-      const params = new URLSearchParams();
-      pairs.forEach((p) => params.append("pair", p));
-      window.location.href = `${bulkExtractKeys.dataset.extractUrl}?${params.toString()}`;
+      submitBulkSelection(bulkExtractKeys.dataset.extractConfirmUrl, "pair", pairs);
     });
   }
 });

@@ -3,6 +3,8 @@ import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from werkzeug.datastructures import MultiDict
+
 import pytest
 
 from web.app import create_app
@@ -339,7 +341,7 @@ def test_auto_unlock_submit_scopes_to_multiple_wallets_via_repeated_hidden_field
 
 
 @patch("web.app.list_findings")
-def test_findings_page_bulk_try_unlock_links_to_auto_unlock_form(mock_findings, client):
+def test_findings_page_bulk_try_unlock_links_to_auto_unlock_confirm(mock_findings, client):
     mock_findings.return_value = [
         {"coin": "Bitcoin", "address": "1a", "source_path": "/real/wallet.dat", "status": "new", "balance": 0.0, "watched": 0, "watch_note": ""},
     ]
@@ -348,8 +350,39 @@ def test_findings_page_bulk_try_unlock_links_to_auto_unlock_form(mock_findings, 
 
     assert resp.status_code == 200
     assert b'id="bulk-try-unlock"' in resp.data
-    assert b'data-unlock-url="/auto-unlock"' in resp.data
+    assert b'data-unlock-confirm-url="/auto-unlock/confirm"' in resp.data
     assert b'data-source-path="/real/wallet.dat"' in resp.data
+
+
+@patch("web.app.list_findings")
+def test_auto_unlock_confirm_post_scopes_to_submitted_wallet_paths(mock_findings, client):
+    """
+    Regression test for a real bug hit live: bulk 'Try unlock selected'
+    against a large selection built a GET URL with one repeated
+    ?wallet_path=... query param per finding, which exceeded the
+    server's URI-length limit (414 URI Too Long) before Flask ever saw
+    the request. The confirm step must travel via POST body instead,
+    which has no comparable practical size ceiling.
+    """
+    mock_findings.return_value = []
+    with patch("web.app._known_wallet_paths", return_value={"/a/wallet.dat", "/b/wallet.dat", "/c/wallet.dat"}):
+        resp = client.post("/auto-unlock/confirm", data=MultiDict([
+            ("wallet_path", "/a/wallet.dat"),
+            ("wallet_path", "/b/wallet.dat"),
+            ("wallet_path", "/not-known.dat"),
+        ]))
+
+    assert resp.status_code == 200
+    assert b"/a/wallet.dat" in resp.data
+    assert b"/b/wallet.dat" in resp.data
+    assert b"/not-known.dat" not in resp.data
+
+
+def test_auto_unlock_confirm_get_is_not_registered(client):
+    # /auto-unlock/confirm is POST-only -- the GET confirm page is still
+    # the original /auto-unlock route, unchanged.
+    resp = client.get("/auto-unlock/confirm")
+    assert resp.status_code == 405
 
 
 @patch("web.app.list_findings")
