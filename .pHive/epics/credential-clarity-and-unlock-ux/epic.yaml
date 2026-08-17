@@ -1,0 +1,24 @@
+name: credential-clarity-and-unlock-ux
+title: Eye-toggle secret reveal, per-finding unlock status, and credential-completeness indicator
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+stories:
+  - id: ccu-01
+    title: In-place eye-toggle reveal for secret result pages
+    complexity: low
+    depends_on: []
+  - id: ccu-02
+    title: Per-finding unlock status badge + persistent batch-result summary
+    complexity: medium
+    depends_on: []
+  - id: ccu-03
+    title: Credential-completeness indicator (private key extractable / encrypted-locked / unknown)
+    complexity: high
+    depends_on: [ccu-02]

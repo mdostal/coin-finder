@@ -1,0 +1,120 @@
+id: ccu-02
+epic: credential-clarity-and-unlock-ux
+title: Per-finding unlock status badge + persistent batch-result summary
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: >
+  Findings today carries zero visual trace of a prior unlock attempt --
+  a wallet already unlocked in a past run, one tried and failed, and one
+  never tried all render identically. auto_unlock_history.py already
+  records (run_id, wallet_path, vault_label, matched, run_at) per run;
+  Findings just never joins against it. This story adds the cheap, live
+  half of that signal (a straightforward DB lookup by source_path, no
+  new schema, no background job) as a per-finding badge, plus surfaces
+  a persistent, batch-scoped summary after a bulk Try-unlock so the
+  user doesn't have to remember to check the separate History page.
+
+  This is the live-data half of the design discussion's 4-state
+  credential model (state 1: "password known"). The heavier states
+  (private key extractable / genuinely encrypted-locked / unknown,
+  requiring a new cache and background job) are ccu-03, which depends on
+  this story's badge UI to extend rather than duplicate.
+
+acceptance_criteria:
+  - "Each Findings row with a source_path shows a small status badge,
+    next to the existing status pill, reflecting the most recent
+    auto_unlock_history row for that source_path: 'unlocked' (matched=1
+    exists), 'tried, no match' (a run exists, matched=0), or 'not yet
+    tried' (no run exists). Badge copy says 'wallet,' not 'address' --
+    auto_unlock_history is wallet_path-scoped, and a badge implying
+    per-address precision would misrepresent the actual data."
+  - "After a bulk Try-unlock job completes (the existing wallet_paths
+    -scoped flow, web/app.py's _run_auto_unlock_job/auto_unlock_submit),
+    a persistent summary banner appears on Findings (not just the
+    once-only result page) showing that batch's outcome -- e.g. "Last
+    batch: N unlocked, M no match, run at <time>" -- sourced from
+    list_auto_unlock_history()'s existing run_id grouping, not a new
+    data source."
+  - "The banner links through to /auto-unlock-history for the full
+    detail, rather than duplicating that page's content."
+  - "No new job type, no new schema -- this story only adds read paths
+    (a query joining Findings rows to auto_unlock_history by
+    source_path) and template/badge work."
+  - "New tests: badge shows 'unlocked' for a finding with a matched=1
+    history row, 'tried, no match' for matched=0, 'not yet tried' for no
+    row at all; the batch summary banner renders after a bulk run and
+    correctly reflects that run's counts; existing findings.html/
+    findings.js tests and tests/test_web_app_auto_unlock.py continue to
+    pass unchanged."
+
+steps:
+  - id: research
+    description: >
+      Confirm the exact current query surface: web/auto_unlock_history.py's
+      list_auto_unlock_history() and however individual wallet lookups
+      happen (may need a new, small "most recent run for this
+      wallet_path" query function alongside the existing list function).
+      Re-check web/templates/findings.html's current per-row markup and
+      web/findings.py's list_findings() to find the cleanest join point.
+    agent: researcher
+  - id: test-spec
+    description: >
+      Write tests for the three badge states and the batch summary
+      banner first, using auto_unlock_history fixtures. Confirm they
+      fail against current behavior.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: >
+      Add the wallet_path -> most-recent-status lookup, wire it into
+      findings.html's per-row rendering as a small badge, and add the
+      batch summary banner (reading the most recent run_id's grouped
+      results) to the Findings page.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm badge copy says "wallet" not "address," and that no new schema/job was introduced.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit on feat/credential-clarity-and-unlock-ux.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/auto_unlock_history.py
+      purpose: "Schema (run_id, wallet_path, vault_label, matched, run_at) and list_auto_unlock_history() -- the data source for both the badge and the banner, no schema change needed."
+    - path: web/templates/findings.html
+      purpose: Per-row rendering, where the new status badge slots in next to the existing status pill.
+    - path: web/app.py
+      purpose: _run_auto_unlock_job/auto_unlock_submit -- the existing bulk-unlock flow this story surfaces results from, not replaces.
+
+files_to_modify:
+  - file: web/auto_unlock_history.py
+    change: Add a small "most recent status for this wallet_path" query alongside the existing list function, if not already sufficient.
+  - file: web/templates/findings.html
+    change: Per-row unlock-status badge; batch-result summary banner.
+  - file: web/findings.py
+    change: Only if the Findings query needs to carry source_path through for the join -- confirm during research, likely already present.
+  - file: tests/test_web_app_findings.py
+    change: New tests for the three badge states and the batch summary banner.
+
+design_decisions:
+  - decision: Build the cheap, live half of the credential signal (password-known status) before the expensive cached half (ccu-03).
+    rationale: Per the design discussion's own recommendation -- this is immediately useful with zero new schema/background-job risk, and gives ccu-03 an existing badge UI to extend rather than building both at once.
+  - decision: Badge says "wallet," never "address."
+    rationale: auto_unlock_history is wallet_path-scoped, not per-address -- a per-address claim would misrepresent what "one password unlocks the whole wallet" actually means for multi-address wallet files.
+
+risks:
+  - severity: low
+    description: A finding whose source_path no longer exists on disk (moved/deleted drive) would show "not yet tried" indistinguishably from a genuinely-never-attempted one.
+    mitigation: Acceptable for this story -- it's the same "not yet tried" bucket either way from the user's perspective (nothing has been recorded), and file-existence checking is out of scope here.
+
+references:
+  - path: .pHive/epics/credential-clarity-and-unlock-ux/docs/design-discussion.md
+    relevant_excerpt: "Add a per-finding status badge on Findings... this is the cheap, always-live half of the #2 join described above, reused here for its own sake."

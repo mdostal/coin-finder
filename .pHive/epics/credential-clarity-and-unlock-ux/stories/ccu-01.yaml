@@ -1,0 +1,116 @@
+id: ccu-01
+epic: credential-clarity-and-unlock-ux
+title: In-place eye-toggle reveal for secret result pages
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: >
+  Two pages render a real matched secret in plaintext the instant they
+  load, with no gate: web/templates/auto_unlock_result.html (the
+  Password column, {{ r.value }} inside <strong><code>) and
+  web/templates/vault_reveal_result.html ({{ value }} directly). Both
+  are already the project's deliberately-conservative once-only surface
+  (web/jobs.py's secret=True job class strips the result after one
+  consume_job_result() call; auto_unlock_history.py never persists the
+  raw value at all) -- this story does not touch that guarantee, it only
+  gates the one legitimate viewing behind an explicit click.
+
+  User's explicit correction: the reveal must happen IN PLACE on the
+  same page/row -- not a navigation to a separate page or a second
+  request. Render the value into the page as-is (e.g. a data attribute
+  or a hidden sibling node) and toggle visibility client-side with no
+  new network request when the eye is clicked.
+
+acceptance_criteria:
+  - "auto_unlock_result.html's Password column renders a masked
+    placeholder (e.g. a bullet/dot pattern) by default, with an eye-icon
+    button next to it. Clicking the eye reveals the real value in place,
+    client-side, no new request -- clicking again re-masks it."
+  - "vault_reveal_result.html gets the identical treatment: masked by
+    default, eye-icon toggle reveals in place."
+  - "Everything else on both pages (wallet path, vault label, source,
+    the once-only warning banner) stays visible exactly as today --
+    only the secret value itself is masked-by-default."
+  - "The real value is still present in the page's initial HTML/DOM
+    (e.g. in a data attribute) so no second request is needed to reveal
+    it -- confirm this doesn't regress the once-only guarantee (the
+    value is still only ever rendered on this one page load, from the
+    one consume_job_result() call already in place; masking is a
+    display-layer change only, not a new persistence or re-fetch path)."
+  - "New tests confirming: the masked placeholder renders by default (the
+    raw value is not the visible text content), the real value is
+    reachable via the eye toggle without a new HTTP request, and the
+    existing once-only job-consumption tests in
+    tests/test_web_app_auto_unlock.py and vault reveal tests still pass
+    unchanged."
+
+steps:
+  - id: research
+    description: >
+      Read web/templates/auto_unlock_result.html and
+      web/templates/vault_reveal_result.html in full, plus any existing
+      reveal/toggle JS pattern already in this project (check
+      web/static/*.js for a precedent) to match established conventions
+      rather than inventing a new one.
+    agent: researcher
+  - id: test-spec
+    description: >
+      Write tests confirming the masked-by-default rendering and that
+      the real value is present in the DOM (reachable client-side) but
+      not the default visible text. Confirm they fail against current
+      behavior first.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: >
+      Update both templates with a masked placeholder + eye-toggle
+      button, plus a small JS snippet (new file or addition to an
+      existing static JS file) for the client-side reveal/re-mask. No
+      backend changes.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm the once-only guarantee is unaffected -- this is a display-layer-only change.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit on feat/credential-clarity-and-unlock-ux.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/templates/auto_unlock_result.html
+      purpose: The Password column currently renders the real value in plaintext on load.
+    - path: web/templates/vault_reveal_result.html
+      purpose: Same pattern, needs the same eye-toggle treatment.
+    - path: web/jobs.py
+      purpose: "secret=True job class + consume_job_result() -- the once-only guarantee this story must not weaken."
+
+files_to_modify:
+  - file: web/templates/auto_unlock_result.html
+    change: Masked-by-default Password column with in-place eye-toggle reveal.
+  - file: web/templates/vault_reveal_result.html
+    change: Same masked-by-default + in-place eye-toggle treatment.
+  - file: web/static/ (new or existing JS file)
+    change: Client-side reveal/re-mask toggle logic, no new network request.
+  - file: tests/test_web_app_auto_unlock.py
+    change: Add masked-by-default + reveal-reachable-without-new-request coverage.
+
+design_decisions:
+  - decision: Reveal happens in place via client-side DOM toggle, not a second page/request.
+    rationale: Explicit user correction -- "Reveal should be done in place, not a navigation across."
+  - decision: Do not change the once-only job-consumption plumbing (web/jobs.py) at all.
+    rationale: This is a display-layer fix on top of an already-correct, deliberately-conservative secret-handling design; the gap was only "shown immediately" vs "shown on click," not "shown more than once" or "persisted."
+
+risks:
+  - severity: low
+    description: Rendering the real value into a data attribute (even if visually masked) means it's still technically present in page source/dev tools, same as any client-side reveal pattern.
+    mitigation: Acceptable and consistent with the existing once-only page's own security model (a local, single-user desktop app already trusting the local browser session) -- not a regression, just matching how every other "click to reveal" pattern on the web necessarily works without a second server round trip.
+
+references:
+  - path: .pHive/epics/credential-clarity-and-unlock-ux/docs/design-discussion.md
+    relevant_excerpt: "Render the value into a data-secret attribute... with a small reveal button that swaps a masked placeholder for the real value client-side, no new request."

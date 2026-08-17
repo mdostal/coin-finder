@@ -1,0 +1,144 @@
+id: ccu-03
+epic: credential-clarity-and-unlock-ux
+title: Credential-completeness indicator (private key extractable / encrypted-locked / unknown)
+status: pending
+complexity: high
+methodology: tdd
+depends_on: [ccu-02]
+
+description: >
+  Extends ccu-02's per-finding badge with the heavier half of the
+  4-state credential model: whether a private key is structurally
+  extractable for a finding (no password needed at all -- the strongest
+  possible state), or the wallet is genuinely encrypted with no known
+  password (a real dead end without one), or neither can be evaluated
+  (any non-Bitcoin-Core-wallet.dat finding).
+
+  tools/extract_private_key.py's find_key_value_pair_for_address() does
+  a full linear BDB scan of the wallet.dat file to determine this --
+  real, non-trivial I/O per wallet, confirmed NOT cheap enough to run
+  live on every Findings page load (this project already hit and fixed
+  exactly this class of mistake once, per web/app.py:463-471's own
+  comment about list_vault_entries() blocking the server for 10-15s).
+  This story adds a small cache populated by a background job, reusing
+  the existing run_job()/secret-job infrastructure pattern -- not
+  inventing new job plumbing.
+
+acceptance_criteria:
+  - "A new cache keyed by wallet_path (not per-address -- the BDB scan
+    walks the whole file and can record every address's key-type in one
+    pass) records, per wallet_path: whether it's a Bitcoin Core
+    wallet.dat at all, and if so the key-type (unencrypted 'key' record
+    vs encrypted 'ckey' record) for each known address in that file.
+    Wallet files don't change once discovered -- compute once, cache
+    forever, only re-run on an explicit user action."
+  - "The cache is populated by a background job (same secret=True/
+    run_job() pattern as extract-key and auto-unlock), triggered by an
+    explicit Findings action (e.g. 'Check credential status,' mirroring
+    the existing 'Try unlock selected' bulk-action pattern) -- never
+    synchronously on page render."
+  - "Findings badge (extending ccu-02's badge, not replacing it) shows,
+    for Bitcoin wallet.dat findings only: 'Key extractable, no password
+    needed' (unencrypted key record found -- this is the strongest
+    possible state, shown distinctly from 'password known'), 'Encrypted,
+    no known password' (ckey record, no auto_unlock_history match), or
+    combines with ccu-02's 'password known' badge when both are true
+    (a wallet can have a known password AND unencrypted keys for other
+    addresses in the same file -- these are two independent facts, not
+    collapsed into one)."
+  - "Every non-wallet.dat finding (Electrum, Exodus .seco, any non-
+    Bitcoin coin, or a source_path that's missing/moved) shows a
+    visually distinct 'not checked / not applicable' state -- explicitly
+    NOT the same visual treatment as 'encrypted, no known password.'
+    Collapsing these two into one 'can't unlock' badge is the exact
+    failure mode flagged as this story's real risk -- must not happen."
+  - "extract_private_key.py and scan_wallet_dat.py are reused read-only
+    -- no changes to either tool's own logic."
+  - "New tests: cache correctly records key-extractable vs
+    encrypted-locked per wallet from real BDB fixtures (reuse existing
+    tests/test_extract_private_key.py fixtures where possible); the
+    background job populates the cache without blocking; the Findings
+    badge shows all four distinct states correctly, especially
+    confirming 'unknown/not applicable' is visually distinct from
+    'checked, genuinely encrypted'; full test suite stays green."
+
+steps:
+  - id: research
+    description: >
+      Re-confirm find_key_value_pair_for_address()'s exact current
+      signature/behavior and BDB scan cost characteristics (this may
+      have shifted slightly since the design discussion was written).
+      Decide the concrete cache storage shape (new small sqlite table
+      alongside auto_unlock_history.py's pattern vs. columns on an
+      existing table) based on what's cleanest given findings.py's
+      current schema.
+    agent: researcher
+  - id: test-spec
+    description: >
+      Write tests for the cache population job and the four-state badge
+      rendering first, using real BDB wallet.dat fixtures (reuse
+      tests/test_extract_private_key.py's existing fixtures rather than
+      fabricating new ones where possible). Confirm they fail before
+      implementing.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: >
+      Build the cache module, the background job trigger ("Check
+      credential status" action), and extend ccu-02's Findings badge
+      with the two new states plus the explicit not-applicable state.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: >
+      Specifically verify the "unknown/not applicable" vs "checked,
+      genuinely encrypted" visual distinction is real and unmistakable
+      -- this is the story's named risk, not a nice-to-have.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Run the full test suite, commit on feat/credential-clarity-and-unlock-ux.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/extract_private_key.py
+      purpose: "find_key_value_pair_for_address() -- the BDB scan this story caches the result of, reused read-only, never modified."
+    - path: web/auto_unlock_history.py
+      purpose: Pattern to follow for the new cache's own small sqlite module.
+    - path: web/jobs.py
+      purpose: run_job()/secret job pattern to reuse for the new background scan job -- do not invent new job infrastructure.
+
+files_to_modify:
+  - file: web/credential_scan_cache.py (new, name TBD by implementer)
+    change: New small module -- wallet_path-keyed cache of key-extractability per wallet, following auto_unlock_history.py's pattern.
+  - file: web/app.py
+    change: New "Check credential status" action/route triggering the background scan job.
+  - file: web/templates/findings.html
+    change: Extend ccu-02's badge with the two new cached states plus the explicit not-applicable state.
+  - file: tests/test_web_app_findings.py
+    change: Four-state badge coverage, including the not-applicable-vs-encrypted-locked distinction.
+  - file: tests/ (new file, name TBD)
+    change: Cache population job tests using real BDB fixtures.
+
+design_decisions:
+  - decision: Cache, not live computation -- a background job populates it, never inline on page render.
+    rationale: The BDB scan is real, non-trivial per-wallet I/O; this project already hit and fixed exactly this class of blocking-call mistake once (web/app.py:463-471).
+  - decision: Cache is keyed by wallet_path, recording every address's key-type in one pass.
+    rationale: The scan already walks the whole file regardless of which single address triggered it -- no reason to scan the same file once per address when one pass captures everything.
+  - decision: "Unknown/not applicable" must be visually distinct from "checked, genuinely encrypted."
+    rationale: Named directly in the design discussion as the real hazard -- collapsing them risks the user skipping a wallet they could actually recover, which is worse for this tool's purpose than any UI awkwardness.
+
+risks:
+  - severity: high
+    description: A false "unlockable" badge wastes real user time/BTCRecover wall-clock chasing an inaccessible wallet; a false "not unlockable" (or an unclear unknown-vs-locked state) risks the user skipping a wallet they could actually recover.
+    mitigation: The four-state model with an explicit, visually distinct "not yet checked" bucket is designed specifically to avoid both failure modes -- review step must verify this holds in the actual rendered UI, not just the data model.
+  - severity: medium
+    description: Scope creep -- easy to imply this covers every coin/wallet format this project supports.
+    mitigation: Badge and copy must say Bitcoin Core wallet.dat explicitly wherever the extractable/encrypted states are shown; every other format gets the not-applicable state, never a guess.
+
+references:
+  - path: .pHive/epics/credential-clarity-and-unlock-ux/docs/design-discussion.md
+    relevant_excerpt: "State 1 (password known) is a cheap DB lookup... States 2/3 (key extractable / genuinely encrypted-and-locked) require the BDB scan -- real, non-trivial I/O per distinct wallet file."
