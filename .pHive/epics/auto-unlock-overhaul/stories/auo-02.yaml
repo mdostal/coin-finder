@@ -1,7 +1,7 @@
 id: auo-02
 epic: auto-unlock-overhaul
 title: Durable run history (metadata only) + vault reveal-value action
-status: pending
+status: complete
 complexity: medium
 methodology: tdd
 depends_on: [auo-01]
