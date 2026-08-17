@@ -269,6 +269,8 @@ cython_debug/
 !.pHive/epics/ui-design-options/**
 !.pHive/epics/candidate-match-integrity/
 !.pHive/epics/candidate-match-integrity/**
+!.pHive/epics/credential-clarity-and-unlock-ux/
+!.pHive/epics/credential-clarity-and-unlock-ux/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
