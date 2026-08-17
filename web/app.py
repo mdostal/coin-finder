@@ -41,6 +41,7 @@ from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, res
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
 from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, list_crawl_runs, record_crawl_run
 from web.scan_history import clear_scan_history, list_scan_history, record_scan
+from web.auto_unlock_history import clear_auto_unlock_history, list_auto_unlock_history, record_auto_unlock_run
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
 
@@ -842,6 +843,35 @@ def create_app(host="127.0.0.1"):
         edit_vault_entry((request.form.get("name") or "").strip(), (request.form.get("description") or "").strip())
         return redirect(url_for("vault_page"))
 
+    @app.route("/vault/reveal", methods=["POST"])
+    def vault_reveal():
+        """
+        Synchronous, not a backgrounded job -- mirrors item_unlock()'s
+        existing inline resolve_vault_entries_with_values() use. No job
+        entry is ever created for a reveal, so it never surfaces via
+        /jobs' generic listing either -- a strictly smaller exposure
+        surface than the job-based once-only pattern used elsewhere.
+        """
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            return render_template("vault.html", entries=list_vault_entries(), error="Enter a vault entry to reveal."), 400
+
+        try:
+            [(_, value)] = resolve_vault_entries_with_values([name])
+        except RuntimeError as e:
+            return render_template("vault.html", entries=list_vault_entries(), error=str(e)), 400
+
+        return render_template("vault_reveal_result.html", name=name, value=value)
+
+    @app.route("/auto-unlock/history")
+    def auto_unlock_history_page():
+        return render_template("auto_unlock_history.html", runs=list_auto_unlock_history())
+
+    @app.route("/auto-unlock/history/clear", methods=["POST"])
+    def auto_unlock_history_clear():
+        clear_auto_unlock_history()
+        return redirect(url_for("auto_unlock_history_page"))
+
     @app.route("/wizard")
     def wizard_start():
         return render_template("wizard_start.html")
@@ -1023,6 +1053,9 @@ _NAV_GROUP_BY_ENDPOINT = {
     "vault_add": "unlock",
     "vault_revoke": "unlock",
     "vault_edit": "unlock",
+    "vault_reveal": "unlock",
+    "auto_unlock_history_page": "unlock",
+    "auto_unlock_history_clear": "unlock",
     # Findings -- standalone, no tab strip.
     "findings_page": "findings",
     "findings_archive": "findings",
@@ -1341,6 +1374,7 @@ def _run_auto_unlock_job(allow_online=False, wallet_paths=None):
     finally:
         Path(candidates_path).unlink(missing_ok=True)
 
+    record_auto_unlock_run(results)
     return {"results": results}
 
 

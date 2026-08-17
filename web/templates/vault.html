@@ -7,9 +7,11 @@
 <p>Save known/guessed passwords once, label them ("password-1", "grandpa's
 laptop guess"), then pick them from a list when unlocking a wallet instead of
 retyping. Backed by <a href="https://github.com/mdostal/portunus">Portunus</a>
-when it's installed -- values are encrypted at rest and never shown by this
-page, only by name. If Portunus isn't installed, a local fallback store is
-used instead so the feature still works.</p>
+when it's installed -- values are encrypted at rest and shown by name only,
+never their real value, <strong>except</strong> the one-time Reveal action
+below: click it, see the real value once, gone the moment you navigate away
+-- never persisted or logged. If Portunus isn't installed, a local fallback
+store is used instead so the feature still works.</p>
 
 {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
 
@@ -31,6 +33,10 @@ used instead so the feature still works.</p>
         </td>
         <td>{{ e.state }}</td>
         <td>
+          <form method="post" action="{{ url_for('vault_reveal') }}" style="display:inline">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <button type="submit" class="btn-secondary">Reveal</button>
+          </form>
           <form method="post" action="{{ url_for('vault_revoke') }}" style="display:inline">
             <input type="hidden" name="name" value="{{ e.name }}">
             <button type="submit" class="btn-secondary">Revoke</button>
@@ -58,5 +64,6 @@ used instead so the feature still works.</p>
   </form>
 </div>
 
-<p class="subtle">Try saved entries against a wallet from the <a href="{{ url_for('item_unlock_form') }}">Unlock</a> page.</p>
+<p class="subtle">Try saved entries against a wallet from the <a href="{{ url_for('item_unlock_form') }}">Unlock</a> page.
+Past auto-unlock runs (which label matched which wallet, if any): <a href="{{ url_for('auto_unlock_history_page') }}">history &rarr;</a></p>
 {% endblock %}
