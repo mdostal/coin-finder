@@ -265,6 +265,8 @@ cython_debug/
 !.pHive/epics/auto-unlock-overhaul/**
 !.pHive/epics/crypto-wallet-expansion-20260731/
 !.pHive/epics/crypto-wallet-expansion-20260731/**
+!.pHive/epics/ui-design-options/
+!.pHive/epics/ui-design-options/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

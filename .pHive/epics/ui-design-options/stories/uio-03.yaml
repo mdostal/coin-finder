@@ -1,0 +1,72 @@
+id: uio-03
+epic: ui-design-options
+title: Group Watch + Try-unlock bulk actions
+status: pending
+complexity: low
+methodology: tdd
+depends_on: [uio-01]
+
+description: >
+  The existing bulk-select flow on Findings (checkbox per Bitcoin row +
+  "Graph selected" / "Check fork coins selected", from an earlier epic this
+  session) is missing two of the four per-finding actions in bulk form:
+  Watch and Try-unlock. Add both, matching the existing batched-background
+  -job pattern already used by the other two.
+
+acceptance_criteria:
+  - "Watch selected" button on the bulk-action bar runs findings_watch for
+    every checked address in one action (a single note field applies to
+    all of them, or no note -- implementer's choice on UX, but must not
+    require typing the same note N times).
+  - "Try unlock" selected wallets: for every checked finding that has a
+    source_path, runs the existing batch auto-unlock flow
+    (_run_auto_unlock_job / /auto-unlock) scoped to exactly that selection
+    -- reuse the existing wallet_paths scoping mechanism from the
+    auto-unlock-overhaul epic, do not build a second unlock pathway.
+  - Bulk selection is not restricted to Bitcoin-only for these two actions
+    (unlike Graph/Check-fork-coins, which are genuinely Bitcoin-only tools)
+    -- Watch and Try-unlock apply to any coin's finding.
+  - New tests in tests/test_web_app_findings.py (or
+    tests/test_web_app_auto_unlock.py for the unlock-scoping half) covering
+    both bulk actions end to end.
+
+steps:
+  - phase: research
+    notes: >
+      Existing bulk pattern: web/templates/findings.html's #bulk-form +
+      web/static/findings.js (bulk-select checkbox collection,
+      formaction-based submission to different endpoints reusing the same
+      selected addresses). Existing scoped-unlock mechanism: web/app.py's
+      auto_unlock_form()/auto_unlock_submit() wallet_paths scoping (added
+      by the auto-unlock-overhaul epic this session for the single-finding
+      "Try unlock" action) -- extend that same scoping to accept multiple
+      wallet_paths from a bulk selection instead of building new plumbing.
+  - phase: test-spec
+  - phase: implement
+  - phase: review
+  - phase: integrate
+
+context:
+  files_to_modify:
+    - web/templates/findings.html
+    - web/static/findings.js
+    - web/app.py
+    - tests/test_web_app_findings.py
+    - tests/test_web_app_auto_unlock.py
+
+design_decisions:
+  - Reuse existing single-finding Try-unlock scoping mechanism
+    (wallet_paths param on _run_auto_unlock_job) rather than building a
+    parallel bulk-unlock code path -- a bulk selection of N wallets is just
+    wallet_paths=[...N paths...], already supported.
+
+risks:
+  - severity: low
+    description: A bulk Watch action needs a UX decision (one shared note field vs no note) that wasn't specified by the user directly.
+    mitigation: Default to no-note-required for bulk Watch (an optional single note field applied to all selected, same as the per-row Watch form's optional note) -- low-stakes implementer judgment call, flag in the PR/commit message rather than blocking on it.
+
+references:
+  - path: web/app.py
+    relevant_excerpt: "_run_auto_unlock_job(allow_online=False, wallet_paths=None) -- already accepts a list of wallet paths to scope to"
+  - path: web/static/findings.js
+    relevant_excerpt: existing bulk-select collection pattern (.bulk-select checkboxes -> hidden addresses field -> shared #bulk-form) to extend for two more formaction targets

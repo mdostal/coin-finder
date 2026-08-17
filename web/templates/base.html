@@ -8,7 +8,10 @@
 <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='icon/icon-16.png') }}">
 <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icon/icon-180.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-<script>document.documentElement.setAttribute("data-theme", localStorage.getItem("coin-finder-theme") || "dark");</script>
+<script>
+document.documentElement.setAttribute("data-theme", localStorage.getItem("coin-finder-theme") || "dark");
+document.documentElement.setAttribute("data-palette", localStorage.getItem("coin-finder-palette") || "archival");
+</script>
 </head>
 <body>
 <header class="topbar">
@@ -19,6 +22,7 @@
       <a href="{{ url_for('item_unlock_form') }}" class="nav-single{{ ' active' if active_nav_group == 'unlock' }}">Unlock</a>
       <a href="{{ url_for('findings_page') }}" class="nav-single{{ ' active' if active_nav_group == 'findings' }}">Findings</a>
       <a href="{{ url_for('update_page') }}" class="nav-single{{ ' active' if active_nav_group == 'about' }}">About</a>
+      <a href="{{ url_for('settings_page') }}" class="nav-single{{ ' active' if active_nav_group == 'settings' }}">Settings</a>
       <a href="{{ url_for('jobs_page') }}" class="jobs-chip" title="Background jobs -- survives navigating away">
         <span class="dot{{ ' idle' if running_jobs_count == 0 }}"></span>{{ running_jobs_count }} running
       </a>

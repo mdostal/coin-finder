@@ -92,6 +92,54 @@ def test_findings_page_hides_bitcoin_only_actions_for_other_coins(mock_list, cli
 
 
 @patch("web.app.list_findings")
+def test_findings_page_offers_bulk_watch_and_try_unlock_for_any_coin(mock_list, client):
+    """
+    Watch selected / Try unlock selected are NOT Bitcoin-only tools (unlike
+    Graph/Check fork coins) -- they must appear even for a page of
+    non-Bitcoin findings, and the per-row checkbox must be selectable on
+    every coin's row, not just Bitcoin's.
+    """
+    mock_list.return_value = [
+        {"coin": "Ethereum", "address": "0xabc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b'formaction="/findings/watch-bulk"' in resp.data
+    assert b'id="bulk-try-unlock"' in resp.data
+    assert b'value="0xabc"' in resp.data
+    # Bitcoin-only actions still absent for an all-Ethereum page.
+    assert b'action="/item/crawl"' not in resp.data
+    assert b'action="/item/fork-coins"' not in resp.data
+
+
+@patch("web.app.set_watched")
+def test_findings_watch_bulk_applies_one_note_to_every_checked_address_across_coins(mock_set_watched, client):
+    resp = client.post(
+        "/findings/watch-bulk",
+        data={"selection": "Bitcoin\t1abc\nEthereum\t0xdef", "note": "suspected mining chain"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert mock_set_watched.call_count == 2
+    mock_set_watched.assert_any_call("Bitcoin", "1abc", True, note="suspected mining chain")
+    mock_set_watched.assert_any_call("Ethereum", "0xdef", True, note="suspected mining chain")
+
+
+@patch("web.app.set_watched")
+def test_findings_watch_bulk_note_is_optional(mock_set_watched, client):
+    resp = client.post("/findings/watch-bulk", data={"selection": "Bitcoin\t1abc"}, follow_redirects=False)
+    assert resp.status_code == 302
+    mock_set_watched.assert_called_once_with("Bitcoin", "1abc", True, note="")
+
+
+@patch("web.app.set_watched")
+def test_findings_watch_bulk_requires_at_least_one_selection(mock_set_watched, client):
+    resp = client.post("/findings/watch-bulk", data={"note": "no selection made"}, follow_redirects=False)
+    assert resp.status_code == 302
+    mock_set_watched.assert_not_called()
+
+
+@patch("web.app.list_findings")
 def test_findings_page_highlights_watched_rows(mock_list, client):
     mock_list.return_value = [
         {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 1, "watch_note": "suspected mining chain"}
@@ -146,15 +194,97 @@ def test_findings_page_falls_back_to_initials_badge_for_a_coin_with_no_icon_asse
 
 
 @patch("web.app.list_findings")
-def test_findings_page_truncates_a_long_source_path_but_keeps_the_full_value_for_copy_and_hover(mock_list, client):
+def test_findings_page_shows_full_path_as_a_collapsed_tree_with_connectors_and_bold_filename(mock_list, client):
     long_path = "/Volumes/OldDrive/nested/three/computers/deep/backup-folder/another-backup/wallet-files/2015/backup_wallet.dat"
     mock_list.return_value = [
         {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": long_path, "source_label": "scan", "status": "new", "first_seen_at": 0, "last_checked_at": 0}
     ]
     resp = client.get("/findings")
     assert resp.status_code == 200
-    assert b"backup_wallet.dat" in resp.data  # the useful, end-of-path part is visible
-    assert f'data-path="{long_path}"'.encode() in resp.data  # full path preserved for Copy
-    assert f'title="{long_path}"'.encode() in resp.data  # full path preserved for hover
-    # the truncated display text starts with an ellipsis, not the real start of the path
-    assert "…ther-backup/wallet-files/2015/backup_wallet.dat".encode() in resp.data
+    body = resp.data.decode("utf-8")
+    # Full path still reachable via Copy even while the tree is collapsed --
+    # the Copy button/title live outside the <details> hidden region.
+    assert f'data-path="{long_path}"' in body
+    assert f'title="{long_path}"' in body
+    # Chain-of-custody disclosure is collapsed by default (no `open` attribute).
+    assert "Chain of custody" in body
+    assert '<details class="custody-disclosure">' in body
+    assert '<details class="custody-disclosure" open' not in body
+    # Full path rendered as an indented tree, one segment per line, `└─`
+    # connectors, filename bolded at the end.
+    assert "└─" in body
+    assert '<strong class="path-tree-file">backup_wallet.dat</strong>' in body
+    assert ">OldDrive<" in body
+    assert ">backup-folder<" in body
+
+
+@patch("web.app.list_findings")
+def test_findings_page_shows_logged_source_metadata_line(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": "/w.dat", "source_label": "scan_wallet_dat", "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b"LOGGED" in resp.data
+    assert b"SOURCE scan_wallet_dat" in resp.data
+
+
+@patch("web.app.list_findings")
+def test_findings_page_metadata_line_falls_back_to_scan_label(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": "/w.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b"SOURCE scan" in resp.data
+
+
+@patch("web.app.list_findings")
+def test_findings_page_has_a_coin_filter_tab_per_distinct_coin(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0},
+        {"coin": "Litecoin", "address": "Labc", "balance": 0, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0},
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b'data-coin-filter="all"' in resp.data
+    assert b'data-coin-filter="Bitcoin"' in resp.data
+    assert b'data-coin-filter="Litecoin"' in resp.data
+
+
+@patch("web.app.list_findings")
+def test_findings_page_has_a_live_search_field(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b'id="findings-search"' in resp.data
+    # Each card carries the searchable haystack the client-side JS filters against.
+    assert b'data-search="bitcoin 1abc' in resp.data.lower()
+
+
+@patch("web.app.list_findings")
+def test_findings_page_shows_confirmed_find_wax_seal_for_nonzero_balance_only(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0},
+        {"coin": "Litecoin", "address": "Labc", "balance": 0, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0},
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "CONFIRMED FIND" in body
+    assert body.count("wax-seal") == 1  # only the non-zero-balance row gets one
+
+
+@patch("web.app.list_findings")
+def test_findings_page_vertical_coin_tab_uses_real_icon_and_coin_name(mock_list, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "finding-card-tab" in body
+    assert "coin-icons/btc.svg" in body
+    assert ">Bitcoin<" in body

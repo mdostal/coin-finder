@@ -39,6 +39,14 @@
   --error-border: #4a1a1e;
   --info: #6ea3cf;
 
+  /* Wax-seal "CONFIRMED FIND" treatment -- deliberately a third hue,
+     distinct from both --accent (brand/brass) and --success/--warning/
+     --error (job status), so a real non-zero balance reads as its own
+     unmistakable category in a long, mostly-zero-balance list, not just
+     a brighter shade of the existing gold highlight. */
+  --seal: #c65340;
+  --seal-ink: #fbe9e2;
+
   --radius: 10px;
   --radius-sm: 7px;
   --mono: "SF Mono", "Menlo", "Consolas", monospace;
@@ -73,6 +81,140 @@
   --error-bg: #f4e0dc;
   --error-border: #dbb2a6;
   --info: #3c6e94;
+
+  --seal: #8a2e22;
+  --seal-ink: #fdf3ea;
+}
+
+/* ============ Named color palettes (uio-02) ============
+   Palette is a second axis, fully orthogonal to light/dark: applied via
+   data-palette on <html> alongside the existing data-theme attribute
+   (web/static/theme.js). "Archival" (above) is the default and needs no
+   data-palette selector of its own -- it's what the bare :root and
+   :root[data-theme="light"] blocks already are. Every other palette
+   below defines its own complete dark AND light token set using the
+   exact same token names, so component CSS never has to know which
+   palette is active. Compound selectors (…[data-palette="x"][data-theme=
+   "light"]) are used for each palette's light variant so its specificity
+   always wins over both the bare dark default and the archival light
+   block, regardless of source order. */
+
+/* Graphite -- cooler graphite/ink, brass accents, a teal focus color.
+   Color language adapted from design option B; layout/typography are
+   unchanged (uio-01's unified hybrid design). */
+:root[data-palette="graphite"] {
+  --bg: #0d1316;
+  --bg-raised: #131b1f;
+  --bg-inset: #0a0f12;
+  --border: #263338;
+  --border-strong: #3b4c52;
+  --text: #dce6e2;
+  --text-dim: #9fb0ac;
+
+  --accent: #d3a94f;
+  --accent-dim: #a9863c;
+  --accent-bright: #f0c877;
+  --accent-ink: #1d1608;
+
+  --success: #63c08a;
+  --success-bg: #12241b;
+  --warning: #e7c25a;
+  --warning-bg: #2b2414;
+  --warning-border: #4d4020;
+  --error: #e2725a;
+  --error-bg: #2b1712;
+  --error-border: #4d2a20;
+  --info: #6fd3e8;
+
+  --seal: #e2574a;
+  --seal-ink: #2a0c08;
+}
+
+:root[data-palette="graphite"][data-theme="light"] {
+  --bg: #e8ece9;
+  --bg-raised: #f2f5f2;
+  --bg-inset: #dee4e0;
+  --border: #c1cbc7;
+  --border-strong: #9fada9;
+  --text: #161d20;
+  --text-dim: #3b474b;
+
+  --accent: #8c6a22;
+  --accent-dim: #6b511a;
+  --accent-bright: #ad8938;
+  --accent-ink: #fffbf0;
+
+  --success: #257a4e;
+  --success-bg: #e1f0e7;
+  --warning: #8f6a12;
+  --warning-bg: #f1e8ce;
+  --warning-border: #d8c48a;
+  --error: #a5432f;
+  --error-bg: #f4e1db;
+  --error-border: #ddb6a9;
+  --info: #1e5f74;
+
+  --seal: #a5291f;
+  --seal-ink: #fdf0ee;
+}
+
+/* Terminal -- amber-on-near-black with a cyan accent, a terminal-tinted
+   ledger. Color language adapted from design option C; layout/typography
+   are unchanged (uio-01's unified hybrid design). */
+:root[data-palette="terminal"] {
+  --bg: #0b0906;
+  --bg-raised: #16110c;
+  --bg-inset: #1c1610;
+  --border: #33291c;
+  --border-strong: #4d3f28;
+  --text: #efe4cc;
+  --text-dim: #a4906c;
+
+  --accent: #ffb020;
+  --accent-dim: #cc8c1a;
+  --accent-bright: #ffc45c;
+  --accent-ink: #241a08;
+
+  --success: #67d17e;
+  --success-bg: #16241c;
+  --warning: #f0cc55;
+  --warning-bg: #2c2712;
+  --warning-border: #4d4420;
+  --error: #ff7a63;
+  --error-bg: #2c1712;
+  --error-border: #4d2820;
+  --info: #5be1e8;
+
+  --seal: #ff3b54;
+  --seal-ink: #2a0408;
+}
+
+:root[data-palette="terminal"][data-theme="light"] {
+  --bg: #f3ecda;
+  --bg-raised: #fbf6e7;
+  --bg-inset: #e2d8ba;
+  --border: #cdbf94;
+  --border-strong: #a99a68;
+  --text: #241d10;
+  --text-dim: #5b4f34;
+
+  --accent: #9a5f06;
+  --accent-dim: #7a4a04;
+  --accent-bright: #b87a12;
+  --accent-ink: #fff8e8;
+
+  --success: #1f7a3d;
+  --success-bg: #e1f0e5;
+  --warning: #8a6a10;
+  --warning-bg: #f1e8ce;
+  --warning-border: #d8c48a;
+  --error: #a5331f;
+  --error-bg: #f4e1db;
+  --error-border: #ddb6a9;
+  --info: #0d6e77;
+
+  --seal: #c81e3a;
+  --seal-ink: #fdeef1;
 }
 
 * { box-sizing: border-box; }
@@ -489,29 +631,149 @@ pre {
   flex-shrink: 0;
 }
 
+/* ============ Findings toolbar: coin filter tabs + live search ============
+   Option C's coin-tab idea + Option B's search field, client-side only
+   (web/static/findings.js) -- filters .finding-card rows via `hidden`,
+   no page reload needed for the common case. */
+.findings-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0 1rem;
+}
+.coin-tabs {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.coin-tab {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.coin-tab:hover { color: var(--text); border-color: var(--text-dim); }
+.coin-tab.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.findings-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+.findings-search span { font-size: 0.8rem; white-space: nowrap; }
+.findings-search input[type=search] {
+  width: 16rem;
+  max-width: 60vw;
+  margin: 0;
+}
+
 .finding-list {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.9rem;
   margin: 0.5rem 0 1.5rem;
 }
+
+/* Vertical coin-name tab down the card's left edge (card-catalog style,
+   Option A) -- the real coin icon (coin_badge macro) stacked above a
+   vertical coin-name label, tinted with that coin's own accent color. */
 .finding-card {
   display: flex;
-  align-items: flex-start;
-  gap: 0.9rem;
+  align-items: stretch;
+  gap: 0;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.9rem 1.1rem;
+  position: relative;
 }
-.finding-card.has-balance {
-  background: rgba(214, 165, 79, 0.1);
-  border-color: rgba(214, 165, 79, 0.35);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-.finding-card.watched:not(.has-balance) {
+.finding-card[hidden] { display: none; }
+.finding-card.watched:not(.confirmed-find) {
   border-color: rgba(214, 165, 79, 0.25);
 }
+.finding-card-tab {
+  flex-shrink: 0;
+  width: 3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.9rem 0 0.7rem;
+  background: color-mix(in srgb, var(--tab-tint, var(--accent)) 12%, var(--bg-inset));
+  border-right: 1px solid var(--border);
+  border-top-left-radius: var(--radius);
+  border-bottom-left-radius: var(--radius);
+}
+.finding-card-tab-name {
+  writing-mode: vertical-rl;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.finding-card-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.9rem 1.1rem;
+}
+
+/* A confirmed non-zero balance -- the entire reason this app exists --
+   gets a distinct wax-seal treatment, not just a brighter version of the
+   watched-row gold highlight, so it can never blend into a long,
+   mostly-zero-balance list. */
+.finding-card.confirmed-find {
+  background: rgba(198, 83, 64, 0.06);
+  border-color: var(--seal);
+  box-shadow: 0 0 0 1px var(--seal) inset;
+}
+.finding-card.confirmed-find .finding-card-tab {
+  border-right-color: var(--seal);
+}
+.wax-seal {
+  position: absolute;
+  top: -14px;
+  right: 20px;
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  border: 2.5px solid var(--seal);
+  background: var(--bg-raised);
+  color: var(--seal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.25;
+  transform: rotate(8deg);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.wax-seal::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--seal);
+  border-radius: 50%;
+}
+
 .finding-card-select { padding-top: 0.55rem; }
 .finding-card-main { flex: 1; min-width: 0; }
 .finding-card-top {
@@ -529,6 +791,57 @@ pre {
   word-break: break-word;
 }
 .finding-card-sub .watch-note { color: var(--accent-bright); }
+
+/* Compact "LOGGED {date} · SOURCE {label}" metadata line (Option B's
+   wording style, adapted to fields this app's Finding record actually
+   has -- no invented session/drive fields). */
+.finding-meta {
+  margin-top: 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+}
+
+/* Chain-of-custody source path (Option B's label, Option C's expandable
+   `└─` tree) -- collapsed by default, since an always-expanded tree "takes
+   up too much real-estate" per direct user feedback. The Copy button sits
+   outside the <details> content so the full path is reachable via
+   clipboard even while collapsed. */
+.custody {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.custody-disclosure {
+  margin: 0;
+  padding: 0;
+  border: none;
+  flex: 1;
+  min-width: 0;
+}
+.custody-disclosure summary {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.custody-disclosure[open] summary { margin-bottom: 0.5rem; }
+.custody-disclosure .path-tree {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+.path-tree-row { white-space: nowrap; }
+.path-tree-connector { color: var(--accent-dim); margin-right: 0.35rem; }
+.path-tree-file { color: var(--accent-bright); font-weight: 700; }
+.custody .path-chip-copy {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
 .finding-card-actions {
   display: flex;
   align-items: flex-start;
@@ -559,6 +872,88 @@ pre {
 .watch-form input[type=text] {
   width: 11rem;
   margin: 0;
+}
+
+@media (max-width: 640px) {
+  .finding-card { flex-direction: column; }
+  .finding-card-tab {
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 0.5rem 0.9rem;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    border-top-left-radius: var(--radius);
+    border-top-right-radius: var(--radius);
+    border-bottom-left-radius: 0;
+  }
+  .finding-card-tab-name { writing-mode: horizontal-tb; }
+  .finding-card-body { flex-wrap: wrap; }
+  .wax-seal { top: -14px; right: 12px; width: 68px; height: 68px; font-size: 0.55rem; }
+}
+
+/* ============ Settings: palette picker (uio-02) ============ */
+.palette-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+button.palette-option {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  text-align: left;
+  background: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  font-weight: 400;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+/* Explicit background here (not just border-color) -- otherwise the
+   global button:hover rule (element + pseudo-class) outranks a
+   class-only .palette-option selector on specificity and paints the
+   whole row solid --accent-bright while the mouse lingers post-click. */
+button.palette-option:hover {
+  background: var(--bg-inset);
+  border-color: var(--border-strong);
+}
+button.palette-option.active {
+  background: var(--bg-inset);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+button.palette-option.active:hover {
+  background: var(--bg-inset);
+}
+.palette-swatch {
+  display: flex;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.palette-swatch-dot {
+  width: 1.1rem;
+  height: 1.9rem;
+}
+.palette-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.palette-option-name {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.02rem;
+}
+.palette-option-desc {
+  font-size: 0.82rem;
 }
 
 /* A cell packing several small action forms/links (findings.html) --

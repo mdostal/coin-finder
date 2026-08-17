@@ -470,22 +470,25 @@ def create_app(host="127.0.0.1"):
         # "wait a moment before the job starts" is already the expected
         # shape, same as any other job-starting POST in this app.
         #
-        # ?wallet_path=<path> scopes the list to just that one known
-        # wallet -- the "click a finding, try unlock" entry point
-        # (findings.html), instead of requiring the full list every time.
-        # Silently ignored if it isn't actually a known wallet path (no
-        # error banner for a stale/malformed link -- just shows every
-        # known wallet, same as the plain /auto-unlock page).
-        wallet_path = (request.args.get("wallet_path") or "").strip()
-        wallet_paths = _known_wallet_paths()
-        if wallet_path and wallet_path in wallet_paths:
-            wallet_paths = [wallet_path]
+        # ?wallet_path=<path> (repeatable) scopes the list to just those
+        # known wallets -- the "click a finding, try unlock" entry point
+        # (findings.html) passes one for a single row, or several for the
+        # Findings bulk "Try unlock selected" action. Any value that isn't
+        # actually a known wallet path is silently dropped (no error
+        # banner for a stale/malformed link) -- if nothing valid survives,
+        # falls back to every known wallet, same as the plain
+        # /auto-unlock page.
+        requested_wallet_paths = [p.strip() for p in request.args.getlist("wallet_path") if p.strip()]
+        known_wallet_paths = _known_wallet_paths()
+        scoped_wallet_paths = list(dict.fromkeys(p for p in requested_wallet_paths if p in known_wallet_paths))
+        wallet_paths = scoped_wallet_paths or known_wallet_paths
 
         return render_template(
             "auto_unlock.html",
             network_status=check_network_status(),
             wallet_paths=wallet_paths,
-            scoped_wallet_path=wallet_path if wallet_path in wallet_paths else None,
+            scoped_wallet_paths=scoped_wallet_paths,
+            scoped_wallet_path=scoped_wallet_paths[0] if len(scoped_wallet_paths) == 1 else None,
             error=None,
         )
 
@@ -498,11 +501,14 @@ def create_app(host="127.0.0.1"):
         network_status = check_network_status()
         allow_online = request.form.get("allow_online") == "1"
 
-        # Carries the GET form's scoping through the POST -- a hidden
-        # field, not re-derived from the query string (this is a POST).
-        wallet_path = (request.form.get("wallet_path") or "").strip()
+        # Carries the GET form's scoping through the POST -- hidden
+        # field(s), not re-derived from the query string (this is a
+        # POST). One "wallet_path" hidden input for a single-finding
+        # scope, or several (same field name, repeated) for the Findings
+        # bulk "Try unlock selected" action -- both read the same way.
+        requested_wallet_paths = [p.strip() for p in request.form.getlist("wallet_path") if p.strip()]
         known_wallet_paths = _known_wallet_paths()
-        scoped_wallet_paths = [wallet_path] if wallet_path and wallet_path in known_wallet_paths else None
+        scoped_wallet_paths = list(dict.fromkeys(p for p in requested_wallet_paths if p in known_wallet_paths)) or None
 
         if network_status != "OFFLINE" and not allow_online:
             return (
@@ -510,7 +516,8 @@ def create_app(host="127.0.0.1"):
                     "auto_unlock.html",
                     network_status=network_status,
                     wallet_paths=scoped_wallet_paths or known_wallet_paths,
-                    scoped_wallet_path=wallet_path if scoped_wallet_paths else None,
+                    scoped_wallet_paths=scoped_wallet_paths or [],
+                    scoped_wallet_path=scoped_wallet_paths[0] if scoped_wallet_paths and len(scoped_wallet_paths) == 1 else None,
                     error=(
                         f"Network status is {network_status}, not OFFLINE. Testing real passwords "
                         "against real wallets is safest with network disabled. Disconnect and try "
@@ -528,13 +535,17 @@ def create_app(host="127.0.0.1"):
                     "auto_unlock.html",
                     network_status=network_status,
                     wallet_paths=scoped_wallet_paths or known_wallet_paths,
-                    scoped_wallet_path=wallet_path if scoped_wallet_paths else None,
+                    scoped_wallet_paths=scoped_wallet_paths or [],
+                    scoped_wallet_path=scoped_wallet_paths[0] if scoped_wallet_paths and len(scoped_wallet_paths) == 1 else None,
                     error="No enabled vault entries to try. Save at least one password in the vault first.",
                 ),
                 400,
             )
 
-        label = wallet_path if scoped_wallet_paths else "all known wallets"
+        if scoped_wallet_paths:
+            label = scoped_wallet_paths[0] if len(scoped_wallet_paths) == 1 else f"{len(scoped_wallet_paths)} selected wallets"
+        else:
+            label = "all known wallets"
         job_id = run_job(
             _run_auto_unlock_job, allow_online=allow_online, wallet_paths=scoped_wallet_paths, secret=True, kind="auto-unlock", label=label
         )
@@ -641,6 +652,23 @@ def create_app(host="127.0.0.1"):
     @app.route("/findings/watch", methods=["POST"])
     def findings_watch():
         set_watched(request.form.get("coin"), request.form.get("address"), True, note=(request.form.get("note") or "").strip())
+        return redirect(url_for("findings_page", include_archived="1" if request.form.get("include_archived") == "1" else None))
+
+    @app.route("/findings/watch-bulk", methods=["POST"])
+    def findings_watch_bulk():
+        # Bulk "Watch selected" from the Findings bulk-action bar -- any
+        # coin qualifies (unlike the Bitcoin-only Graph/Check-fork-coins
+        # bulk tools). One optional note applies to every checked finding
+        # rather than requiring the same note typed N times. `selection`
+        # is one "coin\taddress" pair per line, built client-side from the
+        # checked .bulk-select boxes (each of which carries its own coin
+        # via a data attribute, since address alone doesn't disambiguate
+        # across coins).
+        note = (request.form.get("note") or "").strip()
+        for line in _split_lines(request.form.get("selection")):
+            coin, _, address = line.partition("\t")
+            if coin and address:
+                set_watched(coin, address, True, note=note)
         return redirect(url_for("findings_page", include_archived="1" if request.form.get("include_archived") == "1" else None))
 
     @app.route("/findings/unwatch", methods=["POST"])
@@ -1017,6 +1045,10 @@ def create_app(host="127.0.0.1"):
         result = perform_update()
         return render_template("update.html", status=check_for_update(), result=result)
 
+    @app.route("/settings")
+    def settings_page():
+        return render_template("settings.html", palettes=PALETTES)
+
     return app
 
 
@@ -1111,7 +1143,37 @@ _NAV_GROUP_BY_ENDPOINT = {
     "network_page": "about",
     "update_page": "about",
     "update_run": "about",
+    # Settings -- standalone, no tab strip (same pattern as Findings).
+    "settings_page": "settings",
 }
+
+# Named color palettes (uio-02) -- each id must have a matching pair of
+# CSS token blocks in web/static/style.css, keyed by
+# :root[data-palette="<id>"] (dark) and
+# :root[data-palette="<id>"][data-theme="light"] (light). The "swatch"
+# values here are only for the small preview dots on the Settings page --
+# the real, authoritative colors live in style.css's CSS custom
+# properties, not here.
+PALETTES = [
+    {
+        "id": "archival",
+        "name": "Archival",
+        "description": "Warm brass and gold on a ledger-dark ground -- the original, default look.",
+        "swatch": {"bg": "#14110d", "accent": "#d6a54f", "seal": "#c65340", "text": "#f2ead9"},
+    },
+    {
+        "id": "graphite",
+        "name": "Graphite",
+        "description": "Cooler graphite and ink, brass accents, a teal focus color -- an investigator's desk, not a vault.",
+        "swatch": {"bg": "#0d1316", "accent": "#d3a94f", "seal": "#e2574a", "text": "#dce6e2"},
+    },
+    {
+        "id": "terminal",
+        "name": "Terminal",
+        "description": "Amber-on-near-black with a cyan accent -- a terminal-tinted ledger.",
+        "swatch": {"bg": "#0b0906", "accent": "#ffb020", "seal": "#ff3b54", "text": "#efe4cc"},
+    },
+]
 
 _STATUS_ENDPOINT_BY_KIND = {
     "find": "scan_status",

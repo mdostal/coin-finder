@@ -37,6 +37,54 @@ def test_every_page_ships_a_theme_toggle(client):
     resp = client.get("/")
     assert b'id="theme-toggle"' in resp.data
     assert b'src="/static/theme.js"' in resp.data
+    # uio-02: palette selection is a second orthogonal axis applied the
+    # same way -- data-palette must be set (with a default fallback) on
+    # every page's pre-first-paint inline script, not just on Settings.
+    assert b"data-palette" in resp.data
+    assert b"coin-finder-palette" in resp.data
+    assert b"archival" in resp.data
+
+
+def test_settings_page_loads(client):
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+
+
+def test_settings_page_lists_all_palettes(client):
+    resp = client.get("/settings")
+    assert b"Archival" in resp.data
+    assert b"Graphite" in resp.data
+    assert b"Terminal" in resp.data
+
+
+def test_settings_page_has_preview_swatches_and_palette_options(client):
+    resp = client.get("/settings")
+    assert b"data-palette-option=\"archival\"" in resp.data
+    assert b"data-palette-option=\"graphite\"" in resp.data
+    assert b"data-palette-option=\"terminal\"" in resp.data
+    assert b"palette-swatch" in resp.data
+
+
+def test_settings_page_also_ships_the_theme_toggle_relocated(client):
+    """The existing dark/light toggle must also live on Settings (not
+    only the top nav) -- same underlying state, so it shares the same
+    class-based binding theme.js already uses, just a different id."""
+    resp = client.get("/settings")
+    assert b"theme-toggle-btn" in resp.data
+
+
+def test_settings_link_present_in_top_nav_on_every_page(client):
+    resp = client.get("/")
+    assert b'href="/settings"' in resp.data
+
+
+def test_default_palette_is_archival_when_nothing_stored(client):
+    """theme.js falls back to the "archival" palette (the pre-existing
+    warm brass/gold default) when localStorage has no stored palette --
+    mirrored here via the inline pre-first-paint script every page ships
+    so there's no flash of the wrong palette before JS finishes."""
+    resp = client.get("/")
+    assert b'localStorage.getItem("coin-finder-palette") || "archival"' in resp.data
 
 
 def test_unknown_job_returns_404(client):

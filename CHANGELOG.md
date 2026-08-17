@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-08-17
+
+### Added
+
+- **Findings page rebuilt around real coin icons and an unmistakable
+  confirmed-find treatment.** Coin tabs down the side now show each
+  chain's actual icon instead of a plain label, plus a coin filter and
+  live search across all results. Any wallet with a non-zero balance now
+  gets a wax-seal "CONFIRMED FIND" badge -- impossible to scroll past
+  without noticing, unlike the old plain-text balance row.
+- **Chain of custody -- full source path, collapsed by default.** The
+  truncated, easy-to-misread source path on each finding is now a
+  collapsible tree (using `└─` connectors) showing the complete path a
+  wallet file was recovered through -- drive, mount, folder, archive --
+  expand only when you actually need to verify provenance.
+- **Settings page with 3 swappable color themes.** New `/settings` page
+  with three named palettes -- archival, graphite, terminal -- each with
+  its own full light and dark token set. The existing dark/light toggle
+  moved here and still works underneath whichever palette is active.
+  Choice is saved locally and applied across every page immediately.
+- **Bulk actions now work for every coin, not just Bitcoin.** "Watch
+  selected" and "Try unlock selected" on the Findings page used to only
+  operate on Bitcoin rows -- both now work across the full multi-select
+  regardless of coin. "Watch selected" takes one shared optional note
+  for the whole batch; "Try unlock selected" reuses the existing
+  wallet-paths-scoped auto-unlock job against every selected wallet at
+  once instead of one at a time.
+
 ## [0.50.0] - 2026-08-16
 
 ### Added
