@@ -47,3 +47,48 @@ items:
     linked_story: null
     raised_at: "2026-08-17T10:40:00-05:00"
     raised_by: mathew
+
+  - id: password-note-scanner
+    title: Default scanner for stray passwords/credentials sitting in notes and files
+    description: >
+      User's own words: "let's add another file finder for an attempt to
+      find seed key lists, passwords, etc -- we have 2 other things for
+      that, but we should also do a default one here for an attempted
+      password scan on things and allow us to go through and try to find
+      these -- most of these I had somewhere with a password stored
+      alongside or in a note or somewhere on the box to let me access
+      bits and pieces of it." Prompted directly by discovering findings
+      with no matched password tonight.
+
+      Confirmed via direct investigation what the "2 other things" the
+      user means actually are, neither of which covers this: (1)
+      tools/find_seed_phrases.py only matches valid BIP39 mnemonic word
+      sequences (12/15/18/21/24 English words) -- not passwords. (2)
+      web/vault.py's candidate-password flow (resolve_vault_entries_with_values)
+      only matches against passwords the user has ALREADY manually typed
+      into the vault -- it doesn't discover anything on its own. There is
+      currently no scanner that looks through general files/notes
+      (text docs, notes-app exports, random .txt files, etc.) for
+      password-shaped or credential-labeled text ("password:", "pw:",
+      a string near a coin/wallet name, etc.) to auto-build a candidate
+      list. This is the real gap: a new default scan type, parallel to
+      the existing wallet-file scan and seed-phrase scan, that surfaces
+      candidate passwords/credentials found in ordinary files so the user
+      isn't stuck manually compiling a full password list by hand.
+
+      Real design questions for the eventual plan: what file types/
+      locations are in scope (plain text, exported notes, PDFs?), what
+      heuristic distinguishes a real password/credential from ordinary
+      prose (this is a much fuzzier signal than find_seed_phrases.py's
+      exact BIP39 wordlist match or config/analysis.py's coin-address
+      regexes -- likely needs real false-positive-rate thought, learn
+      from tonight's candidate-match-integrity false-positive lessons),
+      and how a found candidate then flows into the existing vault/
+      auto-unlock matching pipeline once discovered.
+    priority: high
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T10:50:00-05:00"
+    raised_by: mathew
