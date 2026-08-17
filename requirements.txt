@@ -2,7 +2,7 @@ requests
 python-dotenv
 flask
 mnemonic
-bip_utils
+bip_utils==2.12.1
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
