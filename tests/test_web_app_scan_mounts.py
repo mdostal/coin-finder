@@ -1,3 +1,4 @@
+import threading
 import time
 from unittest.mock import patch
 
@@ -60,6 +61,46 @@ def test_start_scan_mounts_rejects_a_mount_point_that_is_not_a_real_directory(cl
 
 @patch("web.app.scan_for_hidden_volumes", return_value=[])
 @patch("web.app.run_pipeline")
+def test_start_scan_returns_existing_job_instead_of_duplicating_when_already_running(mock_pipeline, mock_hidden, client, tmp_path):
+    """
+    Regression test for a real bug hit live: nothing stopped the same
+    directory (a slow cloud-mounted drive, in the real report) from
+    getting scanned by two concurrent `find` jobs at once -- observed
+    firsthand as two "running" rows on /jobs for the identical target,
+    ~20 seconds apart, most likely from clicking "Resume" on the
+    interrupted-scan banner more than once. A second request for a
+    directory that already has a running find job must redirect to that
+    same job, not start a duplicate.
+    """
+    target = tmp_path / "gdrive-mount"
+    target.mkdir()
+    release_first_job = threading.Event()
+
+    def _blocking_find(*args, **kwargs):
+        release_first_job.wait(timeout=5)
+        return {"output_dir": str(tmp_path / "out"), "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
+
+    mock_pipeline.find.side_effect = _blocking_find
+
+    first_resp = client.post("/scan", data={"input_dir": str(target)}, follow_redirects=False)
+    assert first_resp.status_code == 302
+    first_job_id = first_resp.headers["Location"].rsplit("/", 1)[-1]
+
+    second_resp = client.post("/scan", data={"input_dir": str(target)}, follow_redirects=False)
+    assert second_resp.status_code == 302
+    second_job_id = second_resp.headers["Location"].rsplit("/", 1)[-1]
+
+    assert second_job_id == first_job_id
+
+    running_find_jobs = [j for j in list_jobs() if j["kind"] == "find" and j["label"] == str(target)]
+    assert len(running_find_jobs) == 1
+
+    release_first_job.set()
+    _wait_for_terminal(client, first_job_id)
+
+
+@patch("web.app.scan_for_hidden_volumes", return_value=[])
+@patch("web.app.run_pipeline")
 def test_start_scan_mounts_starts_one_job_per_selected_mount(mock_pipeline, mock_hidden, client, tmp_path):
     mount_a = tmp_path / "mount_a"
     mount_a.mkdir()
@@ -112,3 +153,26 @@ def test_start_scan_mounts_jobs_run_concurrently_not_serially(mock_pipeline, moc
     for job_id in (jobs[str(mount_a)], jobs[str(mount_b)]):
         job = _wait_for_terminal(client, job_id)
         assert job["status"] == "done", job.get("error")  # "error" here means the rendezvous timed out -- serial, not concurrent
+
+
+@patch("web.app.scan_for_hidden_volumes", return_value=[])
+@patch("web.app.run_pipeline")
+def test_start_scan_mounts_skips_mount_points_that_already_have_a_running_job(mock_pipeline, mock_hidden, client, tmp_path):
+    target = tmp_path / "mount_a"
+    target.mkdir()
+    release_first_job = threading.Event()
+
+    def _blocking_find(*args, **kwargs):
+        release_first_job.wait(timeout=5)
+        return {"output_dir": str(tmp_path / "out"), "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
+
+    mock_pipeline.find.side_effect = _blocking_find
+
+    client.post("/scan/mounts", data={"mount_points": [str(target)]}, follow_redirects=False)
+    client.post("/scan/mounts", data={"mount_points": [str(target)]}, follow_redirects=False)
+
+    running_find_jobs = [j for j in list_jobs() if j["kind"] == "find" and j["label"] == str(target)]
+    assert len(running_find_jobs) == 1
+
+    release_first_job.set()
+    _wait_for_terminal(client, running_find_jobs[0]["job_id"])

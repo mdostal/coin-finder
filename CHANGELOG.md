@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.53.2] - 2026-08-17
+
+### Fixed
+
+- **A broad bulk "Try unlock selected" or "Extract keys selected"
+  selection could fail with "Request Entity Too Large."** These actions
+  were submitting one entry per selected *finding*, even when many
+  findings share the same wallet file -- a large selection could submit
+  the same wallet hundreds of times over. Both now send only the
+  distinct wallets/keys involved, and the app's own request-size limit
+  (meant for public servers, not a one-person local app) was raised as
+  a backstop.
+- **The same folder could end up being scanned by two jobs running at
+  the same time** -- most likely from clicking "Resume" on the
+  interrupted-scan notice more than once. Starting a scan against a
+  directory that's already being scanned now just takes you to that
+  scan instead of starting a second, redundant one.
+
 ## [0.53.1] - 2026-08-17
 
 ### Fixed

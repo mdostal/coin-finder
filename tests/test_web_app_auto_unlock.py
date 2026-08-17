@@ -386,6 +386,28 @@ def test_auto_unlock_confirm_get_is_not_registered(client):
 
 
 @patch("web.app.list_findings")
+def test_auto_unlock_confirm_post_handles_thousands_of_distinct_wallets(mock_findings, client):
+    """
+    Regression test for a real second bug hit live, immediately after
+    fixing the GET-URI-too-long one: Werkzeug's default MAX_FORM_PARTS
+    (1000) meant a POST with more than 1000 distinct wallet_path fields
+    failed with "Request Entity Too Large" instead. This app only ever
+    binds to 127.0.0.1 and talks to itself, so the public-server DoS
+    threat model that default protects against doesn't apply --
+    MAX_FORM_PARTS is raised in create_app() well past any realistic
+    selection size.
+    """
+    mock_findings.return_value = []
+    many_paths = [f"/fake/wallet_{i}.dat" for i in range(5000)]
+    with patch("web.app._known_wallet_paths", return_value=set(many_paths)):
+        resp = client.post("/auto-unlock/confirm", data=MultiDict([("wallet_path", p) for p in many_paths]))
+
+    assert resp.status_code == 200
+    assert b"/fake/wallet_0.dat" in resp.data
+    assert b"/fake/wallet_4999.dat" in resp.data
+
+
+@patch("web.app.list_findings")
 def test_findings_page_shows_try_unlock_action_for_wallets_with_source_path(mock_findings, client):
     mock_findings.return_value = [
         {"coin": "Bitcoin", "address": "1a", "source_path": "/real/wallet.dat", "status": "new", "balance": 0.0, "watched": 0, "watch_note": ""},
