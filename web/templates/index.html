@@ -82,6 +82,21 @@ looks like a hidden/encrypted volume.</p>
   </form>
 </div>
 
+{% if mounted_drives %}
+<div class="card">
+  <h3 style="margin-top:0">Scan mounted drives</h3>
+  <p class="subtle">Pick one or more currently-mounted cloud drives (<a href="{{ url_for('mounts_page') }}">manage mounts</a>)
+  -- each selected one runs as its own background scan, all at once, no need to do them one at a time.</p>
+  <form method="post" action="{{ url_for('start_scan_mounts') }}">
+    {% for d in mounted_drives %}
+    <label class="radio-row"><input type="checkbox" name="mount_points" value="{{ d.mount_point }}"> {{ d.remote_name }} <code class="subtle">{{ d.mount_point }}</code></label>
+    {% endfor %}
+    <label class="radio-row"><input type="checkbox" name="dedup_index" value="1" checked> Skip files identical to ones already scanned before</label>
+    <button type="submit">Scan selected</button>
+  </form>
+</div>
+{% endif %}
+
 {% if scan_index_count %}
 <div class="card">
   <p class="subtle" style="margin:0 0 0.5rem">{{ scan_index_count }} file{{ "s" if scan_index_count != 1 else "" }} in the dedup index -- content already analyzed once, skipped on future scans regardless of which drive it's found on again.</p>

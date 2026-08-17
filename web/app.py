@@ -114,18 +114,7 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/")
     def index():
-        findings = list_findings()
-        return render_template(
-            "index.html",
-            error=request.args.get("error"),
-            targets=list_targets(),
-            volumes=list_mounted_volumes(),
-            findings_count=len(findings),
-            findings_needs_review_count=sum(1 for f in findings if f["balance"] != 0.0),
-            scan_index_count=len(list_scanned_files()),
-            interrupted_scans=_interrupted_scans(),
-            interrupted_balance_checks=_interrupted_balance_checks(),
-        )
+        return render_template("index.html", error=request.args.get("error"), **_index_context())
 
     @app.route("/scan-index/clear", methods=["POST"])
     def scan_index_clear():
@@ -180,6 +169,39 @@ def create_app(host="127.0.0.1"):
         job_id = create_job(kind="find", label=input_dir)
         start_job(job_id, _run_find_job, input_dir, job_id, index_db_path)
         return redirect(url_for("scan_status", job_id=job_id))
+
+    @app.route("/scan/mounts", methods=["POST"])
+    def start_scan_mounts():
+        """
+        Scan one or more currently-mounted drives at once instead of
+        picking them one at a time -- each selected mount point becomes
+        its own find job. web/jobs.py already runs every job in its own
+        background thread, so selecting several here already runs them
+        genuinely concurrently; no extra "decide parallel vs sequential"
+        logic is needed on top of that.
+        """
+        mount_points = [p for p in request.form.getlist("mount_points") if p]
+        if not mount_points:
+            return render_template("index.html", error="Select at least one mounted drive to scan.", **_index_context()), 400
+
+        index_db_path = SCAN_INDEX_DB_PATH if request.form.get("dedup_index") else None
+
+        invalid = [p for p in mount_points if not Path(p).is_dir()]
+        if invalid:
+            return (
+                render_template(
+                    "index.html",
+                    error=f"Not a directory (unmounted since this page loaded?): {invalid[0]}",
+                    **_index_context(),
+                ),
+                400,
+            )
+
+        for mount_point in mount_points:
+            job_id = create_job(kind="find", label=mount_point)
+            start_job(job_id, _run_find_job, mount_point, job_id, index_db_path)
+
+        return redirect(url_for("jobs_page"))
 
     @app.route("/scan/<job_id>")
     def scan_status(job_id):
@@ -1026,6 +1048,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "gmail_disconnect": "sources",
     "gmail_search": "sources",
     "start_scan": "sources",
+    "start_scan_mounts": "sources",
     "scan_status": "sources",
     "scan_check_balances": "sources",
     "scan_check_balances_selected": "sources",
@@ -1468,6 +1491,21 @@ def _interrupted_balance_checks():
         )
         interrupted.append({"output_dir": output_dir, "addresses_confirmed_so_far": confirmed})
     return interrupted
+
+
+def _index_context():
+    """Shared render context for the scan page (index.html) -- factored out so start_scan_mounts()'s error paths don't have to duplicate every kwarg index() passes."""
+    findings = list_findings()
+    return {
+        "targets": list_targets(),
+        "volumes": list_mounted_volumes(),
+        "findings_count": len(findings),
+        "findings_needs_review_count": sum(1 for f in findings if f["balance"] != 0.0),
+        "scan_index_count": len(list_scanned_files()),
+        "interrupted_scans": _interrupted_scans(),
+        "interrupted_balance_checks": _interrupted_balance_checks(),
+        "mounted_drives": [m for m in list_mounts() if m["is_mounted"]],
+    }
 
 
 def _interrupted_scans():
