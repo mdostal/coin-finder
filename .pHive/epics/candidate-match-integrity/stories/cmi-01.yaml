@@ -1,0 +1,138 @@
+id: cmi-01
+epic: candidate-match-integrity
+title: Shared offline address validator module (Group 1 coins + OKCash tightening)
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: >
+  Build a new small module mapping each coin in config/analysis.py's
+  CRYPTO_PATTERNS to a validate(address) -> bool function, built on
+  bip_utils primitives already installed in this project (no new
+  dependency). This is the offline-checksum half of the false-positive
+  fix -- garbage strings that merely match a shape regex (e.g. Rust
+  mangled-symbol strings matching the Digibyte pattern) must fail
+  validation even though they pass the regex. Real addresses for every
+  covered coin must still pass -- false negatives are worse than the bug
+  being fixed, since this tool's whole purpose is not missing a real
+  wallet.
+
+acceptance_criteria:
+  - "New module config/address_validators.py exports a mapping (coin name
+    -> validate(address: str) -> bool) covering every 'Group 1' coin from
+    the design discussion: Bitcoin, Bitcoin Gold, Digibyte, Diamond Coin,
+    Litecoin, Dogecoin, Zcash, Tether (base58/Omni branch), Ripple,
+    Monero, Bitcoin Cash, Cardano, Cosmos, Helium -- each built on the
+    matching bip_utils decoder identified in the design discussion
+    (Base58Decoder.CheckDecode for standard base58check coins,
+    Base58Alphabets.RIPPLE for Ripple, XmrAddrDecoder for Monero,
+    BchP2PKHAddrDecoder/BchP2SHAddrDecoder for Bitcoin Cash,
+    AdaShelleyAddrDecoder/AdaByronAddrDecoder for Cardano,
+    AtomAddrDecoder for Cosmos)."
+  - "config/analysis.py's OKCash pattern is tightened from
+    r'[0-9A-Za-z]{34}' to an actual base58 alphabet (drop 0, O, I, l),
+    and OKCash's validator applies the same generic
+    Base58Decoder.CheckDecode checksum filter as the Group 1 coins --
+    it does not need OKCash's exact version byte, only that the string
+    round-trips as valid base58check."
+  - "'Group 3' coins (Ethereum, Ethereum Classic, Shiba Inu, IOTA) get an
+    explicit pass-through validator (always returns True) with a comment
+    explaining why -- EIP-55 checksumming is optional so real
+    unchecksummed ETH-family addresses must still match, and IOTA's real
+    checksum is a separate 9-tryte suffix outside what bip_utils or any
+    already-installed library supports. Do not silently drop these coins
+    from the mapping -- every CRYPTO_PATTERNS key must have an entry,
+    even if it's a documented no-op."
+  - "Binance Coin also gets a documented pass-through validator (bech32
+    checksum exists at the protocol level but bip_utils has no BnbAddr
+    decoder -- closing this is a follow-up needing a new dependency,
+    out of scope here per the design discussion)."
+  - "requirements.txt's bare 'bip_utils' entry gets pinned to its
+    currently-installed version (check with `pip show bip_utils`) --
+    small drive-by fix flagged in the design discussion since
+    correctness now depends on its decoder behavior, not just encoding."
+  - "New tests in a new tests/test_address_validators.py: for every Group
+    1 coin, a real valid address (reuse the existing Bitcoin fixture
+    1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2 from
+    tests/test_analyze_wallets.py where applicable; use a real published
+    example address for every other coin -- do not fabricate one, pull
+    a real documented example from the coin's own docs/explorer) passes
+    validation, AND at least one of tonight's real garbage strings
+    (d6thread6Thread5cname17hd86fb86E or df29a6dde7b3e33ab57f416f11) fails
+    validation for every Group 1 coin whose regex shape it happens to
+    match. Also test that a corrupted version of each real valid address
+    (single character changed) fails validation (proves the checksum
+    check is actually being exercised, not just shape-matching).
+  - "Existing tests/test_analyze_wallets.py's 6 tests still pass
+    unchanged -- this story only adds the validator module, it does not
+    yet wire it into analyze_wallets.py (that's cmi-02)."
+
+steps:
+  - id: research
+    description: >
+      Confirm the design discussion's bip_utils decoder mapping against
+      the installed package version (pip show bip_utils; inspect its
+      actual API surface for each decoder named in acceptance criteria --
+      names can drift between bip_utils versions).
+    agent: researcher
+  - id: test-spec
+    description: >
+      Write tests/test_address_validators.py first, covering every
+      acceptance criterion above, using real published example addresses
+      per coin (not fabricated ones) plus tonight's real garbage strings
+      as the negative fixtures. Confirm they fail against a stub/empty
+      validators module before implementing.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: >
+      Write config/address_validators.py to make the tests pass. Tighten
+      OKCash's regex in config/analysis.py. Pin bip_utils in
+      requirements.txt.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review for correctness, especially false-negative risk on Group 1 coins.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit on feat/candidate-match-integrity.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: config/analysis.py
+      purpose: Defines CRYPTO_PATTERNS (the shape regexes) and gets OKCash's pattern tightened here.
+    - path: tests/test_analyze_wallets.py
+      purpose: Existing test using a real valid Bitcoin fixture address -- must keep passing unchanged.
+
+files_to_modify:
+  - file: config/address_validators.py
+    change: New module, coin-name -> validate(address) -> bool mapping.
+  - file: config/analysis.py
+    change: Tighten OKCash's regex to a real base58 alphabet.
+  - file: requirements.txt
+    change: Pin bip_utils to its currently-installed version.
+  - file: tests/test_address_validators.py
+    change: New test file, per-coin real-address-passes / garbage-fails / corrupted-address-fails coverage.
+
+design_decisions:
+  - decision: Build on bip_utils (already installed) rather than adding a new checksum/base58 dependency.
+    rationale: Confirmed via direct testing in the design/research phase that bip_utils's Base58Decoder.CheckDecode and coin-specific decoders (Ripple, Monero, Bitcoin Cash, Cardano, Cosmos) already cover every Group 1 coin.
+  - decision: Group 3 coins (ETH family, IOTA) get an explicit documented pass-through, not silent omission.
+    rationale: Every CRYPTO_PATTERNS key must resolve to something in the validator mapping so cmi-02's wiring step can apply it uniformly across every coin without a coin-by-coin conditional.
+
+risks:
+  - severity: high
+    description: A validator that's too strict silently makes a genuine address of that coin stop being found -- the worst possible regression for a wallet-recovery tool.
+    mitigation: Every Group 1 coin's test fixture must be a real, published example address (not synthetic), and the review step explicitly checks each validator against that risk before integrate.
+  - severity: low
+    description: bip_utils API names/behavior could differ from what the design discussion assumed if installed version differs.
+    mitigation: The research step re-confirms the actual installed API surface before test-spec locks in expected function names.
+
+references:
+  - path: .pHive/epics/candidate-match-integrity/docs/design-discussion.md
+    relevant_excerpt: "Honest three-way split of the 19 coins... Group 1 (real checksum, verifiable offline)... Group 3 (no meaningfully offline-verifiable structure)"

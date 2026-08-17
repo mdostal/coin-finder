@@ -1,0 +1,20 @@
+name: candidate-match-integrity
+title: Filter shape-only false-positive candidate addresses via offline checksum validation
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: patch
+sidecar_retention: transient
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+stories:
+  - id: cmi-01
+    title: Shared offline address validator module (Group 1 coins + OKCash tightening)
+    complexity: medium
+    depends_on: []
+  - id: cmi-02
+    title: Wire validator into both match call sites (analyze_wallets, scan_gmail)
+    complexity: low
+    depends_on: [cmi-01]
