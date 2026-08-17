@@ -14,7 +14,7 @@ CRYPTO_PATTERNS = {
     "IOTA": r"[A-Z9]{81}",
     "Litecoin": r"[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}",
     "Monero": r"[48]{1}[0-9AB][1-9A-HJ-NP-Za-km-z]{93}",
-    "OKCash": r"[0-9A-Za-z]{34}",
+    "OKCash": r"[1-9A-HJ-NP-Za-km-z]{34}",
     "Ripple": r"r[1-9A-HJ-NP-Za-km-z]{25,35}",
     "Tether": r"(0x[a-fA-F0-9]{40}|1[a-km-zA-HJ-NP-Z1-9]{25,34})",
     "Shiba Inu": r"0x[a-fA-F0-9]{40}",

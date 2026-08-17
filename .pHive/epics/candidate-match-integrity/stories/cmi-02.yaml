@@ -1,0 +1,102 @@
+id: cmi-02
+epic: candidate-match-integrity
+title: Wire validator into both match call sites (analyze_wallets, scan_gmail)
+status: pending
+complexity: low
+methodology: tdd
+depends_on: [cmi-01]
+
+description: >
+  cmi-01 built the validator module but nothing calls it yet. Wire it
+  into both of CRYPTO_PATTERNS's real consumers -- tools/analyze_wallets.py
+  (the site from tonight's actual bug report) and tools/scan_gmail.py
+  (an independent second path that would keep the exact same bug alive
+  for Gmail-sourced addresses if skipped). A match must fail its coin's
+  validator before it ever becomes a stored candidate, a balance-check
+  API call, or a "finding" -- filtering happens at the earliest possible
+  point in the pipeline, not downstream at record_finding() time.
+
+acceptance_criteria:
+  - "tools/analyze_wallets.py's analyze_wallet_file() (currently
+    config/analysis.py:22-25 per the design discussion -- re-verify the
+    exact current line numbers, they may have shifted after cmi-01) filters
+    every re.findall() match through that coin's validator from
+    config/address_validators.py before including it in the returned
+    {coin: [matches...]} dict."
+  - "tools/scan_gmail.py's find_addresses_in_payload() gets the identical
+    filter treatment -- same shared validator module, not a
+    reimplementation."
+  - "End-to-end test: feed analyze_wallet_file() a fixture file containing
+    both a real valid Digibyte-shaped address and tonight's actual garbage
+    string (d6thread6Thread5cname17hd86fb86E or similar), assert only the
+    real address appears in the result."
+  - "Equivalent end-to-end test for find_addresses_in_payload() with a
+    fake Gmail message body containing the same mix."
+  - "Existing tests/test_analyze_wallets.py's 6 tests still pass --
+    confirms the wiring didn't change behavior for already-valid
+    addresses, including the dedup-cache tests that patch
+    analyze_wallet_file directly (per the design discussion, that path
+    never calls the real regex/validator logic and is unaffected either
+    way -- just confirm, don't need to change it)."
+  - "Full project test suite (all ~657+ tests) passes."
+  - "CHANGELOG.md gets an entry (this epic's version_bump is patch) in
+    plain language: false-positive candidate addresses (garbage text
+    that only shape-matched a coin's pattern) no longer get scanned,
+    balance-checked, or saved as findings for coins with a real offline
+    -verifiable checksum -- and be explicit that Ethereum-family, IOTA,
+    and Binance Coin addresses are unaffected by this fix (documented
+    limitation, not silently unmentioned)."
+
+steps:
+  - id: research
+    description: Re-confirm exact current call sites/line numbers in tools/analyze_wallets.py and tools/scan_gmail.py (may have shifted since the design discussion was written).
+    agent: researcher
+  - id: test-spec
+    description: Write the end-to-end fixture tests described above first, confirm they fail against the current unfiltered behavior.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Wire config/address_validators.py into both call sites. Write the CHANGELOG.md entry.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review both call sites for identical treatment -- no divergence between the two filter integrations.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Run the full test suite, commit on feat/candidate-match-integrity.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/analyze_wallets.py
+      purpose: Primary match call site, source of tonight's real bug report.
+    - path: tools/scan_gmail.py
+      purpose: Second independent match call site (find_addresses_in_payload) -- must not be missed.
+    - path: config/address_validators.py
+      purpose: Built by cmi-01, the shared validator this story wires in.
+
+files_to_modify:
+  - file: tools/analyze_wallets.py
+    change: Filter re.findall() matches through config/address_validators.py before returning.
+  - file: tools/scan_gmail.py
+    change: Same filter treatment in find_addresses_in_payload().
+  - file: tests/test_analyze_wallets.py
+    change: Add end-to-end garbage-filtered-out fixture test (or a new adjacent test file if cleaner).
+  - file: CHANGELOG.md
+    change: New entry under Unreleased -- plain-language description of the fix and its documented limitations.
+
+design_decisions:
+  - decision: Filter at the earliest possible pipeline point (match extraction), not at record_finding() time.
+    rationale: Filtering downstream would still let garbage burn a real balance-check API call against a public service before being discarded -- confirmed in the design discussion as worth avoiding even though those calls are rate-limited.
+
+risks:
+  - severity: medium
+    description: Fixing only tools/analyze_wallets.py and forgetting tools/scan_gmail.py would leave the identical bug reachable via Gmail scanning.
+    mitigation: Both call sites are explicit acceptance criteria with their own end-to-end tests; review step explicitly checks for parity between the two integrations.
+
+references:
+  - path: .pHive/epics/candidate-match-integrity/docs/design-discussion.md
+    relevant_excerpt: "CRYPTO_PATTERNS has exactly two consumers... A second, independent path that needs the same fix or the bug just reappears there."

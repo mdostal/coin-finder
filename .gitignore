@@ -267,6 +267,8 @@ cython_debug/
 !.pHive/epics/crypto-wallet-expansion-20260731/**
 !.pHive/epics/ui-design-options/
 !.pHive/epics/ui-design-options/**
+!.pHive/epics/candidate-match-integrity/
+!.pHive/epics/candidate-match-integrity/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

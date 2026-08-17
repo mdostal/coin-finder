@@ -5,12 +5,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config.address_validators import filter_valid_addresses
 from config.analysis import CRYPTO_PATTERNS
 from tools.scan_index import hash_file_bytes, is_known, record_scanned_file
 
 def analyze_wallet_file(file_path):
     """
     Analyze a single file for cryptocurrency addresses.
+
+    Every raw regex match is filtered through that coin's offline
+    checksum validator (config/address_validators.py) before it's
+    included below -- the earliest possible point in the pipeline, so a
+    shape-only false positive (e.g. Rust mangled-symbol strings that
+    happen to match Digibyte's pattern) never reaches wallet_analysis.json,
+    never burns a balance-check API call, and never becomes a stored
+    finding.
 
     :param file_path: Path to the file to analyze.
     :return: Dictionary of found addresses grouped by cryptocurrency.
@@ -19,8 +28,9 @@ def analyze_wallet_file(file_path):
     try:
         with open(file_path, "rb") as f:
             content = f.read()
+            text = content.decode(errors="ignore")
             for crypto, pattern in CRYPTO_PATTERNS.items():
-                matches = re.findall(pattern, content.decode(errors="ignore"))
+                matches = filter_valid_addresses(crypto, re.findall(pattern, text))
                 if matches:
                     results[crypto] = list(set(matches))  # Deduplicate results
     except Exception as e:

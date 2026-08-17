@@ -1,8 +1,18 @@
 import json
 from unittest.mock import patch
 
-from tools.analyze_wallets import analyze_wallets
+from tools.analyze_wallets import analyze_wallet_file, analyze_wallets
 from tools.scan_index import is_known
+
+# Tonight's real garbage: Rust mangled-symbol strings from a prior scan's
+# own output file (wallet_analysis.json), re-scanned as if it were wallet
+# content -- shape-matched Digibyte/Diamond Coin/Ripple with zero
+# checksum verification. See config/address_validators.py and
+# tests/test_address_validators.py for the offline validator these must
+# now be filtered through.
+GARBAGE_DIGIBYTE_AND_DIAMOND = "d6thread6Thread5cname17hd86fb86E"
+GARBAGE_DIGIBYTE_ONLY = "df29a6dde7b3e33ab57f416f11"
+REAL_BITCOIN_ADDRESS = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
 
 
 def _write_input_file(tmp_path, file_paths):
@@ -100,6 +110,27 @@ def test_analyze_wallets_reports_determinate_progress(tmp_path):
     analyze_wallets(str(input_file), str(output_file), progress_callback=lambda c, t, m="": calls.append((c, t, m)))
 
     assert calls == [(1, 2, str(wallet_a)), (2, 2, str(wallet_b))]
+
+
+def test_analyze_wallet_file_filters_out_garbage_matches(tmp_path):
+    """End-to-end regression test for tonight's bug report: a file
+    containing both a real, checksum-valid Bitcoin address and the actual
+    garbage strings a prior scan's own output produced. Only the real
+    address may survive -- garbage must never reach the returned dict,
+    which is what tools/analyze_wallets.py:analyze_wallets() writes
+    straight to wallet_analysis.json (and from there feeds real
+    balance-check API calls and web/app.py's record_finding())."""
+    wallet_file = tmp_path / "prior_scan_output.json"
+    wallet_file.write_text(
+        f"{REAL_BITCOIN_ADDRESS} {GARBAGE_DIGIBYTE_AND_DIAMOND} {GARBAGE_DIGIBYTE_ONLY}"
+    )
+
+    result = analyze_wallet_file(str(wallet_file))
+
+    assert result.get("Bitcoin") == [REAL_BITCOIN_ADDRESS]
+    for matches in result.values():
+        assert GARBAGE_DIGIBYTE_AND_DIAMOND not in matches
+        assert GARBAGE_DIGIBYTE_ONLY not in matches
 
 
 def test_analyze_wallets_reports_progress_for_a_dedup_cache_hit_too(tmp_path):

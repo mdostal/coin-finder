@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.51.1] - 2026-08-17
+
+### Fixed
+
+- **Garbage text that merely looked like an address no longer gets
+  scanned as a candidate wallet.** The address patterns used to find
+  crypto addresses in files and Gmail messages were pure shape matches,
+  with no check that a match was actually a valid address -- so
+  random text that happened to fit a pattern's length and character set
+  (for example, Rust-mangled program-internals strings found inside a
+  prior scan's own output file) could get recorded as a candidate
+  Digibyte/Diamond Coin/etc. address, burn a real balance-check API call,
+  and even get saved as a "finding" with a 0.0 balance. Matches are now
+  double-checked against that coin's real, offline checksum before any
+  of that happens, for every coin where such a checksum exists and can
+  be verified without a network call: Bitcoin, Bitcoin Gold, Digibyte,
+  Diamond Coin, Litecoin, Dogecoin, Zcash, Tether (both its Bitcoin- and
+  Ethereum-style address forms), Ripple, Monero, Bitcoin Cash, Cardano,
+  Cosmos, Helium, and OKCash. This applies everywhere addresses get
+  pulled out of scanned files and out of Gmail message bodies.
+  **Documented limitation:** Ethereum, Ethereum Classic, and Shiba Inu
+  addresses (their checksum is optional and routinely omitted by real
+  wallets), IOTA addresses (its real checksum isn't even captured by the
+  current pattern), and Binance Coin addresses (its checksum format
+  isn't supported by this project's tooling yet) are **not** covered by
+  this fix -- garbage matching those coins' shapes can still slip
+  through, same as before.
+
 ## [0.51.0] - 2026-08-17
 
 ### Added
