@@ -136,3 +136,48 @@ items:
     linked_story: null
     raised_at: "2026-08-17T11:00:00-05:00"
     raised_by: mathew
+
+  - id: staging-copy-with-original-path-index
+    title: Auto-stage a local copy of discovered wallet files, with an index back to the original path
+    description: >
+      User's own words: "we also should maintain a local copy so we can
+      easily handle them and do this when we do these scans and start
+      figuring it out with our findings, archive, etc -- and maintain
+      the original pathing and index so we can make decisions on what
+      to do with the originals as well when do this work." Raised
+      directly out of tonight's source-path investigation, where several
+      real findings turned out to be untraceable (no source_path, or a
+      wrong one pointing at the tool's own intermediate output) --
+      partly because the real files live on ephemeral/removable sources
+      (a GDrive mount, an old external drive) that may not always be
+      reachable later.
+
+      A manual, one-file-at-a-time version of this already exists:
+      web/app.py's /item/stage route + DEFAULT_STAGING_DIR constant --
+      copies a single file into a flat local staging directory by
+      filename, refuses to overwrite an existing staged file, but
+      records no index/mapping back to the original source path beyond
+      the copy's own filename, and nothing triggers it automatically
+      during a scan.
+
+      Real design questions for the eventual plan: what triggers
+      auto-staging (every wallet-shaped file that becomes a finding? a
+      narrower set -- e.g. only files on a removable/cloud source,
+      distinguishing those from a permanent local disk?), what the
+      original-path index actually looks like (a new small table/module
+      alongside this project's other cache/history modules, keyed by
+      staged-copy-path -> original source_path + discovery metadata),
+      how storage growth is bounded (some of tonight's real wallet.dat
+      files are close to 1MB with 1000+ addresses -- staging every
+      wallet-shaped candidate across a large drive could add up), and
+      what the "decide what to do with the original" UI/workflow
+      actually looks like (keep, archive-and-forget, re-verify against
+      the live source) once a local copy already exists independent of
+      whether the original is still reachable.
+    priority: high
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T14:30:00-05:00"
+    raised_by: mathew
