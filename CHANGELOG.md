@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.51.1] - 2026-08-17
+
 ### Fixed
 
 - **Garbage text that merely looked like an address no longer gets
