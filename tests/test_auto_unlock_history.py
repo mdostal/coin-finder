@@ -1,7 +1,12 @@
 import sqlite3
 import time
 
-from web.auto_unlock_history import clear_auto_unlock_history, list_auto_unlock_history, record_auto_unlock_run
+from web.auto_unlock_history import (
+    clear_auto_unlock_history,
+    latest_status_by_wallet_path,
+    list_auto_unlock_history,
+    record_auto_unlock_run,
+)
 
 
 def test_record_then_list_includes_every_wallet_from_the_run(tmp_path):
@@ -81,3 +86,53 @@ def test_connect_creates_parent_directory(tmp_path):
     db_path = tmp_path / "nested" / "dir" / "auto_unlock_history.db"
     record_auto_unlock_run({"/wallets/a.dat": {"vault_label": None, "value": None}}, db_path=db_path)
     assert db_path.exists()
+
+
+def test_latest_status_by_wallet_path_empty_when_no_history(tmp_path):
+    db_path = tmp_path / "auto_unlock_history.db"
+    assert latest_status_by_wallet_path(db_path=db_path) == {}
+
+
+def test_latest_status_by_wallet_path_reflects_matched_row(tmp_path):
+    db_path = tmp_path / "auto_unlock_history.db"
+    record_auto_unlock_run({"/wallets/a.dat": {"vault_label": "password-1", "value": "hunter2!!"}}, db_path=db_path)
+
+    statuses = latest_status_by_wallet_path(db_path=db_path)
+
+    assert statuses["/wallets/a.dat"]["matched"] is True
+    assert statuses["/wallets/a.dat"]["vault_label"] == "password-1"
+
+
+def test_latest_status_by_wallet_path_reflects_unmatched_row(tmp_path):
+    db_path = tmp_path / "auto_unlock_history.db"
+    record_auto_unlock_run({"/wallets/a.dat": {"vault_label": None, "value": None}}, db_path=db_path)
+
+    statuses = latest_status_by_wallet_path(db_path=db_path)
+
+    assert statuses["/wallets/a.dat"]["matched"] is False
+    assert statuses["/wallets/a.dat"]["vault_label"] is None
+
+
+def test_latest_status_by_wallet_path_missing_wallet_absent_from_dict(tmp_path):
+    db_path = tmp_path / "auto_unlock_history.db"
+    record_auto_unlock_run({"/wallets/a.dat": {"vault_label": None, "value": None}}, db_path=db_path)
+
+    statuses = latest_status_by_wallet_path(db_path=db_path)
+
+    assert "/wallets/never-tried.dat" not in statuses
+
+
+def test_latest_status_by_wallet_path_uses_the_most_recent_run_for_that_wallet(tmp_path):
+    """
+    A wallet tried, failed, tried again later and succeeded -- the badge
+    must reflect the LATEST outcome, not an earlier failed attempt.
+    """
+    db_path = tmp_path / "auto_unlock_history.db"
+    record_auto_unlock_run({"/wallets/a.dat": {"vault_label": None, "value": None}}, db_path=db_path)
+    time.sleep(0.01)
+    record_auto_unlock_run({"/wallets/a.dat": {"vault_label": "password-1", "value": "hunter2!!"}}, db_path=db_path)
+
+    statuses = latest_status_by_wallet_path(db_path=db_path)
+
+    assert statuses["/wallets/a.dat"]["matched"] is True
+    assert statuses["/wallets/a.dat"]["vault_label"] == "password-1"

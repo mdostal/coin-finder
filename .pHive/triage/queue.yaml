@@ -1,0 +1,138 @@
+items:
+  - id: bulk-private-key-extraction
+    title: Bulk "try to extract private keys" across findings
+    description: >
+      User's own words: "can we try to extract keys from MOST of them etc
+      as well" -- extend tools/extract_private_key.py's existing
+      per-address WIF-extraction flow (currently a manual, one-at-a-time
+      action) into a bulk action over a multi-select of findings, same
+      shape as the bulk Try-unlock action shipped in ui-design-options
+      (uio-03). Directly related to the in-flight
+      credential-clarity-and-unlock-ux epic's credential-completeness
+      indicator -- that epic's research into extract_private_key.py's
+      real preconditions/cost should inform whether this is safe to run
+      unattended across many findings at once or needs throttling/limits.
+      Deliberately NOT folded into the in-flight epic per the user's
+      explicit instruction to keep recording new asks as backlog rather
+      than scope-creeping the epic already in flight.
+    priority: high
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T10:45:00-05:00"
+    raised_by: mathew
+
+  - id: multi-cluster-relationship-graph
+    title: Graph multiple related-account groups together, see cross-sections
+    description: >
+      User's own words: "view related accounts should also allow us to
+      graph all of them together and see their clusters and if there are
+      cross sections and whatnot, i really care about seeing multiple of
+      them together there." Today's group-view-graph /
+      confidence-scored-related-accounts epics only visualize ONE
+      related-account group at a time. This asks for a real graph-viz
+      feature: combine multiple crawl_runs/related-account groups into
+      one view so overlaps/cross-sections between groups are visible --
+      e.g. a wallet that shows up as related in more than one group.
+      Needs real design work: how multiple groups compose visually at
+      scale, what "cross-section" means concretely against the existing
+      web/crawl_runs.py confidence-scoring data model, whether Cytoscape
+      (already vendored, web/static/vendor/cytoscape.min.js) can take
+      this directly or needs new aggregation logic first.
+    priority: high
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T10:40:00-05:00"
+    raised_by: mathew
+
+  - id: password-note-scanner
+    title: Default scanner for stray passwords/credentials sitting in notes and files
+    description: >
+      User's own words: "let's add another file finder for an attempt to
+      find seed key lists, passwords, etc -- we have 2 other things for
+      that, but we should also do a default one here for an attempted
+      password scan on things and allow us to go through and try to find
+      these -- most of these I had somewhere with a password stored
+      alongside or in a note or somewhere on the box to let me access
+      bits and pieces of it." Prompted directly by discovering findings
+      with no matched password tonight.
+
+      Confirmed via direct investigation what the "2 other things" the
+      user means actually are, neither of which covers this: (1)
+      tools/find_seed_phrases.py only matches valid BIP39 mnemonic word
+      sequences (12/15/18/21/24 English words) -- not passwords. (2)
+      web/vault.py's candidate-password flow (resolve_vault_entries_with_values)
+      only matches against passwords the user has ALREADY manually typed
+      into the vault -- it doesn't discover anything on its own. There is
+      currently no scanner that looks through general files/notes
+      (text docs, notes-app exports, random .txt files, etc.) for
+      password-shaped or credential-labeled text ("password:", "pw:",
+      a string near a coin/wallet name, etc.) to auto-build a candidate
+      list. This is the real gap: a new default scan type, parallel to
+      the existing wallet-file scan and seed-phrase scan, that surfaces
+      candidate passwords/credentials found in ordinary files so the user
+      isn't stuck manually compiling a full password list by hand.
+
+      Real design questions for the eventual plan: what file types/
+      locations are in scope (plain text, exported notes, PDFs?), what
+      heuristic distinguishes a real password/credential from ordinary
+      prose (this is a much fuzzier signal than find_seed_phrases.py's
+      exact BIP39 wordlist match or config/analysis.py's coin-address
+      regexes -- likely needs real false-positive-rate thought, learn
+      from tonight's candidate-match-integrity false-positive lessons),
+      and how a found candidate then flows into the existing vault/
+      auto-unlock matching pipeline once discovered.
+    priority: high
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T10:50:00-05:00"
+    raised_by: mathew
+
+  - id: rainbow-table-password-cracking-review
+    title: Wordlist/rainbow-table cracking against locked wallets, with human-reviewed auto-add-to-vault
+    description: >
+      User's own words: "the next thing i'm going to have to do if this is
+      correct -- is literally run through rainbowtable lists against
+      these -- and if we FIND things that match them, a human can review
+      and AUTO ADD to the vault with type of pass and stuff as well in
+      metadata." Raised immediately after reviewing the
+      credential-clarity-and-unlock-ux design discussion's 4-state
+      credential model (password known / key extractable / encrypted-
+      locked / unknown) -- this is the natural next step for state 3
+      ("encrypted, no known password") findings.
+
+      This project already has BTCRecover integrated
+      (btcrecover-integration epic, tools/unlock_wallet.py) which does
+      real password-guessing against a wordlist/candidate list -- today
+      driven by the user's own vault-saved candidates. This ask is
+      larger: run substantial external wordlists/rainbow tables (not just
+      the user's own saved candidates) against the "encrypted, no known
+      password" bucket, surface any real match for human review (never
+      auto-trust a crack silently), and on confirmation, one-click add
+      the found password into the vault with real metadata (which
+      wordlist/method found it, when, against which wallet) rather than
+      the user re-typing it in by hand.
+
+      Real design questions for the eventual plan: where do rainbow
+      tables/wordlists come from and how big (this has real disk/time
+      cost implications, likely needs to run as a long background job
+      similar to the balance-check/scan jobs already in this project),
+      what the human-review step actually looks like (does it reuse the
+      once-only secret-reveal pattern from credential-clarity-and-unlock
+      -ux, given a cracked password is exactly as sensitive as any other
+      matched password), and the vault metadata schema extension needed
+      to record "how/where this credential was found" (vault entries are
+      currently just name/description/state per web/vault.py, no
+      provenance field today).
+    priority: medium
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T11:00:00-05:00"
+    raised_by: mathew

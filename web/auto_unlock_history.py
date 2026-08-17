@@ -94,6 +94,36 @@ def list_auto_unlock_history(db_path=DEFAULT_DB_PATH):
     return [runs[run_id] for run_id in order]
 
 
+def latest_status_by_wallet_path(db_path=DEFAULT_DB_PATH):
+    """
+    The cheap, always-live half of Findings' credential-status join
+    (ccu-02): for each wallet_path that has ever appeared in an
+    auto-unlock run, only the single most recent row -- "has this wallet
+    been tried, and what happened last time" -- not the full history
+    list_auto_unlock_history() already provides.
+
+    :return: {wallet_path: {"matched": bool, "vault_label": str|None,
+        "run_at": float}}. A wallet_path with no row at all is simply
+        absent from the dict -- callers treat that as "not yet tried."
+    """
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute("SELECT * FROM auto_unlock_runs ORDER BY run_at DESC, id DESC").fetchall()
+    finally:
+        conn.close()
+
+    latest = {}
+    for row in rows:
+        wallet_path = row["wallet_path"]
+        if wallet_path not in latest:
+            latest[wallet_path] = {
+                "matched": bool(row["matched"]),
+                "vault_label": row["vault_label"],
+                "run_at": row["run_at"],
+            }
+    return latest
+
+
 def clear_auto_unlock_history(db_path=DEFAULT_DB_PATH):
     """Deletes every recorded row -- has no effect on the vault or any wallet file."""
     conn = _connect(db_path)

@@ -288,3 +288,324 @@ def test_findings_page_vertical_coin_tab_uses_real_icon_and_coin_name(mock_list,
     assert "finding-card-tab" in body
     assert "coin-icons/btc.svg" in body
     assert ">Bitcoin<" in body
+
+
+# --- ccu-02: per-finding unlock-status badge + persistent batch-result banner ---
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path")
+@patch("web.app.list_findings")
+def test_findings_page_badge_shows_unlocked_for_matched_history_row(mock_list, mock_latest, mock_history, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": "/w.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_latest.return_value = {"/w.dat": {"matched": True, "vault_label": "password-1", "run_at": 100.0}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "unlocked" in body
+    assert "tried, no match" not in body
+    assert "not yet tried" not in body
+    # Badge copy must say "wallet," never "address" -- auto_unlock_history
+    # is wallet_path-scoped, not per-address.
+    assert "unlock-badge" in body
+    assert "address" not in body.lower().split("unlock-badge", 1)[1].split("</span>", 1)[0]
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path")
+@patch("web.app.list_findings")
+def test_findings_page_badge_shows_tried_no_match_for_unmatched_history_row(mock_list, mock_latest, mock_history, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": "/w.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_latest.return_value = {"/w.dat": {"matched": False, "vault_label": None, "run_at": 100.0}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "tried, no match" in body
+    assert ">unlocked<" not in body
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path")
+@patch("web.app.list_findings")
+def test_findings_page_badge_shows_not_yet_tried_for_no_history_row(mock_list, mock_latest, mock_history, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": "/w.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_latest.return_value = {}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "not yet tried" in body
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path", return_value={})
+@patch("web.app.list_findings")
+def test_findings_page_no_unlock_badge_for_finding_without_source_path(mock_list, mock_latest, mock_history, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b"unlock-badge" not in resp.data
+
+
+@patch("web.app.list_auto_unlock_history")
+@patch("web.app.latest_status_by_wallet_path", return_value={})
+@patch("web.app.list_findings", return_value=[])
+def test_findings_page_batch_summary_banner_shows_last_run_counts(mock_list, mock_latest, mock_history, client):
+    mock_history.return_value = [
+        {
+            "run_id": "run-2",
+            "run_at": 200.0,
+            "wallets": [
+                {"wallet_path": "/a.dat", "vault_label": "password-1", "matched": True},
+                {"wallet_path": "/b.dat", "vault_label": None, "matched": False},
+                {"wallet_path": "/c.dat", "vault_label": None, "matched": False},
+            ],
+        },
+        {
+            "run_id": "run-1",
+            "run_at": 100.0,
+            "wallets": [{"wallet_path": "/a.dat", "vault_label": None, "matched": False}],
+        },
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "Last batch" in body
+    assert "1 unlocked" in body
+    assert "2 no match" in body
+    # Reflects the newest run's counts, not the older one's.
+    assert "0 unlocked" not in body
+
+
+@patch("web.app.list_auto_unlock_history")
+@patch("web.app.latest_status_by_wallet_path", return_value={})
+@patch("web.app.list_findings", return_value=[])
+def test_findings_page_batch_summary_banner_links_to_history_page(mock_list, mock_latest, mock_history, client):
+    mock_history.return_value = [
+        {"run_id": "run-1", "run_at": 100.0, "wallets": [{"wallet_path": "/a.dat", "vault_label": "password-1", "matched": True}]}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b'href="/auto-unlock/history"' in resp.data
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path", return_value={})
+@patch("web.app.list_findings", return_value=[])
+def test_findings_page_no_batch_summary_banner_when_no_history(mock_list, mock_latest, mock_history, client):
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b"Last batch" not in resp.data
+
+
+# --- ccu-03: credential-completeness badge (extractable / encrypted-locked / not-applicable) ---
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_extractable_for_unencrypted_key(mock_list, mock_credential, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_credential.return_value = {str(wallet_file): {"is_wallet_dat": True, "error": None, "addresses": {"1abc": "key"}}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "key extractable, no password needed" in body
+    assert "credential-extractable" in body
+    assert "encrypted, no known password" not in body
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_encrypted_for_ckey(mock_list, mock_credential, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_credential.return_value = {str(wallet_file): {"is_wallet_dat": True, "error": None, "addresses": {"1abc": "ckey"}}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "encrypted, no known password" in body
+    assert "credential-encrypted" in body
+    assert "key extractable, no password needed" not in body
+
+
+@patch("web.app.credential_status_index", return_value={})
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_not_applicable_for_non_bitcoin_coin(mock_list, mock_credential, client):
+    mock_list.return_value = [
+        {"coin": "Ethereum", "address": "0xabc", "balance": 0.0, "source_path": "/somewhere/wallet.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "not checked / not applicable" in body
+    assert "credential-not-applicable" in body
+    assert "encrypted, no known password" not in body
+    assert "key extractable, no password needed" not in body
+
+
+@patch("web.app.credential_status_index", return_value={})
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_not_applicable_for_missing_source_path(mock_list, mock_credential, client, tmp_path):
+    missing_path = str(tmp_path / "moved-or-deleted.dat")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": missing_path, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "not checked / not applicable" in body
+    assert "credential-not-applicable" in body
+
+
+@patch("web.app.credential_status_index", return_value={})
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_not_applicable_for_finding_without_source_path(mock_list, mock_credential, client):
+    """
+    Unlike ccu-02's unlock badge (hidden entirely without a source_path),
+    the credential badge must always render -- "no source_path" is
+    itself one of the explicit not-applicable reasons, and hiding the
+    badge here would look identical to a page that simply hasn't loaded
+    it yet.
+    """
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "credential-not-applicable" in body
+
+
+@patch("web.app.credential_status_index", return_value={})
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_not_applicable_when_bitcoin_wallet_never_scanned(mock_list, mock_credential, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    # Eligible but never scanned still shows the SAME visual not-applicable
+    # state (per the design's 4-state model) -- not a false "encrypted."
+    assert "credential-not-applicable" in body
+    assert "encrypted, no known password" not in body
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_not_applicable_for_recognized_but_not_wallet_dat_file(mock_list, mock_credential, client, tmp_path):
+    wallet_file = tmp_path / "electrum.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_credential.return_value = {str(wallet_file): {"is_wallet_dat": False, "error": "not a recognized Bitcoin Core wallet.dat (Btree v9)", "addresses": {}}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "credential-not-applicable" in body
+    assert "encrypted, no known password" not in body
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.latest_status_by_wallet_path")
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.list_findings")
+def test_findings_page_credential_and_password_known_badges_are_independent_and_both_shown(
+    mock_list, mock_history, mock_latest, mock_credential, client, tmp_path
+):
+    """
+    A wallet can have a known password (ccu-02) AND still have an
+    unencrypted/encrypted key fact for a given address (ccu-03) -- two
+    independent signals, both shown, never collapsed into one badge.
+    """
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_latest.return_value = {str(wallet_file): {"matched": True, "vault_label": "password-1", "run_at": 100.0}}
+    mock_credential.return_value = {str(wallet_file): {"is_wallet_dat": True, "error": None, "addresses": {"1abc": "ckey"}}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "unlocked" in body
+    assert "encrypted, no known password" in body
+
+
+@patch("web.app.credential_status_index", return_value={})
+@patch("web.app.list_findings")
+def test_findings_page_offers_check_credential_status_bulk_action(mock_list, mock_credential, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b'id="bulk-check-credential-status"' in resp.data
+
+
+def test_not_applicable_and_encrypted_locked_badges_are_visually_and_textually_distinct():
+    """
+    The story's named risk: collapsing "not checked / not applicable"
+    into the same look as "checked, genuinely encrypted" would make a
+    user skip past a wallet they could actually recover. Asserted here
+    directly against the CSS, independent of any one page render.
+    """
+    style_css = open("web/static/style.css").read()
+
+    assert ".credential-not-applicable" in style_css
+    assert ".credential-encrypted" in style_css
+    not_applicable_rule = style_css.split(".credential-not-applicable", 1)[1].split("}", 1)[0]
+    encrypted_rule = style_css.split(".credential-encrypted", 1)[1].split("}", 1)[0]
+    assert not_applicable_rule != encrypted_rule
+    # not-applicable must NOT use the same alarm-red error color the
+    # encrypted-locked state uses -- that's the exact collapse this
+    # story's risk section calls out.
+    assert "var(--error)" not in not_applicable_rule
+    assert "var(--error)" in encrypted_rule

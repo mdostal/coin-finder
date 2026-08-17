@@ -38,11 +38,20 @@ below) always sort to the top, real balances sort right after them.</p>
 </div>
 {% endif %}
 
+{% if last_batch %}
+<div class="banner" style="margin-top:1rem">
+  <strong>Last batch:</strong> {{ last_batch.unlocked }} unlocked, {{ last_batch.no_match }} no match,
+  run at {{ last_batch.run_at | int | timestamp_to_local }}.
+  <a href="{{ url_for('auto_unlock_history_page') }}">View full history &rarr;</a>
+</div>
+{% endif %}
+
 {% if findings %}
 {% set has_bitcoin_findings = findings | selectattr("coin", "equalto", "Bitcoin") | list %}
 <form id="bulk-form" method="post">
   <input type="hidden" name="addresses" id="bulk-addresses">
   <input type="hidden" name="selection" id="bulk-watch-selection">
+  <input type="hidden" name="wallet_paths" id="bulk-wallet-paths">
   {% if include_archived %}<input type="hidden" name="include_archived" value="1">{% endif %}
 </form>
 
@@ -52,16 +61,18 @@ below) always sort to the top, real balances sort right after them.</p>
     <input type="text" name="note" form="bulk-form" placeholder="optional note for all selected (Watch only)" style="flex:1;min-width:12rem">
     <button type="submit" form="bulk-form" formaction="{{ url_for('findings_watch_bulk') }}" class="btn-secondary">&#9733; Watch selected</button>
     <button type="button" id="bulk-try-unlock" data-unlock-url="{{ url_for('auto_unlock_form') }}" class="btn-secondary" title="Runs the existing Try-unlock flow, scoped to every checked finding that has a recorded source wallet file.">Try unlock selected</button>
+    <button type="submit" form="bulk-form" formaction="{{ url_for('findings_check_credential_status') }}" id="bulk-check-credential-status" data-credential-status="1" class="btn-secondary" title="Scans checked findings' Bitcoin Core wallet.dat files for structurally extractable (unencrypted) vs genuinely encrypted (ckey) private keys -- runs as a background job, never blocks this page. Non-wallet.dat findings in the selection are skipped.">Check credential status</button>
     {% if has_bitcoin_findings %}
     <button type="submit" form="bulk-form" formaction="{{ url_for('item_crawl') }}" data-btc-only="1" class="btn-secondary">Graph selected</button>
     <button type="submit" form="bulk-form" formaction="{{ url_for('item_fork_coins') }}" data-btc-only="1" class="btn-secondary">Check fork coins selected</button>
     {% endif %}
   </div>
-  <p class="subtle" style="margin:0.5rem 0 0">Watch and Try unlock apply to
-  every checked finding, any coin. Graph and Check fork coins run only
-  against checked Bitcoin rows (Bitcoin-only tools) -- all four run as one
-  background job per click, same tools as the per-finding actions below,
-  just batched.</p>
+  <p class="subtle" style="margin:0.5rem 0 0">Watch, Try unlock, and Check
+  credential status apply to every checked finding, any coin (the latter
+  two silently skip any row without a known Bitcoin Core wallet.dat).
+  Graph and Check fork coins run only against checked Bitcoin rows
+  (Bitcoin-only tools) -- every action here runs as one background job
+  per click, same tools as the per-finding actions below, just batched.</p>
 </div>
 
 {% set coins = findings | map(attribute="coin") | unique | list %}
@@ -101,6 +112,10 @@ below) always sort to the top, real balances sort right after them.</p>
           <span class="subtle">0 {{ f.coin }}</span>
           {% endif %}
           {{ m.status_pill(f.status) }}
+          {% if f.source_path %}
+          {{ m.unlock_status_badge(unlock_status_by_path.get(f.source_path)) }}
+          {% endif %}
+          {{ m.credential_status_badge(f.coin, f.source_path, f.address, source_exists_by_path.get(f.source_path, false), credential_status_by_path.get(f.source_path)) }}
         </div>
         <div class="finding-card-sub subtle">
           {{ f.coin }}

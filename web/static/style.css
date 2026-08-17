@@ -533,6 +533,41 @@ pre {
 .status-new { background: rgba(214, 165, 79, 0.12); color: var(--accent-bright); }
 .status-archived { background: var(--bg-inset); color: var(--text-dim); }
 
+/* ccu-02: per-finding unlock-status badge, next to the existing status
+   pill -- three visually distinct states so a wallet already unlocked, one
+   tried and failed, and one never attempted stop looking identical. */
+.unlock-badge { margin-left: 0.35rem; }
+.unlock-unlocked { background: rgba(111, 174, 127, 0.14); color: var(--success); }
+.unlock-no-match { background: rgba(110, 163, 207, 0.14); color: var(--info); }
+.unlock-not-tried { background: var(--bg-inset); color: var(--text-dim); }
+
+/* ccu-03: credential-completeness badge -- whether a private key is
+   structurally extractable (no password needed at all) or genuinely
+   encrypted-and-locked, for Bitcoin Core wallet.dat findings. This
+   story's named risk is right here: "not applicable/not checked" must
+   never be confusable with "checked, genuinely encrypted" -- so the two
+   use opposite visual treatments, not just different colors. Extractable
+   is a solid, bold, celebratory fill (the strongest possible state,
+   should visually pop). Encrypted-locked is a solid alarm-red fill (a
+   real dead end without a password -- deliberately looks "stopped").
+   Not-applicable/not-checked is the deliberate opposite of both: no
+   fill at all, a dashed (not solid) outline, dim muted color, italic,
+   normal case -- reads as "inactive/nothing here" at a glance, and could
+   never be mistaken for the solid red encrypted-locked pill even by
+   someone scanning quickly. */
+.credential-badge { margin-left: 0.35rem; }
+.credential-extractable { background: var(--success); color: var(--accent-ink); font-weight: 700; }
+.credential-encrypted { background: var(--error-bg); color: var(--error); border: 1px solid var(--error); }
+.credential-not-applicable {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px dashed var(--text-dim);
+  font-style: italic;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .empty { color: var(--text-dim); font-style: italic; font-size: 0.88rem; }
 
 .conn-status {
@@ -628,6 +663,21 @@ pre {
 .path-chip-copy {
   font-size: 0.68rem;
   padding: 0.15rem 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Masked-by-default secret value (auto-unlock result Password column,
+   vault reveal page) + its eye-toggle button -- client-side reveal/
+   re-mask only, web/static/secret-reveal.js. */
+.secret-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.secret-reveal-btn {
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.2rem 0.5rem;
   flex-shrink: 0;
 }
 

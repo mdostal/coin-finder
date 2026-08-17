@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const bulkAddresses = document.getElementById("bulk-addresses");
   const bulkWatchSelection = document.getElementById("bulk-watch-selection");
   const bulkTryUnlock = document.getElementById("bulk-try-unlock");
+  const bulkWalletPaths = document.getElementById("bulk-wallet-paths");
 
   if (selectAll) {
     selectAll.addEventListener("change", () => {
@@ -33,6 +34,22 @@ document.addEventListener("DOMContentLoaded", () => {
         event.preventDefault();
         alert("None of the checked findings are Bitcoin -- this action only applies to Bitcoin findings.");
         return;
+      }
+
+      // "Check credential status" (ccu-03) needs wallet file paths, not
+      // addresses -- same data-source-path attribute bulk-try-unlock
+      // below reads, just submitted through this shared form instead of
+      // a separate confirmation page (this action has no network/vault
+      // safety gate to confirm, unlike Try-unlock).
+      const isCredentialStatus = !!(submitter && submitter.dataset.credentialStatus === "1");
+      if (isCredentialStatus) {
+        const walletPaths = Array.from(new Set(checked.map((cb) => cb.dataset.sourcePath).filter(Boolean)));
+        if (walletPaths.length === 0) {
+          event.preventDefault();
+          alert("Check at least one finding with a known wallet file first.");
+          return;
+        }
+        if (bulkWalletPaths) bulkWalletPaths.value = walletPaths.join("\n");
       }
 
       bulkAddresses.value = relevant.map((cb) => cb.value).join("\n");

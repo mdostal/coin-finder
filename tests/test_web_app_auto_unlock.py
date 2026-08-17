@@ -1,3 +1,4 @@
+import re
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -175,6 +176,51 @@ def test_auto_unlock_result_shows_no_match_not_a_blank_cell(mock_run_unlock, moc
 def test_auto_unlock_result_unknown_job_is_404(client):
     resp = client.get("/auto-unlock/result/does-not-exist")
     assert resp.status_code == 404
+
+
+@patch("web.app.run_unlock")
+@patch("web.app.resolve_vault_entries_with_values", return_value=[("password-1", "hunter2!!")])
+@patch("web.app.list_vault_entries", return_value=[{"name": "password-1", "description": "", "state": "enabled"}])
+@patch("web.app.list_findings")
+@patch("web.app.check_network_status", return_value="OFFLINE")
+def test_auto_unlock_result_masks_password_by_default_with_eye_toggle(
+    mock_status, mock_findings, mock_vault, mock_resolve, mock_run_unlock, client, tmp_path
+):
+    """
+    ccu-01: the Password column must not paint the real secret as its
+    default visible text -- it renders behind a masked placeholder with
+    an eye-toggle button, and the real value is present in the page's
+    initial HTML (a data attribute) so the client-side reveal needs no
+    second request.
+    """
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_findings.return_value = [{"coin": "Bitcoin", "address": "1a", "source_path": str(wallet_file), "status": "new"}]
+    mock_run_unlock.return_value = SimpleNamespace(stdout="Password found: hunter2!!", stderr="", returncode=0)
+
+    resp = client.post("/auto-unlock", data={}, follow_redirects=False)
+    job_id = _job_id_from_redirect(resp)
+    _wait_for_terminal(client, job_id)
+
+    view = client.get(f"/auto-unlock/result/{job_id}")
+    assert view.status_code == 200
+    html = view.data.decode()
+
+    # The real value is still in the page's initial HTML (no second
+    # request needed to reveal it) -- but as a data attribute, not as
+    # the default visible text.
+    assert 'data-secret="hunter2!!"' in html
+
+    # The visible text content of the masked element must NOT be the
+    # raw secret -- it's a bullet/dot placeholder instead.
+    match = re.search(r'<code class="secret-mask"[^>]*>([^<]*)</code>', html)
+    assert match is not None, "expected a masked secret-mask element in the Password column"
+    visible_text = match.group(1)
+    assert "hunter2!!" not in visible_text
+    assert visible_text.strip() != ""
+
+    # An eye-toggle button must be present next to it to reveal in place.
+    assert 'class="secret-reveal-btn' in html
 
 
 @patch("web.app.list_vault_entries", return_value=[{"name": "password-1", "description": "", "state": "enabled"}])

@@ -2,6 +2,73 @@
 <span class="status-pill status-{{ status }}">{{ status }}</span>
 {% endmacro %}
 
+{# ccu-02: per-finding unlock-status badge, driven by the most recent
+   auto_unlock_history row for a finding's source_path. Deliberately says
+   "wallet," never "address," in every state -- auto_unlock_history is
+   wallet_path-scoped (one password unlocks the whole wallet file), not
+   per-address, and an "address" claim here would overstate the actual
+   precision of the underlying data. `status` is None (no row -- "not yet
+   tried"), or {"matched": bool, "vault_label", "run_at"}. #}
+{% macro unlock_status_badge(status) %}
+{% if status is none %}
+<span class="status-pill unlock-badge unlock-not-tried" title="This wallet file has not been tried in an auto-unlock run yet.">not yet tried</span>
+{% elif status.matched %}
+<span class="status-pill unlock-badge unlock-unlocked" title="A saved vault password successfully unlocked this wallet file in a past auto-unlock run.">unlocked</span>
+{% else %}
+<span class="status-pill unlock-badge unlock-no-match" title="This wallet file was tried in a past auto-unlock run; no saved vault password matched.">tried, no match</span>
+{% endif %}
+{% endmacro %}
+
+{# ccu-03: the heavier half of the credential-completeness signal --
+   whether a private key is structurally extractable (unencrypted "key"
+   record in a Bitcoin Core wallet.dat -- no password needed at all) or
+   genuinely encrypted ("ckey" record -- a real dead end without a
+   password), sourced from the credential_scan_cache background-job
+   cache, never computed live here. Independent of unlock_status_badge
+   above (a wallet can have a known password AND unencrypted keys for
+   OTHER addresses in the same file) -- both badges render side by side,
+   never merged into one.
+
+   Always renders, for every finding, including one with no source_path
+   at all -- unlike unlock_status_badge, which findings.html only shows
+   when a source_path exists. "not checked / not applicable" IS the
+   correct state for a finding with nothing to check, and hiding this
+   badge in that case would make it indistinguishable from a page that
+   simply hasn't loaded the badge yet.
+
+   coin/source_path/address: this finding's own fields. source_exists:
+   bool, a cheap stat() the caller already did (NOT the expensive BDB
+   scan). wallet_scan: credential_status_by_path.get(source_path) --
+   None if this wallet_path has never been scanned at all, otherwise
+   {"is_wallet_dat", "error", "addresses": {address: "key"|"ckey"}}.
+
+   DELIBERATE DESIGN CHOICE, the story's named risk: every "can't tell
+   you anything" branch below (wrong coin, no/missing source file, not
+   yet scanned, scanned-but-not-a-wallet.dat, scanned-but-this-address-
+   absent) renders the exact same visual state
+   (credential-not-applicable) -- because all of them really are the
+   same fact from the user's point of view ("nothing useful to show"),
+   and none of them may EVER look like credential-encrypted ("checked,
+   genuinely locked, no password"). Collapsing those two would risk a
+   user skipping a wallet they could actually recover -- worse than any
+   UI awkwardness. Only the title tooltip differs branch to branch. #}
+{% macro credential_status_badge(coin, source_path, address, source_exists, wallet_scan) %}
+{% set key_type = wallet_scan.addresses.get(address) if wallet_scan else none %}
+{% if coin != "Bitcoin" or not source_path or not source_exists %}
+<span class="status-pill credential-badge credential-not-applicable" title="Credential-extractability is only checked for Bitcoin Core wallet.dat findings whose source file still exists on disk.">not checked / not applicable</span>
+{% elif key_type == "key" %}
+<span class="status-pill credential-badge credential-extractable" title="This address's private key was found in an UNENCRYPTED record in this wallet.dat -- no password needed at all. The strongest possible state.">key extractable, no password needed</span>
+{% elif key_type == "ckey" %}
+<span class="status-pill credential-badge credential-encrypted" title="This address's private key is in an ENCRYPTED record in this wallet.dat -- a real dead end without its password.">encrypted, no known password</span>
+{% elif wallet_scan and not wallet_scan.is_wallet_dat %}
+<span class="status-pill credential-badge credential-not-applicable" title="This file was checked and is not a recognized Bitcoin Core wallet.dat format.">not checked / not applicable</span>
+{% elif wallet_scan %}
+<span class="status-pill credential-badge credential-not-applicable" title="This wallet.dat was checked, but this specific address was not found among its key/ckey records.">not checked / not applicable</span>
+{% else %}
+<span class="status-pill credential-badge credential-not-applicable" title="Bitcoin Core wallet.dat -- not yet checked. Use &quot;Check credential status&quot; to scan it.">not checked / not applicable</span>
+{% endif %}
+{% endmacro %}
+
 {# icon: real logo file under web/static/coin-icons/ (spothq/cryptocurrency-
    icons, CC0) when one exists for this coin -- initials, color used either
    as a fallback (no icon available, e.g. Diamond Coin/Helium/Shiba Inu --

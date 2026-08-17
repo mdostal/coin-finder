@@ -36,6 +36,19 @@ def _never_touch_the_real_findings_db():
     record_auto_unlock_run() (added by the auto-unlock-overhaul epic's
     auo-02 story) -- same leak risk, same fix: mocked here by default,
     tests asserting on it override with their own @patch.
+
+    findings_page() also calls web.auto_unlock_history.
+    list_auto_unlock_history() and latest_status_by_wallet_path() on every
+    load (added by ccu-02, for the per-row unlock badge and the batch
+    summary banner) -- same leak risk, same fix: defaulted to "no history"
+    here, tests asserting on either override with their own @patch.
+
+    findings_page() also calls web.credential_scan_cache.
+    credential_status_index() on every load (added by ccu-03, for the
+    key-extractable/encrypted-locked badge) -- same leak risk against the
+    real credential_scan_cache.db, same fix: defaulted to "nothing
+    scanned yet" here, tests asserting on it override with their own
+    @patch.
     """
     with (
         patch("web.app.record_finding"),
@@ -43,5 +56,8 @@ def _never_touch_the_real_findings_db():
         patch("web.app.record_crawl_run"),
         patch("web.app.record_scan"),
         patch("web.app.record_auto_unlock_run"),
+        patch("web.app.list_auto_unlock_history", return_value=[]),
+        patch("web.app.latest_status_by_wallet_path", return_value={}),
+        patch("web.app.credential_status_index", return_value={}),
     ):
         yield

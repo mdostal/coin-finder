@@ -10,7 +10,10 @@ itself already does.
 </div>
 
 <div class="card">
-  <strong style="color:var(--accent)"><code>{{ value }}</code></strong>
+  <span class="secret-field">
+    <strong style="color:var(--accent)"><code class="secret-mask" data-secret="{{ value }}" data-revealed="false">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</code></strong>
+    <button type="button" class="secret-reveal-btn btn-secondary" aria-label="Reveal value" aria-pressed="false" title="Reveal">&#128065;</button>
+  </span>
 </div>
 
 <a class="back-link" href="{{ url_for('vault_page') }}">&laquo; back to vault</a>
