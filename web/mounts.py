@@ -158,6 +158,18 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
     stderr is captured to a real log file (not discarded) -- confirmed
     live this was the difference between a bare, undiagnosable "ERROR"
     pill and an actionable error message.
+
+    --checkers 32 (rclone's default is 8): a `find` scan over this mount
+    is a pure metadata walk (readdir/stat, no file content), and the
+    default concurrency left a real 6TB/many-hundred-thousand-file drive
+    crawling for 10+ hours with a mostly-idle rclone process in between --
+    confirmed live via the mount's own log (zero errors, clean directory
+    listings, just serialized on too few concurrent listing workers).
+    --drive-skip-dangling-shortcuts: this user's real Drive has a small
+    number of broken shortcuts (files whose link target was deleted) that
+    otherwise get silently re-resolved (and logged) on every directory
+    cache refresh -- skip them outright since a dangling shortcut can
+    never resolve to real wallet content anyway.
     """
     os.makedirs(mount_point, exist_ok=True)
     log_dir = Path(log_dir) if log_dir is not None else app_data_dir() / "mount-logs"
@@ -165,7 +177,13 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
     log_path = log_dir / f"{remote_name}.log"
     log_file = open(log_path, "w")
     process = subprocess.Popen(
-        ["rclone", "nfsmount", f"{remote_name}:", str(mount_point), "--read-only", "--vfs-cache-mode", "minimal"],
+        [
+            "rclone", "nfsmount", f"{remote_name}:", str(mount_point),
+            "--read-only",
+            "--vfs-cache-mode", "minimal",
+            "--checkers", "32",
+            "--drive-skip-dangling-shortcuts",
+        ],
         stdout=subprocess.DEVNULL,
         stderr=log_file,
     )
