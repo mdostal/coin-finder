@@ -366,3 +366,146 @@ def test_crawl_accepts_multiple_seeds_mixing_disk_and_held_addresses(mock_fetch,
 
     assert result[SEED]["confidence"] == "seed"
     assert result[COSPEND]["confidence"] == "seed"
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_deletes_checkpoint_on_clean_completion(mock_fetch, mock_service_cls, tmp_path):
+    mock_fetch.return_value = []
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    crawl_wallet_cluster([SEED], max_generations=1, checkpoint_path=str(checkpoint_path))
+
+    assert not checkpoint_path.exists()
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_resumes_balance_pass_skipping_already_confirmed_addresses(mock_fetch, mock_service_cls, tmp_path):
+    """
+    Regression test for the real ask: a crawl killed mid-run (app quit/
+    update/crash) shouldn't re-check addresses whose balance was already
+    confirmed. BFS discovery is already complete in this checkpoint
+    (bfs_done=True) -- only the balance/dormancy pass should run, and
+    only for the address not yet finalized.
+    """
+    mock_fetch.return_value = []
+    checked = []
+    mock_service_cls.return_value.check_balance.side_effect = lambda addr: checked.append(addr) or 9.0
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    key = {"seed_addresses": [COSPEND, SEED], "max_generations": 1, "max_addresses": 200}
+    checkpoint_path.write_text(
+        json.dumps(
+            {
+                "key": key,
+                "discovered": {
+                    SEED: {"confidence": "seed", "generation": 0, "discovered_via": None, "balance": 2.5, "last_activity_timestamp": None, "dormant_years": None},
+                    COSPEND: {"confidence": "seed", "generation": 0, "discovered_via": None},
+                },
+                "frontier": [],
+                "generation": 2,
+                "bfs_done": True,
+                "edges": [],
+            }
+        )
+    )
+
+    result = crawl_wallet_cluster([SEED, COSPEND], max_generations=1, checkpoint_path=str(checkpoint_path))
+
+    assert checked == [COSPEND]  # SEED already finalized -- skipped
+    assert result[SEED]["balance"] == 2.5  # carried over untouched
+    assert result[COSPEND]["balance"] == 9.0
+    assert not checkpoint_path.exists()
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_resumes_bfs_from_the_checkpointed_generation(mock_fetch, mock_service_cls, tmp_path):
+    """
+    A checkpoint from generation 2 (BFS not yet done) should resume BFS
+    at generation 2 with the saved frontier, not restart from generation
+    1 -- the whole point of per-generation checkpointing.
+    """
+    grandchild = "1GrandChild00000000000000000000"
+    # only discoverable if generation 1 (SEED's own frontier expansion)
+    # incorrectly re-runs instead of resuming at generation 2
+    would_only_appear_on_a_bad_restart = "1WrongRestart00000000000000000"
+
+    def fetch(addr):
+        if addr == SEED:
+            return [make_tx([SEED, would_only_appear_on_a_bad_restart], [])]
+        if addr == COSPEND:
+            return [make_tx([COSPEND, grandchild], [])]
+        return []
+
+    mock_fetch.side_effect = fetch
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    key = {"seed_addresses": [SEED], "max_generations": 2, "max_addresses": 200}
+    checkpoint_path.write_text(
+        json.dumps(
+            {
+                "key": key,
+                "discovered": {
+                    SEED: {"confidence": "seed", "generation": 0, "discovered_via": None},
+                    COSPEND: {"confidence": "co-spend", "generation": 1, "discovered_via": SEED},
+                },
+                "frontier": [COSPEND],
+                "generation": 2,
+                "bfs_done": False,
+                "edges": [],
+            }
+        )
+    )
+
+    result = crawl_wallet_cluster([SEED], max_generations=2, checkpoint_path=str(checkpoint_path))
+
+    # BFS resumed at generation 2 with COSPEND as the frontier, not
+    # restarted at generation 1 -- SEED's own co-spend discovery never
+    # re-ran (fetch_address_transactions(SEED) may still be called
+    # harmlessly by the final dormancy fallback pass, which doesn't run
+    # discovery logic).
+    assert would_only_appear_on_a_bad_restart not in result
+    assert grandchild in result
+    assert result[grandchild]["discovered_via"] == COSPEND
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_ignores_checkpoint_for_a_different_key(mock_fetch, mock_service_cls, tmp_path):
+    mock_fetch.return_value = []
+    mock_service_cls.return_value.check_balance.return_value = 5.0
+    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint_path.write_text(
+        json.dumps(
+            {
+                "key": {"seed_addresses": ["1SomeOtherSeed00000000000000000"], "max_generations": 1, "max_addresses": 200},
+                "discovered": {"1SomeOtherSeed00000000000000000": {"confidence": "seed", "generation": 0, "discovered_via": None, "balance": 999.0}},
+                "frontier": [],
+                "generation": 2,
+                "bfs_done": True,
+                "edges": [],
+            }
+        )
+    )
+
+    result = crawl_wallet_cluster([SEED], max_generations=1, checkpoint_path=str(checkpoint_path))
+
+    assert result[SEED]["balance"] == 5.0
+    assert "1SomeOtherSeed00000000000000000" not in result
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_reports_progress_during_bfs_and_balance_phases(mock_fetch, mock_service_cls):
+    mock_fetch.return_value = []
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+
+    calls = []
+    crawl_wallet_cluster([SEED], max_generations=1, progress_callback=lambda c, t, m="": calls.append((c, t, m)))
+
+    assert any("Generation 1" in m for _, _, m in calls)
+    assert any("Checking balance" in m for _, _, m in calls)

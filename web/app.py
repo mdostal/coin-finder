@@ -1,3 +1,4 @@
+import hashlib
 import json
 import shutil
 import sys
@@ -302,7 +303,8 @@ def create_app(host="127.0.0.1"):
             return render_template("index.html", error="Enter at least one address."), 400
 
         generations = _clamp_generations(request.form.get("generations"))
-        job_id = run_job(_run_crawl_job, addresses, generations, kind="crawl", label=f"{len(addresses)} address(es)")
+        job_id = create_job(kind="crawl", label=f"{len(addresses)} address(es)")
+        start_job(job_id, _run_crawl_job, addresses, generations, job_id)
         return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/item/fork-coins", methods=["POST"])
@@ -1149,7 +1151,20 @@ def _run_scan_wallet_dat_job(wallet_path, job_id):
     }
 
 
-def _run_crawl_job(addresses, max_generations=DEFAULT_CRAWL_GENERATIONS):
+def _crawl_checkpoint_path(addresses, max_generations):
+    """
+    Stable per-(address-set, generations) path -- re-submitting the exact
+    same crawl (same addresses, same hop count) resumes from where a
+    prior, interrupted run left off, same idea as _find_checkpoint_path/
+    _balance_checkpoint_path.
+    """
+    digest = hashlib.sha256("\n".join(sorted(addresses)).encode()).hexdigest()[:16]
+    checkpoint_dir = DEFAULT_OUTPUT_ROOT / "crawl-checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    return str(checkpoint_dir / f"{digest}_gen{max_generations}.json")
+
+
+def _run_crawl_job(addresses, max_generations=DEFAULT_CRAWL_GENERATIONS, job_id=None):
     """
     Writes the submitted addresses to a local temp file before calling
     load_seed_addresses -- reuses the CLI's exact file-or-literal contract
@@ -1162,7 +1177,13 @@ def _run_crawl_job(addresses, max_generations=DEFAULT_CRAWL_GENERATIONS):
     edges = []
     try:
         seeds = load_seed_addresses(temp_path)
-        results = crawl_wallet_cluster(seeds, max_generations=max_generations, edges_out=edges)
+        results = crawl_wallet_cluster(
+            seeds,
+            max_generations=max_generations,
+            edges_out=edges,
+            checkpoint_path=_crawl_checkpoint_path(seeds, max_generations),
+            progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+        )
     finally:
         Path(temp_path).unlink(missing_ok=True)
 

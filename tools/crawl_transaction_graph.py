@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import time
@@ -12,6 +13,8 @@ from services.bitcoin import BitcoinService
 
 MAX_FETCH_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
+CHECKPOINT_EVERY_ADDRESSES = 10
+CHECKPOINT_EVERY_SECONDS = 15
 SECONDS_PER_YEAR = 365.25 * 24 * 3600
 
 
@@ -103,7 +106,33 @@ def dormancy_years(last_activity_timestamp, now=None):
     return (now - last_activity_timestamp) / SECONDS_PER_YEAR
 
 
-def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, balance_threshold=1.0, now=None, edges_out=None):
+def _crawl_checkpoint_key(seed_addresses, max_generations, max_addresses):
+    return {"seed_addresses": sorted(seed_addresses), "max_generations": max_generations, "max_addresses": max_addresses}
+
+
+def _load_crawl_checkpoint(checkpoint_path, key):
+    if not checkpoint_path or not Path(checkpoint_path).exists():
+        return None
+    try:
+        with open(checkpoint_path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if data.get("key") != key:
+        return None
+    return data
+
+
+def crawl_wallet_cluster(
+    seed_addresses,
+    max_generations=2,
+    max_addresses=200,
+    balance_threshold=1.0,
+    now=None,
+    edges_out=None,
+    checkpoint_path=None,
+    progress_callback=None,
+):
     """
     BFS outward from seed_addresses using co-spend clustering (always followed)
     and bounded output-following (capped, lower confidence). Stops admitting
@@ -123,6 +152,16 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
         sender->receiver direction as-is (a real transfer has real
         directionality). Deduplicated by (from, to, type, txid) within
         this call.
+    :param checkpoint_path: optional -- makes this resumable across a
+        quit/update/crash, same idea as search_for_wallets/check_wallet_
+        balances. Two different granularities for the two different-
+        shaped phases: BFS discovery checkpoints after each full
+        generation completes (a partial generation restarts from its own
+        beginning, not the whole crawl); the balance/dormancy pass --
+        the dominant cost for a realistic address count -- checkpoints
+        per address, same as check_wallet_balances, and skips addresses
+        already confirmed on resume.
+    :param progress_callback: optional callable(current, total, message).
     :return: {address: {"confidence": "seed"|"co-spend"|"output",
                          "generation": int, "discovered_via": str | None,
                          "balance": float | None,
@@ -132,43 +171,94 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
         found from (None for seeds) -- lets a caller draw real edges, not
         just generation rings.
     """
-    discovered = {addr: {"confidence": "seed", "generation": 0, "discovered_via": None} for addr in seed_addresses}
-    frontier = set(seed_addresses)
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
+    key = _crawl_checkpoint_key(seed_addresses, max_generations, max_addresses)
+    checkpoint = _load_crawl_checkpoint(checkpoint_path, key)
+
+    def _flush(discovered, frontier, generation, bfs_done):
+        if not checkpoint_path:
+            return
+        with open(checkpoint_path, "w") as f:
+            json.dump(
+                {
+                    "key": key,
+                    "discovered": discovered,
+                    "frontier": sorted(frontier),
+                    "generation": generation,
+                    "bfs_done": bfs_done,
+                    "edges": edges_out if edges_out is not None else [],
+                },
+                f,
+            )
+
+    if checkpoint:
+        discovered = checkpoint["discovered"]
+        frontier = set(checkpoint["frontier"])
+        start_generation = checkpoint["generation"]
+        bfs_done = checkpoint["bfs_done"]
+        if edges_out is not None:
+            for edge in checkpoint.get("edges", []):
+                if edge not in edges_out:
+                    edges_out.append(edge)
+        print(f"Resuming crawl: {len(discovered)} address(es) already discovered, generation {start_generation}.")
+    else:
+        discovered = {addr: {"confidence": "seed", "generation": 0, "discovered_via": None} for addr in seed_addresses}
+        frontier = set(seed_addresses)
+        start_generation = 1
+        bfs_done = False
+
     tx_cache = {}
 
     def record_edge(edge):
         if edges_out is not None and edge not in edges_out:
             edges_out.append(edge)
 
-    for generation in range(1, max_generations + 1):
-        if not frontier:
-            break
+    if not bfs_done:
+        for generation in range(start_generation, max_generations + 1):
+            if not frontier:
+                break
 
-        next_frontier = set()
-        for address in frontier:
-            txs = fetch_address_transactions(address)
-            tx_cache[address] = txs
-            for tx in txs:
-                for co_spend in find_co_spend_addresses(tx, address):
-                    record_edge({"from": min(address, co_spend), "to": max(address, co_spend), "type": "co-spend", "txid": tx["txid"]})
-                    if co_spend not in discovered and len(discovered) >= max_addresses:
-                        continue
-                    if co_spend not in discovered:
-                        discovered[co_spend] = {"confidence": "co-spend", "generation": generation, "discovered_via": address}
-                        next_frontier.add(co_spend)
+            ordered_frontier = sorted(frontier)
+            next_frontier = set()
+            for i, address in enumerate(ordered_frontier, start=1):
+                txs = fetch_address_transactions(address)
+                tx_cache[address] = txs
+                for tx in txs:
+                    for co_spend in find_co_spend_addresses(tx, address):
+                        record_edge({"from": min(address, co_spend), "to": max(address, co_spend), "type": "co-spend", "txid": tx["txid"]})
+                        if co_spend not in discovered and len(discovered) >= max_addresses:
+                            continue
+                        if co_spend not in discovered:
+                            discovered[co_spend] = {"confidence": "co-spend", "generation": generation, "discovered_via": address}
+                            next_frontier.add(co_spend)
 
-                for output_addr in find_output_addresses(tx, address):
-                    record_edge({"from": address, "to": output_addr, "type": "output", "txid": tx["txid"]})
-                    if output_addr not in discovered and len(discovered) >= max_addresses:
-                        continue
-                    if output_addr not in discovered:
-                        discovered[output_addr] = {"confidence": "output", "generation": generation, "discovered_via": address}
-                        next_frontier.add(output_addr)
+                    for output_addr in find_output_addresses(tx, address):
+                        record_edge({"from": address, "to": output_addr, "type": "output", "txid": tx["txid"]})
+                        if output_addr not in discovered and len(discovered) >= max_addresses:
+                            continue
+                        if output_addr not in discovered:
+                            discovered[output_addr] = {"confidence": "output", "generation": generation, "discovered_via": address}
+                            next_frontier.add(output_addr)
 
-        frontier = next_frontier
+                progress_callback(i, len(ordered_frontier), f"Generation {generation}: {address}")
+
+            frontier = next_frontier
+            _flush(discovered, frontier, generation + 1, bfs_done=False)
+
+        bfs_done = True
+        _flush(discovered, set(), max_generations + 1, bfs_done=True)
 
     service = BitcoinService()
-    for address, info in discovered.items():
+    already_finalized = {addr for addr, info in discovered.items() if "balance" in info}
+    remaining = [addr for addr in discovered if addr not in already_finalized]
+    total = len(discovered)
+    checked = len(already_finalized)
+    last_checkpoint_at = time.time()
+
+    for i, address in enumerate(remaining, start=1):
+        info = discovered[address]
         info["balance"] = service.check_balance(address)
 
         txs = tx_cache.get(address)
@@ -177,6 +267,15 @@ def crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200, b
         last_activity = compute_last_activity_timestamp(txs)
         info["last_activity_timestamp"] = last_activity
         info["dormant_years"] = dormancy_years(last_activity, now=now)
+
+        checked += 1
+        progress_callback(checked, total, f"Checking balance: {address}")
+        if checkpoint_path and (i % CHECKPOINT_EVERY_ADDRESSES == 0 or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS):
+            _flush(discovered, set(), max_generations + 1, bfs_done=True)
+            last_checkpoint_at = time.time()
+
+    if checkpoint_path:
+        Path(checkpoint_path).unlink(missing_ok=True)
 
     return discovered
 
