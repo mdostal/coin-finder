@@ -1,0 +1,118 @@
+id: cw-04-graph-traversal-core
+epic: crypto-wallet-expansion-20260731
+title: BFS graph traversal engine for wallet relationship discovery
+status: pending
+complexity: high
+methodology: classic
+depends_on: [cw-03-bitcoin-transaction-history]
+
+description: |
+  Implement trace_wallet_relationships() function using breadth-first search to
+  discover connected wallets N hops from seed address. Build relationship graph
+  with configurable depth, transaction limits, and value thresholds to prevent
+  explosion on high-activity wallets.
+
+acceptance_criteria:
+  - "Given a seed Bitcoin address, when traced 1 hop, then all directly connected wallets returned"
+  - "Given max_hops=2, when traversal runs, then wallets 2 levels deep discovered but not 3"
+  - "Given max_txs_per_wallet=100, when wallet has 500 TXs, then only 100 most recent processed"
+  - "Given min_value threshold, when TX amount < threshold, then edge not added to graph"
+  - "Given discovered relationships, when persisted, then wallet_links table updated with counts and totals"
+  - "Given circular transaction patterns, when traversed, then no infinite loops occur"
+
+steps:
+  - id: research
+    description: Review graph algorithms, test NetworkX for relationship modeling, analyze sample wallet graphs
+    agent: researcher
+  - id: implement
+    description: Create tools/trace_wallet_relationships.py with BFS traversal, filtering, and persistence
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests for hop limits, TX caps, cycle detection, value filtering, graph correctness
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review algorithm efficiency, memory usage on large graphs, edge case handling
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit graph traversal implementation
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+    new_dependencies: ["networkx"]
+  key_files:
+    - path: services/bitcoin.py
+      purpose: Provides get_transactions() for fetching TX data during traversal
+    - path: db/models.py
+      purpose: WalletLink model for persisting relationship graph
+
+files_to_modify:
+  - file: tools/trace_wallet_relationships.py
+    change: Create new tool with trace_relationships() function implementing BFS traversal
+  - file: requirements.txt
+    change: Add networkx for graph data structures
+  - file: config/graph.py
+    change: Add configuration for default hop depth, TX limits, value thresholds
+
+code_examples:
+  - title: BFS traversal pattern
+    snippet: |
+      from collections import deque
+
+      def trace_relationships(seed_address, coin_type, max_hops=2):
+          queue = deque([(seed_address, 0)])
+          visited = set()
+          graph = defaultdict(list)
+
+          while queue:
+              current_addr, depth = queue.popleft()
+              if depth > max_hops or current_addr in visited:
+                  continue
+              visited.add(current_addr)
+
+              service = load_service(coin_type)
+              txs = service.get_transactions(current_addr)
+
+              for tx in txs:
+                  if tx['to'] == current_addr:
+                      graph[tx['from']].append(current_addr)
+
+design_decisions:
+  - decision: BFS over DFS for traversal
+    rationale: Want all wallets at hop N before exploring hop N+1, better for progressive visualization
+  - decision: Store visited set to prevent cycles
+    rationale: Circular transactions common (exchange wallets, change addresses), must avoid infinite loops
+  - decision: Sort transactions by timestamp descending before traversal
+    rationale: Recent relationships more relevant, oldest TXs may be dust/spam
+  - decision: Separate in-edges and out-edges in graph structure
+    rationale: Directional relationships critical (sent_to vs received_from)
+
+risks:
+  - severity: high
+    description: Exchange wallets with 10k+ TXs cause exponential explosion
+    mitigation: max_txs_per_wallet cap, heuristic detection (>500 unique counterparties = likely exchange, skip)
+  - severity: medium
+    description: Long-running traversals (minutes) block CLI
+    mitigation: Progress indicator, async background job option in Phase 2
+  - severity: low
+    description: Memory usage for large graphs (1000+ wallets)
+    mitigation: Generator-based traversal for streaming results, disk-backed graph option
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Algorithm** (Breadth-First Search with configurable depth):
+      queue = [(seed_address, 0)]
+      visited = set()
+      while queue:
+          current_addr, depth = queue.pop(0)
+          if depth > max_hops or current_addr in visited:
+              continue
+
+parallel_allowed: false

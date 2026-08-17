@@ -45,6 +45,44 @@
   {% endif %}
 {% endmacro %}
 
+{# Vertical coin-name tab down a finding-card's left edge (card-catalog
+   style) -- the real icon/initials badge (coin_badge, above) stacked over
+   a vertical coin-name label, tinted with that coin's own accent color at
+   low opacity so the rail reads as an index tab, not a rainbow of solid
+   fills. #}
+{% macro coin_tab(coin) %}
+  {% set spec = _coin_badge_specs.get(coin) %}
+  {% set tint = spec[1] if spec else "hsl(" ~ ((coin | length * 47) % 360) ~ " 55% 45%)" %}
+  <div class="finding-card-tab" style="--tab-tint: {{ tint }}">
+    {{ coin_badge(coin) }}
+    <span class="finding-card-tab-name">{{ coin }}</span>
+  </div>
+{% endmacro %}
+
+{# Chain-of-custody source path: collapsed-by-default <details> disclosure
+   that renders the full path as an indented tree, one segment per line,
+   `└─` connectors, the filename bolded at the end. The Copy button lives
+   outside the <details> content so the full path is reachable via
+   clipboard even while the tree is collapsed (native tooltip too, via
+   title on the tree + button). #}
+{% macro path_tree(path) %}
+{% set segments = (path.split("/") if path else []) | reject("equalto", "") | list %}
+<div class="custody">
+  <details class="custody-disclosure">
+    <summary class="custody-label">Chain of custody &mdash; source path</summary>
+    <div class="path-tree" title="{{ path }}">
+      {% for seg in segments %}
+      <div class="path-tree-row" style="padding-left: {{ loop.index0 * 0.9 }}rem">
+        <span class="path-tree-connector">└─</span>
+        {% if loop.last %}<strong class="path-tree-file">{{ seg }}</strong>{% else %}<span class="path-tree-seg">{{ seg }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  <button type="button" class="path-chip-copy btn-secondary" data-path="{{ path }}" title="Copy full path">Copy</button>
+</div>
+{% endmacro %}
+
 {% macro path_chip(path, max_chars=48) %}
 {# Truncated from the START, in plain Python string slicing -- not a CSS
    bidi trick (direction:rtl + text-overflow), which looked right at

@@ -1,0 +1,92 @@
+id: uio-02
+epic: ui-design-options
+title: Settings page with swappable color palettes
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [uio-01]
+
+description: >
+  A new Settings page letting the user swap between multiple named color
+  palettes -- not full structural swapping between the three design
+  proposals (real, ongoing maintenance weight for little payoff, discussed
+  and explicitly ruled out with the user), but multiple palettes applied to
+  the ONE unified layout from uio-01, using the same CSS-custom-property
+  token-swap mechanism the existing dark/light toggle (web/static/theme.js)
+  already proved out this session -- extended from 2 states to N named
+  presets. Ship with 3 presets to start: "Archival" (the existing warm
+  brass/gold default), a cooler palette inspired by option B's graphite/ink
+  tones, and an amber/terminal-tinted palette inspired by option C.
+
+acceptance_criteria:
+  - New GET /settings page listing every available palette by name with a
+    live preview swatch, plus the existing dark/light toggle (unchanged
+    behavior, just relocated here rather than only living in the top nav
+    -- keep the top-nav toggle too, both control the same underlying
+    state).
+  - Selecting a palette applies it immediately (no page reload required)
+    and persists via localStorage, same mechanism as the existing
+    dark/light theme.js, extended to store a palette name alongside the
+    dark/light choice.
+  - At least 3 real, distinct palettes ship: the current default (warm
+    brass/gold, already built), plus two new ones adapted from option B's
+    and option C's color language -- each palette must define its own
+    complete light AND dark token set (this app's existing dark/light
+    toggle must keep working under every palette, not just the default
+    one).
+  - Palette selection applies globally across every page (same mechanism
+    as the existing per-page theme.js inclusion via base.html), not just
+    the Settings page or Findings.
+  - New tests covering: /settings page loads and lists all palettes; the
+    default palette when nothing is stored; base.html includes whatever
+    script now owns palette application (extends the existing
+    test_every_page_ships_a_theme_toggle-style coverage in
+    tests/test_web_app.py).
+
+steps:
+  - phase: research
+    notes: >
+      Existing mechanism to extend, not replace: web/static/theme.js
+      (dark/light toggle, localStorage-backed, applied before first paint
+      in base.html's inline script), web/static/style.css's :root and
+      :root[data-theme="light"] token blocks. Palette color language
+      references: option B mockup's graphite/ink/red-seal palette, option C
+      mockup's amber/cyan-on-near-black palette (see uio-01's research
+      phase for file paths) -- adapt the COLOR VALUES only, not their
+      typography or layout, which stay from option A per uio-01.
+  - phase: test-spec
+  - phase: implement
+  - phase: review
+  - phase: integrate
+
+context:
+  files_to_modify:
+    - web/app.py (new /settings route)
+    - web/templates/settings.html (new)
+    - web/static/theme.js (extend for palette selection, not just dark/light)
+    - web/static/style.css (additional palette token blocks, likely keyed by a second data attribute e.g. data-palette alongside the existing data-theme)
+    - web/templates/base.html (nav link to Settings; keep existing theme-toggle button working under the new mechanism)
+    - tests/test_web_app.py (or a new tests/test_web_app_settings.py)
+
+design_decisions:
+  - Explicitly NOT full structural theme swapping (maintaining 3 parallel
+    template/layout systems) -- one layout, multiple color palettes. This
+    was discussed directly with the user ("probably too much work ehh?")
+    and confirmed as the right scope before this story was written.
+  - Reuse the proven dark/light mechanism (CSS custom properties + a data
+    attribute + localStorage + apply-before-first-paint inline script)
+    rather than inventing a new theming approach -- palette becomes a
+    second orthogonal axis (data-palette) alongside the existing
+    light/dark axis (data-theme), so every palette still gets its own
+    light and dark variant for free from the existing toggle.
+
+risks:
+  - severity: low
+    description: Combinatorial explosion if palette x light/dark isn't kept as two clean orthogonal axes (3 palettes x 2 modes = 6 token sets to author and keep correct).
+    mitigation: Keep the token NAMES identical across every palette/mode combination (only values differ) so component CSS never needs to know which palette is active -- same discipline the existing dark/light system already follows.
+
+references:
+  - path: web/static/theme.js
+    relevant_excerpt: existing localStorage-backed dark/light apply-before-first-paint mechanism to extend
+  - path: web/static/style.css
+    relevant_excerpt: existing :root / :root[data-theme="light"] token block structure to replicate per palette

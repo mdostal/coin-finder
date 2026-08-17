@@ -1,0 +1,113 @@
+id: cw-11-wallet-list-view
+epic: crypto-wallet-expansion-20260731
+title: Wallet list view with filtering and sorting
+status: pending
+complexity: medium
+methodology: classic
+depends_on: [cw-10-react-frontend-scaffold]
+
+description: |
+  Implement wallet list table component displaying discovered wallets with columns
+  for address, coin type, balance, file path, confidence score, and timestamps.
+  Add client-side filtering by coin type, date range, balance threshold, and confidence.
+  Implement sorting by any column. Add pagination for large result sets.
+
+acceptance_criteria:
+  - "Given wallets in database, when list view loads, then table displays all wallets with pagination"
+  - "Given filter by BTC selected, when applied, then only Bitcoin wallets shown"
+  - "Given date range filter, when applied, then only wallets created in range shown"
+  - "Given sort by balance descending, when clicked, then highest balance wallets first"
+  - "Given 1000+ wallets, when paginated, then 50 per page with navigation controls"
+
+steps:
+  - id: research
+    description: Review table component libraries (React Table, AG Grid), design filter UX mockup
+    agent: researcher
+  - id: implement
+    description: Create WalletList component with table, filters, sorting, pagination
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests for filter logic, sort correctness, pagination edge cases
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review UX, accessibility (keyboard navigation), performance with large datasets
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit wallet list view implementation
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: TypeScript
+    frameworks: ["React"]
+  key_files:
+    - path: frontend/src/App.tsx
+      purpose: Add /wallets route for this view
+    - path: api/main.py
+      purpose: GET /api/wallet_finder/wallets endpoint this view consumes
+
+files_to_modify:
+  - file: frontend/src/views/WalletList.tsx
+    change: Create wallet list view with table, filters, sorting, pagination
+  - file: frontend/src/components/WalletTable.tsx
+    change: Table component rendering wallet rows
+  - file: frontend/src/components/WalletFilters.tsx
+    change: Filter controls for coin type, date range, balance, confidence
+  - file: frontend/src/App.tsx
+    change: Add Route for /wallets -> WalletList
+
+code_examples:
+  - title: Wallet table with sorting
+    snippet: |
+      interface Wallet {
+        address: string;
+        coinType: string;
+        balance: number;
+        filePath: string;
+        confidence: number;
+        createdAt: string;
+      }
+
+      function WalletTable({ wallets }: { wallets: Wallet[] }) {
+        const [sortBy, setSortBy] = useState('balance');
+        const [sortDesc, setSortDesc] = useState(true);
+
+        const sorted = [...wallets].sort((a, b) => {
+          const aVal = a[sortBy];
+          const bVal = b[sortBy];
+          return sortDesc ? bVal - aVal : aVal - bVal;
+        });
+
+design_decisions:
+  - decision: Client-side filtering/sorting over server-side
+    rationale: Simpler implementation, acceptable latency for <10k wallets, reduces API calls
+  - decision: 50 wallets per page default
+    rationale: Balance between scrolling and page load count, configurable by user
+  - decision: Sticky table header
+    rationale: Column labels always visible while scrolling, better UX for large tables
+
+risks:
+  - severity: low
+    description: Client-side filtering slow with 10k+ wallets
+    mitigation: Server-side pagination/filtering in Phase 2, virtual scrolling option
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Key Views**:
+      1. **Wallet List** - Table of discovered wallets with filters (coin, balance range, date)
+
+parallel_allowed: true
+parallel_rationale: bounded-slice
+files_to_modify:
+  - file: frontend/src/views/WalletList.tsx
+    change: Create wallet list view
+  - file: frontend/src/components/WalletTable.tsx
+    change: Table component
+  - file: frontend/src/components/WalletFilters.tsx
+    change: Filter controls

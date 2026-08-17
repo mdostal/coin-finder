@@ -1,0 +1,113 @@
+id: cw-07-plugin-base-interface
+epic: crypto-wallet-expansion-20260731
+title: Design and implement BasePlugin interface
+status: pending
+complexity: medium
+methodology: classic
+depends_on: []
+
+description: |
+  Create plugin system foundation with BasePlugin abstract class defining standard
+  hooks (initialize, get_routes, get_nav_items, on_event). Implement plugin registry
+  with auto-discovery from plugins/ directory and YAML-based configuration management.
+
+acceptance_criteria:
+  - "Given a plugin inheriting BasePlugin, when loaded, then initialize() called once"
+  - "Given plugin.get_routes(), when registered, then routes accessible at /api/{plugin_name}/*"
+  - "Given plugin.get_nav_items(), when rendered, then dashboard navigation includes items"
+  - "Given event published, when plugin subscribes, then on_event() callback fired"
+  - "Given config/plugins.yaml, when plugin disabled, then not loaded by registry"
+
+steps:
+  - id: research
+    description: Review Flask/FastAPI plugin patterns, study existing Python plugin architectures
+    agent: researcher
+  - id: implement
+    description: Create plugins/base.py with BasePlugin class and plugins/registry.py with loader
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests for plugin lifecycle, route registration, event bus, config loading
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review plugin isolation, error handling, backward compatibility strategy
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit plugin framework foundation
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+  key_files: []
+
+files_to_modify:
+  - file: plugins/__init__.py
+    change: Create plugins package
+  - file: plugins/base.py
+    change: Define BasePlugin abstract class with initialize, get_routes, get_nav_items, on_event methods
+  - file: plugins/registry.py
+    change: Implement PluginRegistry with auto-discovery, config loading, event bus
+  - file: config/plugins.yaml
+    change: Create plugin configuration file with enabled/disabled flags
+
+code_examples:
+  - title: BasePlugin interface
+    snippet: |
+      from abc import ABC, abstractmethod
+
+      class BasePlugin(ABC):
+          name: str
+          version: str
+          config: dict
+
+          def initialize(self):
+              """Called when plugin is loaded."""
+              pass
+
+          @abstractmethod
+          def get_routes(self):
+              """Return list of (method, path, handler) tuples."""
+              return []
+
+          def get_nav_items(self):
+              """Return dashboard nav items."""
+              return []
+
+          def on_event(self, event_type, data):
+              """Handle events from other plugins."""
+              pass
+
+design_decisions:
+  - decision: YAML-based plugin config over Python decorators
+    rationale: Non-developers can enable/disable plugins without touching code
+  - decision: Simple event bus over message queue (Redis, RabbitMQ)
+    rationale: Single-process deployment for MVP, avoid external dependencies
+  - decision: Plugin routes namespaced under /api/{plugin_name}/
+    rationale: Prevents route collisions, clear ownership of endpoints
+
+risks:
+  - severity: medium
+    description: Plugin API breaking changes disrupt third-party plugins
+    mitigation: Semantic versioning, deprecation warnings, compatibility matrix in docs
+  - severity: low
+    description: Malicious plugins can access database directly
+    mitigation: Document security model (plugins are trusted code), sandboxing in Phase 2
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Plugin Interface** (`plugins/base.py`):
+      class BasePlugin:
+          name: str
+          version: str
+          config: dict
+          def initialize(self):
+              """Called when plugin is loaded."""
+
+parallel_allowed: true
+parallel_rationale: read-only

@@ -226,6 +226,86 @@ def test_auto_unlock_submit_scopes_to_one_wallet_via_hidden_field(mock_status, m
     assert mock_run_unlock.call_args[0][0] == str(wallet_a)
 
 
+@patch("web.app.list_vault_entries", return_value=[{"name": "password-1", "description": "", "state": "enabled"}])
+@patch("web.app.list_findings")
+@patch("web.app.check_network_status", return_value="OFFLINE")
+def test_auto_unlock_form_scopes_to_multiple_wallets_via_repeated_query_param(mock_status, mock_findings, mock_vault, client, tmp_path):
+    """
+    The bulk "Try unlock selected" action on Findings reuses this exact
+    scoping mechanism, just with more than one wallet_path -- repeated
+    query params, same as a single one.
+    """
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_bytes(b"x")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_bytes(b"x")
+    wallet_c = tmp_path / "c.dat"
+    wallet_c.write_bytes(b"x")
+    mock_findings.return_value = [
+        {"coin": "Bitcoin", "address": "1a", "source_path": str(wallet_a), "status": "new"},
+        {"coin": "Ethereum", "address": "0xb", "source_path": str(wallet_b), "status": "new"},
+        {"coin": "Bitcoin", "address": "1c", "source_path": str(wallet_c), "status": "new"},
+    ]
+
+    resp = client.get(f"/auto-unlock?wallet_path={wallet_a}&wallet_path={wallet_b}")
+
+    assert resp.status_code == 200
+    assert str(wallet_a).encode() in resp.data
+    assert str(wallet_b).encode() in resp.data
+    assert str(wallet_c).encode() not in resp.data
+
+
+@patch("web.app.run_exodus_unlock")
+@patch("web.app.run_unlock")
+@patch("web.app.resolve_vault_entries_with_values", return_value=[("password-1", "hunter2!!")])
+@patch("web.app.list_vault_entries", return_value=[{"name": "password-1", "description": "", "state": "enabled"}])
+@patch("web.app.list_findings")
+@patch("web.app.check_network_status", return_value="OFFLINE")
+def test_auto_unlock_submit_scopes_to_multiple_wallets_via_repeated_hidden_field(
+    mock_status, mock_findings, mock_vault, mock_resolve, mock_run_unlock, mock_run_exodus, client, tmp_path
+):
+    """
+    The bulk Try-unlock action submits multiple wallet_path hidden fields
+    (one per selected finding with a source_path) -- the job must run
+    against exactly that set, not every known wallet.
+    """
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_bytes(b"x")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_bytes(b"x")
+    wallet_c = tmp_path / "c.dat"
+    wallet_c.write_bytes(b"x")
+    mock_findings.return_value = [
+        {"coin": "Bitcoin", "address": "1a", "source_path": str(wallet_a), "status": "new"},
+        {"coin": "Ethereum", "address": "0xb", "source_path": str(wallet_b), "status": "new"},
+        {"coin": "Bitcoin", "address": "1c", "source_path": str(wallet_c), "status": "new"},
+    ]
+    mock_run_unlock.return_value = SimpleNamespace(stdout="No password found.", stderr="", returncode=1)
+
+    resp = client.post("/auto-unlock", data={"wallet_path": [str(wallet_a), str(wallet_b)]}, follow_redirects=False)
+    job_id = _job_id_from_redirect(resp)
+    _wait_for_terminal(client, job_id)
+
+    assert mock_run_unlock.call_count == 2
+    tried_paths = {c.args[0] for c in mock_run_unlock.call_args_list}
+    assert tried_paths == {str(wallet_a), str(wallet_b)}
+    mock_run_exodus.assert_not_called()
+
+
+@patch("web.app.list_findings")
+def test_findings_page_bulk_try_unlock_links_to_auto_unlock_form(mock_findings, client):
+    mock_findings.return_value = [
+        {"coin": "Bitcoin", "address": "1a", "source_path": "/real/wallet.dat", "status": "new", "balance": 0.0, "watched": 0, "watch_note": ""},
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b'id="bulk-try-unlock"' in resp.data
+    assert b'data-unlock-url="/auto-unlock"' in resp.data
+    assert b'data-source-path="/real/wallet.dat"' in resp.data
+
+
 @patch("web.app.list_findings")
 def test_findings_page_shows_try_unlock_action_for_wallets_with_source_path(mock_findings, client):
     mock_findings.return_value = [

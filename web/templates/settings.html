@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- settings{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+<p>Appearance only -- nothing here touches scanning, keys, or findings data.
+Choices apply immediately across the whole app and persist on this
+machine (localStorage), not synced anywhere.</p>
+
+<div class="card">
+  <h3>Light / dark</h3>
+  <p class="subtle">Same toggle as the top nav -- both control the same
+  underlying state.</p>
+  <button type="button" id="theme-toggle-settings" class="btn-secondary theme-toggle-btn">Light mode</button>
+</div>
+
+<div class="card">
+  <h3>Color palette</h3>
+  <p class="subtle">Pick a palette below -- it applies instantly, no reload,
+  and keeps working under both light and dark mode.</p>
+  <div class="palette-list">
+    {% for p in palettes %}
+    <button type="button" class="palette-option" data-palette-option="{{ p.id }}" aria-pressed="false">
+      <span class="palette-swatch" aria-hidden="true">
+        <span class="palette-swatch-dot" style="background: {{ p.swatch.bg }};"></span>
+        <span class="palette-swatch-dot" style="background: {{ p.swatch.accent }};"></span>
+        <span class="palette-swatch-dot" style="background: {{ p.swatch.seal }};"></span>
+        <span class="palette-swatch-dot" style="background: {{ p.swatch.text }};"></span>
+      </span>
+      <span class="palette-option-body">
+        <span class="palette-option-name">{{ p.name }}</span>
+        <span class="palette-option-desc subtle">{{ p.description }}</span>
+      </span>
+    </button>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,117 @@
+id: cw-09-fastapi-backend-scaffold
+epic: crypto-wallet-expansion-20260731
+title: FastAPI backend server with plugin route mounting
+status: pending
+complexity: medium
+methodology: classic
+depends_on: [cw-08-wallet-finder-plugin-refactor]
+
+description: |
+  Create FastAPI application server that loads enabled plugins from registry and
+  mounts their routes. Add CORS middleware for frontend, health check endpoint,
+  and static file serving for React build. Implement WebSocket support for real-time
+  updates (balance changes, scan progress).
+
+acceptance_criteria:
+  - "Given server started, when GET /health called, then 200 OK with service status returned"
+  - "Given wallet_finder plugin enabled, when routes mounted, then /api/wallet_finder/* accessible"
+  - "Given frontend origin, when CORS configured, then preflight requests succeed"
+  - "Given WebSocket connection, when balance updated, then client receives event"
+  - "Given production build, when static files requested, then React app served"
+
+steps:
+  - id: research
+    description: Review FastAPI docs, test WebSocket patterns, plan plugin route mounting strategy
+    agent: researcher
+  - id: implement
+    description: Create api/main.py with FastAPI app, plugin loader, CORS, WebSocket manager
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests for route mounting, CORS headers, WebSocket lifecycle, health endpoint
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review security (CORS origins, input validation), error handling, logging
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit FastAPI backend implementation
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+    new_dependencies: ["fastapi", "uvicorn", "python-multipart", "websockets"]
+  key_files:
+    - path: plugins/registry.py
+      purpose: PluginRegistry for loading enabled plugins
+    - path: plugins/wallet_finder/plugin.py
+      purpose: First plugin to mount routes from
+
+files_to_modify:
+  - file: api/__init__.py
+    change: Create api package
+  - file: api/main.py
+    change: Create FastAPI app, mount plugin routes, add CORS, WebSocket manager
+  - file: api/websocket.py
+    change: Implement WebSocket connection manager for broadcasting events
+  - file: requirements.txt
+    change: Add fastapi, uvicorn[standard], python-multipart, websockets
+  - file: run_server.py
+    change: Create uvicorn server launcher script
+
+code_examples:
+  - title: FastAPI app with plugin route mounting
+    snippet: |
+      from fastapi import FastAPI
+      from fastapi.middleware.cors import CORSMiddleware
+      from plugins.registry import PluginRegistry
+
+      app = FastAPI(title="Crypto Wallet Dashboard")
+
+      app.add_middleware(
+          CORSMiddleware,
+          allow_origins=["http://localhost:3000"],
+          allow_methods=["*"],
+          allow_headers=["*"],
+      )
+
+      registry = PluginRegistry()
+      registry.load_plugins()
+
+      for plugin in registry.get_enabled_plugins():
+          for router in plugin.get_routes():
+              app.include_router(router)
+
+design_decisions:
+  - decision: Single FastAPI app over microservices
+    rationale: Simpler deployment, lower latency, sufficient for single-user scale
+  - decision: WebSocket for real-time updates over polling
+    rationale: Lower latency, reduced server load, better UX for long-running scans
+  - decision: Serve React static build from FastAPI over separate nginx
+    rationale: Fewer moving parts, easier local development, single port deployment
+  - decision: CORS allow localhost:3000 for development, configurable for production
+    rationale: Security - restrict origins, but flexible for dev/prod environments
+
+risks:
+  - severity: low
+    description: WebSocket connection drops require reconnection logic
+    mitigation: Implement automatic reconnection with exponential backoff in frontend
+  - severity: low
+    description: Static file serving from FastAPI less efficient than nginx
+    mitigation: Document nginx reverse proxy setup for production, acceptable for MVP
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Architecture**:
+      Frontend (React)
+        ↓ HTTP/WebSocket
+      Backend (FastAPI)
+        ↓ Plugin Registry
+      Plugins (wallet_finder, gig_radar, allergy)
+
+parallel_allowed: false

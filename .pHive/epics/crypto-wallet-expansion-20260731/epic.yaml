@@ -1,0 +1,78 @@
+name: crypto-wallet-expansion-20260731
+title: Crypto Wallet Finder Expansion - Reverse Tracking & Dashboard
+target_codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+methodology: classic
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: []
+  roster: []
+  per_tag_reasoning: {}
+  confidence: 0.0
+  gate_decisions: {}
+
+stories:
+  - id: cw-01-database-foundation
+    title: Database foundation layer with SQLite schema
+    complexity: medium
+    depends_on: []
+
+  - id: cw-02-extend-wallet-service-api
+    title: Extend WalletService base class with transaction history methods
+    complexity: low
+    depends_on: []
+
+  - id: cw-03-bitcoin-transaction-history
+    title: Implement Bitcoin transaction history via Blockstream API
+    complexity: medium
+    depends_on: [cw-02-extend-wallet-service-api, cw-01-database-foundation]
+
+  - id: cw-04-graph-traversal-core
+    title: BFS graph traversal engine for wallet relationship discovery
+    complexity: high
+    depends_on: [cw-03-bitcoin-transaction-history]
+
+  - id: cw-05-ethereum-transaction-history
+    title: Implement Ethereum transaction history via Etherscan API
+    complexity: medium
+    depends_on: [cw-03-bitcoin-transaction-history]
+
+  - id: cw-06-enhanced-metadata-capture
+    title: Capture file metadata and implement confidence scoring
+    complexity: low
+    depends_on: [cw-01-database-foundation]
+
+  - id: cw-07-plugin-base-interface
+    title: Design and implement BasePlugin interface
+    complexity: medium
+    depends_on: []
+
+  - id: cw-08-wallet-finder-plugin-refactor
+    title: Refactor existing pipeline into WalletFinderPlugin
+    complexity: high
+    depends_on: [cw-07-plugin-base-interface, cw-04-graph-traversal-core, cw-06-enhanced-metadata-capture]
+
+  - id: cw-09-fastapi-backend-scaffold
+    title: FastAPI backend server with plugin route mounting
+    complexity: medium
+    depends_on: [cw-08-wallet-finder-plugin-refactor]
+
+  - id: cw-10-react-frontend-scaffold
+    title: React frontend application with routing and plugin navigation
+    complexity: medium
+    depends_on: [cw-09-fastapi-backend-scaffold]
+
+  - id: cw-11-wallet-list-view
+    title: Wallet list view with filtering and sorting
+    complexity: medium
+    depends_on: [cw-10-react-frontend-scaffold]
+
+  - id: cw-12-transaction-graph-view
+    title: Interactive transaction graph visualization with ReactFlow
+    complexity: high
+    depends_on: [cw-10-react-frontend-scaffold, cw-04-graph-traversal-core]

@@ -1,0 +1,107 @@
+id: cw-06-enhanced-metadata-capture
+epic: crypto-wallet-expansion-20260731
+title: Capture file metadata and implement confidence scoring
+status: pending
+complexity: low
+methodology: classic
+depends_on: [cw-01-database-foundation]
+
+description: |
+  Extend search_wallets tool to capture file creation/modification timestamps using
+  Path.stat(). Implement confidence scoring algorithm based on extension + keyword +
+  coin name matches. Add date range filtering CLI flags. Store metadata in Wallet
+  model metadata_json field.
+
+acceptance_criteria:
+  - "Given a wallet file, when scanned, then created_at and modified_at timestamps captured"
+  - "Given extension match + keyword match, when scored, then confidence ≥ 0.7"
+  - "Given --created-after flag, when search runs, then only files created after date returned"
+  - "Given --created-before flag, when search runs, then only files created before date returned"
+  - "Given --min-confidence 0.8 flag, when search runs, then low-confidence files excluded"
+
+steps:
+  - id: research
+    description: Review Path.stat() API, test timestamp extraction on sample wallet files
+    agent: researcher
+  - id: implement
+    description: Extend search_for_wallets() with metadata capture, scoring, and filtering
+    agent: developer
+    depends_on: [research]
+  - id: test
+    description: Write tests for timestamp accuracy, confidence scoring edge cases, filter logic
+    agent: tester
+    depends_on: [implement]
+  - id: review
+    description: Review scoring algorithm fairness, filter boundary conditions
+    agent: reviewer
+    depends_on: [test]
+  - id: integrate
+    description: Commit enhanced discovery implementation
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/dostal/.minerva/runs/fa860023-de89-4c57-bb9a-77538a50756e/workspace
+  tech_stack:
+    language: Python
+  key_files:
+    - path: tools/search_wallets.py
+      purpose: Current search implementation to extend
+    - path: config/search.py
+      purpose: WALLET_EXTENSIONS, WALLET_KEYWORDS, COIN_NAMES for scoring
+
+files_to_modify:
+  - file: tools/search_wallets.py
+    change: Add Path.stat() calls to capture ctime/mtime, implement confidence scoring function
+  - file: tools/search_wallets.py
+    change: Add --created-after, --created-before, --min-confidence argparse flags
+  - file: config/search.py
+    change: Add CONFIDENCE_WEIGHTS dict for scoring tuning
+
+code_examples:
+  - title: File metadata extraction
+    snippet: |
+      from pathlib import Path
+      from datetime import datetime
+
+      file_path = Path("/path/to/wallet.dat")
+      stat = file_path.stat()
+      created_at = datetime.fromtimestamp(stat.st_ctime).isoformat()
+      modified_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+  - title: Confidence scoring algorithm
+    snippet: |
+      def calculate_confidence(file_path, extension, keywords_matched, coins_matched):
+          score = 0.0
+          if extension in WALLET_EXTENSIONS:
+              score += 0.4
+          score += min(0.3, len(keywords_matched) * 0.1)
+          score += min(0.3, len(coins_matched) * 0.15)
+          return round(score, 2)
+
+design_decisions:
+  - decision: Use st_ctime (creation) and st_mtime (modification) timestamps
+    rationale: Both useful - creation for "wallets from 2020" filter, modification for "recently updated" filter
+  - decision: Confidence scoring weighted 40% extension, 30% keywords, 30% coin names
+    rationale: Extension most reliable signal (binary match), keywords/coins can overlap
+  - decision: Store metadata in Wallet.metadata_json as JSON string
+    rationale: Flexible schema for future metadata additions without migration
+
+risks:
+  - severity: low
+    description: st_ctime semantics vary by OS (Windows = creation, Unix = metadata change)
+    mitigation: Document cross-platform behavior, prioritize st_mtime for accuracy
+  - severity: low
+    description: Confidence scoring may false-positive on unrelated files with crypto keywords
+    mitigation: Manual review step in dashboard, export low-confidence files separately
+
+references:
+  - path: .pHive/epics/crypto-wallet-expansion-20260731/docs/design-discussion.md
+    relevant_excerpt: |
+      **Confidence Scoring**:
+      score = 0.0
+      if extension in WALLET_EXTENSIONS: score += 0.4
+      if any(kw in filename for kw in WALLET_KEYWORDS): score += 0.3
+      if any(coin in filename for coin in COIN_NAMES): score += 0.3
+
+parallel_allowed: false
