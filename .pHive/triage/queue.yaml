@@ -92,3 +92,47 @@ items:
     linked_story: null
     raised_at: "2026-08-17T10:50:00-05:00"
     raised_by: mathew
+
+  - id: rainbow-table-password-cracking-review
+    title: Wordlist/rainbow-table cracking against locked wallets, with human-reviewed auto-add-to-vault
+    description: >
+      User's own words: "the next thing i'm going to have to do if this is
+      correct -- is literally run through rainbowtable lists against
+      these -- and if we FIND things that match them, a human can review
+      and AUTO ADD to the vault with type of pass and stuff as well in
+      metadata." Raised immediately after reviewing the
+      credential-clarity-and-unlock-ux design discussion's 4-state
+      credential model (password known / key extractable / encrypted-
+      locked / unknown) -- this is the natural next step for state 3
+      ("encrypted, no known password") findings.
+
+      This project already has BTCRecover integrated
+      (btcrecover-integration epic, tools/unlock_wallet.py) which does
+      real password-guessing against a wordlist/candidate list -- today
+      driven by the user's own vault-saved candidates. This ask is
+      larger: run substantial external wordlists/rainbow tables (not just
+      the user's own saved candidates) against the "encrypted, no known
+      password" bucket, surface any real match for human review (never
+      auto-trust a crack silently), and on confirmation, one-click add
+      the found password into the vault with real metadata (which
+      wordlist/method found it, when, against which wallet) rather than
+      the user re-typing it in by hand.
+
+      Real design questions for the eventual plan: where do rainbow
+      tables/wordlists come from and how big (this has real disk/time
+      cost implications, likely needs to run as a long background job
+      similar to the balance-check/scan jobs already in this project),
+      what the human-review step actually looks like (does it reuse the
+      once-only secret-reveal pattern from credential-clarity-and-unlock
+      -ux, given a cracked password is exactly as sensitive as any other
+      matched password), and the vault metadata schema extension needed
+      to record "how/where this credential was found" (vault entries are
+      currently just name/description/state per web/vault.py, no
+      provenance field today).
+    priority: medium
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T11:00:00-05:00"
+    raised_by: mathew
