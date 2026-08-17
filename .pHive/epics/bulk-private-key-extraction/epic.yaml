@@ -1,0 +1,24 @@
+name: bulk-private-key-extraction
+title: Bulk-extract private keys for findings with a known unencrypted key, plus close the single-finding masking gap
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+stories:
+  - id: bpk-01
+    title: Extraction-state schema + candidate selection in the UI
+    complexity: low
+    depends_on: []
+  - id: bpk-02
+    title: Bulk extraction confirm/job/result flow
+    complexity: medium
+    depends_on: [bpk-01]
+  - id: bpk-03
+    title: Backport eye-toggle mask to the single-finding extract-key result page
+    complexity: low
+    depends_on: []

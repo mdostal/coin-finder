@@ -1,0 +1,111 @@
+id: bpk-01
+epic: bulk-private-key-extraction
+title: Extraction-state schema + candidate selection in the UI
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: >
+  Foundation for bulk extraction: track that a key has already been
+  extracted (distinct from merely "extractable"), and let the Findings
+  checkbox UI identify which checked rows are real candidates. No
+  extraction logic runs in this story -- that's bpk-02.
+
+  web/credential_scan_cache.py's credential_scan_addresses table already
+  stores (wallet_path, address, key_type) with no extraction-state
+  column; its _MIGRATIONS list is already scaffolded, currently empty,
+  for exactly this. Today, "key extractable, never extracted" and
+  "already extracted and copied out" render identically -- there is no
+  way to tell them apart.
+
+acceptance_criteria:
+  - "credential_scan_addresses gets a nullable extracted_at REAL column
+    via the existing _MIGRATIONS mechanism (never the WIF itself -- the
+    cache's existing 'metadata only' discipline stays intact, no schema
+    field anywhere stores real key material)."
+  - "A small new function (alongside credential_scan_cache.py's existing
+    query functions) marks a (wallet_path, address) pair's extracted_at
+    to now -- this story only builds the marking function and schema;
+    bpk-02 is what actually calls it after a real extraction succeeds."
+  - "_macros.html's credential_status_badge() gets a new branch:
+    key_type == 'key' and extracted_at is set renders a distinct 'key
+    extracted' badge state, separate from the existing 'key extractable,
+    no password needed' state for a never-extracted key."
+  - "findings.html's bulk-select checkbox (around line 99) gets one more
+    data attribute, e.g. data-key-extractable=\"1\", set from the exact
+    same key_type value credential_status_badge() already computes per
+    row -- checkbox and badge must never be able to disagree, since both
+    read the same source value."
+  - "New tests: the migration adds the column without breaking existing
+    credential_scan_cache tests; the new marking function correctly sets
+    extracted_at and leaves other rows untouched; the badge shows the
+    new 'key extracted' state only when both key_type=='key' AND
+    extracted_at is set, and the original 'key extractable' state
+    otherwise; the checkbox's new data attribute matches the badge's
+    displayed state in a rendered findings.html fixture."
+
+steps:
+  - id: research
+    description: >
+      Confirm the exact current schema/migration mechanics in
+      web/credential_scan_cache.py (the _MIGRATIONS list's exact current
+      shape) and the exact current credential_status_badge() macro logic
+      in web/templates/_macros.html before adding the new branch.
+    agent: researcher
+  - id: test-spec
+    description: >
+      Write tests for the migration, the marking function, the new badge
+      branch, and the checkbox data attribute first. Confirm they fail
+      against current code.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Add the migration, marking function, badge branch, and checkbox attribute.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm no path anywhere stores real key material, only the timestamp.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit on feat/bulk-private-key-extraction.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/credential_scan_cache.py
+      purpose: "credential_scan_addresses table + the already-scaffolded _MIGRATIONS list this story's column addition uses."
+    - path: web/templates/_macros.html
+      purpose: credential_status_badge() macro, gets the new 'key extracted' branch.
+    - path: web/templates/findings.html
+      purpose: Bulk-select checkbox, gets the new data-key-extractable attribute.
+
+files_to_modify:
+  - file: web/credential_scan_cache.py
+    change: Nullable extracted_at REAL migration + a small function to mark a pair extracted.
+  - file: web/templates/_macros.html
+    change: New 'key extracted' badge branch in credential_status_badge().
+  - file: web/templates/findings.html
+    change: New data-key-extractable attribute on the bulk-select checkbox.
+  - file: tests/test_credential_scan_cache.py
+    change: Migration + marking-function tests.
+  - file: tests/test_web_app_findings.py
+    change: Badge state + checkbox attribute tests.
+
+design_decisions:
+  - decision: extracted_at is a nullable timestamp on the existing per-address cache row, not a new table.
+    rationale: credential_scan_addresses is already keyed (wallet_path, address) -- this feature's exact granularity -- and its _MIGRATIONS list was already scaffolded for this, per the design discussion's research.
+  - decision: Never store the WIF itself anywhere in this cache.
+    rationale: Consistent with the cache's existing metadata-only discipline (no column anywhere for real key material) -- extracted_at is a "this already happened" marker, not a retrieval mechanism.
+
+risks:
+  - severity: low
+    description: A stale checkbox data attribute (rendered before a credential scan, then the scan runs, then the page isn't reloaded) could disagree with the badge.
+    mitigation: Acceptable -- bpk-02's server-side route re-derives the real candidate set from the cache rather than trusting the request, so a stale client attribute can only under-select, never cause a wrong extraction attempt.
+
+references:
+  - path: .pHive/epics/bulk-private-key-extraction/docs/design-discussion.md
+    relevant_excerpt: "Add a nullable extracted_at REAL column to credential_scan_addresses... following findings.py's own _MIGRATIONS precedent."
