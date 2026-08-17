@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.53.1] - 2026-08-17
+
+### Fixed
+
+- **A large bulk selection on Findings ("Try unlock selected" or
+  "Extract keys selected") could fail outright with a bare "414 URI Too
+  Long" error page.** Both actions were building the confirmation
+  page's link out of one repeated entry per selected finding directly
+  in the URL, which stops working somewhere in the low thousands of
+  selections. They now send the same information in the request body
+  instead, which has no comparable size limit -- selecting hundreds or
+  thousands of findings at once now works the same way a small
+  selection always did.
+
 ## [0.53.0] - 2026-08-17
 
 ### Added
