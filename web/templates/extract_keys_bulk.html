@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- extract keys{% endblock %}
+{% block content %}
+{{ m.group_tabs('unlock') }}
+<h2>Extract keys: {{ pairs | length }} selected finding{{ "s" if pairs | length != 1 else "" }}</h2>
+<p>Runs real private-key extraction against each of these findings (the
+ones you checked on Findings with a known extractable key -- an
+unencrypted "key" record, no password needed at all). Each address gets
+its own independent extraction attempt, even when several share one
+wallet file.</p>
+
+<div class="banner {{ 'warning' if network_status != 'OFFLINE' else '' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
+  Network status right now: <strong style="color:inherit">{{ network_status }}</strong>.
+  {% if network_status != "OFFLINE" %}
+  The extracted keys never get sent anywhere by this app -- offline is
+  recommended for a local reason: if this machine were ever compromised,
+  producing key material while online means it exists on a machine that
+  can reach the outside world during that window. Full details:
+  <a href="{{ url_for('network_page') }}">what actually touches the
+  network</a>. Your call either way -- see the checkbox below.
+  {% else %}
+  Safe to extract real keys.
+  {% endif %}
+</div>
+
+<div class="banner warning">
+  Each address's real private key (WIF) is shown to you exactly once,
+  immediately after the job finishes, and is never written to disk or
+  logged. Unlike a one-shot unlock attempt, re-running extraction for any
+  of these addresses later is safe and produces the same result again --
+  extraction is read-only and self-verifying, so if you miss copying one
+  down here, nothing is lost by running this again.
+</div>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0">What this will extract</h3>
+  {% if pairs %}
+  <ul>
+    {% for p in pairs %}
+    <li><code>{{ p.address }}</code> &mdash; <code>{{ p.wallet_path }}</code></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No known extractable-key findings selected -- go back to
+  <a href="{{ url_for('findings_page') }}">Findings</a>, run "Check
+  credential status" if you haven't yet, and select findings marked "key
+  extractable, no password needed."</p>
+  {% endif %}
+</div>
+
+{% if pairs %}
+<div class="card">
+  <form method="post" action="{{ url_for('extract_keys_bulk_submit') }}">
+    {% for p in pairs %}
+    <input type="hidden" name="pair" value="{{ p.raw }}">
+    {% endfor %}
+    {% if network_status != "OFFLINE" %}
+    <label style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:1rem">
+      <input type="checkbox" name="allow_online" value="1" style="width:auto;margin-top:0.2rem">
+      <span>I understand the risk and want to extract these <strong>while online</strong> anyway.
+      Recommended path is still OFFLINE (see above) -- this is your choice to make, not a hard requirement.</span>
+    </label>
+    {% endif %}
+    <button type="submit">Extract keys</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

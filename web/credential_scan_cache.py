@@ -133,6 +133,23 @@ def record_credential_scan(wallet_path, is_wallet_dat, key_types=None, error=Non
     for this cache), so in practice this only ever runs once per wallet,
     but an explicit re-scan must never leave stale rows behind.
 
+    KNOWN LIMITATION (flagged in bpk-01, left unaddressed by bpk-02's bulk
+    extraction feature -- both scoped to their own story, this fix would
+    touch scan-recording logic neither owns): the delete-then-insert above
+    resets extracted_at to NULL for every address in this wallet_path, even
+    one whose key was already genuinely extracted in a past bulk/single
+    extraction. A re-scan after an extraction therefore makes
+    credential_status_badge() show "key extractable, no password needed"
+    again instead of "key extracted." This is a display/bookkeeping
+    regression only, not a safety issue: re-running extraction is
+    idempotent and self-verifying (extract_wif_for_address's own
+    docstring), and every extraction -- bulk or single -- still goes
+    through an explicit confirm step showing exactly which addresses are
+    about to be extracted, so nothing runs silently or by surprise. A
+    future fix would carry extracted_at forward for addresses whose
+    key_type is unchanged across delete-then-insert, rather than dropping
+    it unconditionally.
+
     :param is_wallet_dat: False for a file that isn't a recognized
         Bitcoin Core wallet.dat (or couldn't be read at all) -- key_types
         is ignored in that case.

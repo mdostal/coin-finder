@@ -49,6 +49,12 @@ def _never_touch_the_real_findings_db():
     real credential_scan_cache.db, same fix: defaulted to "nothing
     scanned yet" here, tests asserting on it override with their own
     @patch.
+
+    _run_bulk_extract_key_job also calls web.credential_scan_cache.
+    mark_address_extracted() on every real extraction success (added by
+    bpk-02, for the "key extracted" badge state) -- same leak risk against
+    the real credential_scan_cache.db, same fix: mocked here by default,
+    tests asserting on it override with their own @patch.
     """
     with (
         patch("web.app.record_finding"),
@@ -59,5 +65,6 @@ def _never_touch_the_real_findings_db():
         patch("web.app.list_auto_unlock_history", return_value=[]),
         patch("web.app.latest_status_by_wallet_path", return_value={}),
         patch("web.app.credential_status_index", return_value={}),
+        patch("web.app.mark_address_extracted"),
     ):
         yield

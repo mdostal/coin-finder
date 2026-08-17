@@ -5,6 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const bulkWatchSelection = document.getElementById("bulk-watch-selection");
   const bulkTryUnlock = document.getElementById("bulk-try-unlock");
   const bulkWalletPaths = document.getElementById("bulk-wallet-paths");
+  const bulkExtractKeys = document.getElementById("bulk-extract-keys");
 
   if (selectAll) {
     selectAll.addEventListener("change", () => {
@@ -78,6 +79,29 @@ document.addEventListener("DOMContentLoaded", () => {
       // click, same safety gate (network check, vault check, explicit
       // Run) as every other unlock entry point.
       window.location.href = `${bulkTryUnlock.dataset.unlockUrl}?${params.toString()}`;
+    });
+  }
+
+  if (bulkExtractKeys) {
+    bulkExtractKeys.addEventListener("click", () => {
+      // bpk-02: mirrors bulk-try-unlock's click-to-navigate pattern above,
+      // but filters to data-key-extractable="1" (bpk-01) rows and builds
+      // one "wallet_path\taddress" pair per row -- extraction is
+      // per-address, not per-wallet, so a bare source-path list (like
+      // Try-unlock's) isn't enough here. The server re-derives and
+      // re-filters this same candidate set on its own before running
+      // anything -- this client-side filter is a UX nicety, not the real
+      // safety check.
+      const pairs = Array.from(document.querySelectorAll(".bulk-select:checked"))
+        .filter((cb) => cb.dataset.keyExtractable === "1" && cb.dataset.sourcePath)
+        .map((cb) => `${cb.dataset.sourcePath}\t${cb.value}`);
+      if (pairs.length === 0) {
+        alert("None of the checked findings have a known extractable key -- run Check credential status first if you haven't yet.");
+        return;
+      }
+      const params = new URLSearchParams();
+      pairs.forEach((p) => params.append("pair", p));
+      window.location.href = `${bulkExtractKeys.dataset.extractUrl}?${params.toString()}`;
     });
   }
 });
