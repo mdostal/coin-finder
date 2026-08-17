@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.51.2] - 2026-08-17
+
+### Fixed
+
+- **Google Drive scans over a large drive no longer crawl for 10+ hours
+  with no visible progress.** The Drive mount uses rclone under the
+  hood, and its default listing concurrency (8 concurrent directory
+  listings) was far too conservative for a real multi-terabyte drive --
+  the mount itself was healthy the whole time (no errors, no dropped
+  connection), it just had too little parallelism to get through a
+  drive that size in a reasonable window. Listing concurrency is now
+  tuned for this, and a handful of broken ("dangling") shortcuts on real
+  Drive accounts no longer get needlessly re-resolved (and logged) every
+  few minutes.
+
 ## [0.51.1] - 2026-08-17
 
 ### Fixed
