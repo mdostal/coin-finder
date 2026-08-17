@@ -88,9 +88,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (bulkTryUnlock) {
     bulkTryUnlock.addEventListener("click", () => {
-      const paths = Array.from(document.querySelectorAll(".bulk-select:checked"))
-        .map((cb) => cb.dataset.sourcePath)
-        .filter(Boolean);
+      // Deduplicated by wallet file -- several findings (different coins,
+      // or the same address matched under more than one coin's pattern)
+      // routinely share one source_path. Submitting one field per
+      // *finding* instead of one per distinct *wallet* is what actually
+      // caused a real "Request Entity Too Large" error: a selection of
+      // thousands of findings sharing only a few dozen real wallet files
+      // still built a form with one field per finding.
+      const paths = Array.from(
+        new Set(
+          Array.from(document.querySelectorAll(".bulk-select:checked"))
+            .map((cb) => cb.dataset.sourcePath)
+            .filter(Boolean)
+        )
+      );
       if (paths.length === 0) {
         alert("Check at least one finding with a known wallet file first.");
         return;
@@ -112,9 +123,17 @@ document.addEventListener("DOMContentLoaded", () => {
       // isn't enough here. The server re-derives and re-filters this
       // same candidate set on its own before running anything -- this
       // client-side filter is a UX nicety, not the real safety check.
-      const pairs = Array.from(document.querySelectorAll(".bulk-select:checked"))
-        .filter((cb) => cb.dataset.keyExtractable === "1" && cb.dataset.sourcePath)
-        .map((cb) => `${cb.dataset.sourcePath}\t${cb.value}`);
+      // Deduplicated -- the same literal address can appear under more
+      // than one coin's finding for the same wallet file (an overfit
+      // regex match sharing the exact address string), which would
+      // otherwise submit the identical (wallet_path, address) pair twice.
+      const pairs = Array.from(
+        new Set(
+          Array.from(document.querySelectorAll(".bulk-select:checked"))
+            .filter((cb) => cb.dataset.keyExtractable === "1" && cb.dataset.sourcePath)
+            .map((cb) => `${cb.dataset.sourcePath}\t${cb.value}`)
+        )
+      );
       if (pairs.length === 0) {
         alert("None of the checked findings have a known extractable key -- run Check credential status first if you haven't yet.");
         return;

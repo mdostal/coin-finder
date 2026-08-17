@@ -80,6 +80,18 @@ def create_app(host="127.0.0.1"):
     app = Flask(__name__)
     app.jinja_env.filters["timestamp_to_local"] = lambda ts: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
 
+    # Werkzeug's default MAX_FORM_PARTS (1000) and MAX_FORM_MEMORY_SIZE
+    # (500KB) exist to protect a *public* server from a form-flooding DoS.
+    # This app only ever binds to 127.0.0.1 (enforced above) and talks to
+    # itself -- that threat model doesn't apply. Hit the 1000-part default
+    # for real at a real scale (a bulk action over thousands of findings)
+    # even after deduplicating to distinct wallet files client-side; raised
+    # well past any realistic selection size here rather than the request
+    # silently failing with "Request Entity Too Large" again as this
+    # project's data grows.
+    app.config["MAX_FORM_PARTS"] = 200_000
+    app.config["MAX_FORM_MEMORY_SIZE"] = 64 * 1024 * 1024
+
     @app.context_processor
     def inject_running_jobs_count():
         # Powers the always-visible "N running" header chip on every page
@@ -157,11 +169,29 @@ def create_app(host="127.0.0.1"):
             return jsonify({"error": str(e)}), 400
         return jsonify({"path": path})
 
+    def _running_find_job_for(target):
+        # Guards against a real bug hit live: nothing stopped the same
+        # directory (most often a slow cloud-mounted drive) from getting
+        # scanned by two concurrent `find` jobs at once -- e.g. clicking
+        # "Resume" on the interrupted-scan banner twice, or a stray extra
+        # click right after an app restart. Both jobs are individually
+        # harmless (record_finding() is an upsert), but they double real
+        # API/CPU load against the same source for no benefit. Redirects
+        # to the existing job instead of starting a duplicate.
+        for job in list_jobs():
+            if job.get("kind") == "find" and job.get("label") == target and job.get("status") == "running":
+                return job["job_id"]
+        return None
+
     @app.route("/scan", methods=["POST"])
     def start_scan():
         input_dir = (request.form.get("input_dir") or "").strip()
         if not input_dir or not Path(input_dir).is_dir():
             return render_template("index.html", error=f"Not a directory: {input_dir}"), 400
+
+        existing_job_id = _running_find_job_for(input_dir)
+        if existing_job_id:
+            return redirect(url_for("scan_status", job_id=existing_job_id))
 
         # A real unchecked HTML checkbox submits nothing at all -- "on by
         # default" is achieved in index.html by rendering the checkbox
@@ -205,6 +235,8 @@ def create_app(host="127.0.0.1"):
             )
 
         for mount_point in mount_points:
+            if _running_find_job_for(mount_point):
+                continue
             job_id = create_job(kind="find", label=mount_point)
             start_job(job_id, _run_find_job, mount_point, job_id, index_db_path)
 
