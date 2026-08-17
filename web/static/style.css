@@ -541,6 +541,33 @@ pre {
 .unlock-no-match { background: rgba(110, 163, 207, 0.14); color: var(--info); }
 .unlock-not-tried { background: var(--bg-inset); color: var(--text-dim); }
 
+/* ccu-03: credential-completeness badge -- whether a private key is
+   structurally extractable (no password needed at all) or genuinely
+   encrypted-and-locked, for Bitcoin Core wallet.dat findings. This
+   story's named risk is right here: "not applicable/not checked" must
+   never be confusable with "checked, genuinely encrypted" -- so the two
+   use opposite visual treatments, not just different colors. Extractable
+   is a solid, bold, celebratory fill (the strongest possible state,
+   should visually pop). Encrypted-locked is a solid alarm-red fill (a
+   real dead end without a password -- deliberately looks "stopped").
+   Not-applicable/not-checked is the deliberate opposite of both: no
+   fill at all, a dashed (not solid) outline, dim muted color, italic,
+   normal case -- reads as "inactive/nothing here" at a glance, and could
+   never be mistaken for the solid red encrypted-locked pill even by
+   someone scanning quickly. */
+.credential-badge { margin-left: 0.35rem; }
+.credential-extractable { background: var(--success); color: var(--accent-ink); font-weight: 700; }
+.credential-encrypted { background: var(--error-bg); color: var(--error); border: 1px solid var(--error); }
+.credential-not-applicable {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px dashed var(--text-dim);
+  font-style: italic;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .empty { color: var(--text-dim); font-style: italic; font-size: 0.88rem; }
 
 .conn-status {

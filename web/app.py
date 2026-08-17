@@ -47,6 +47,7 @@ from web.auto_unlock_history import (
     list_auto_unlock_history,
     record_auto_unlock_run,
 )
+from web.credential_scan_cache import credential_status_index, run_credential_scan
 from web.scan_excludes import add_exclude, list_excludes, remove_exclude
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
@@ -643,14 +644,30 @@ def create_app(host="127.0.0.1"):
                 "run_at": latest_run["run_at"],
             }
 
+        findings = list_findings(include_archived=include_archived)
+
+        # ccu-03: credential_status_index() only ever reads what a past
+        # "Check credential status" background job already recorded --
+        # never runs the BDB scan itself here, same discipline as
+        # unlock_status_by_path above. source_exists_by_path is a cheap
+        # filesystem stat() per distinct source_path (not the expensive
+        # full-file scan this cache exists to avoid) -- lets the badge
+        # tell "missing/moved file" apart from "not yet checked" without
+        # a background job for something this cheap.
+        source_exists_by_path = {
+            f["source_path"]: Path(f["source_path"]).is_file() for f in findings if f.get("source_path")
+        }
+
         return render_template(
             "findings.html",
-            findings=list_findings(include_archived=include_archived),
+            findings=findings,
             include_archived=include_archived,
             overlap_count=len(find_overlap_addresses()),
             related_count=len(compute_confidence_scores(_known_bitcoin_addresses())),
             unlock_status_by_path=latest_status_by_wallet_path(),
             last_batch=last_batch,
+            credential_status_by_path=credential_status_index(),
+            source_exists_by_path=source_exists_by_path,
         )
 
     @app.route("/findings/related")
@@ -698,6 +715,36 @@ def create_app(host="127.0.0.1"):
     def findings_unwatch():
         set_watched(request.form.get("coin"), request.form.get("address"), False)
         return redirect(url_for("findings_page", include_archived="1" if request.form.get("include_archived") == "1" else None))
+
+    @app.route("/findings/check-credential-status", methods=["POST"])
+    def findings_check_credential_status():
+        # ccu-03: mirrors "Try unlock selected"'s bulk scoping (checked
+        # rows' source paths, filtered down to known wallet files), but
+        # -- unlike Try-unlock -- starts the background job directly from
+        # this one POST instead of first navigating to a confirmation
+        # page. Try-unlock's confirm page exists for its network/vault
+        # safety gates; this scan has neither (it never leaves the
+        # machine, never touches the vault, and never reads private key
+        # material -- see credential_scan_cache.scan_wallet_key_types),
+        # so there's nothing to confirm. What still holds, same as every
+        # other job-starting route: the scan itself only ever runs inside
+        # run_job()'s background thread, never synchronously on this
+        # request.
+        requested_wallet_paths = _split_lines(request.form.get("wallet_paths"))
+        known_wallet_paths = _known_wallet_paths()
+        scoped_wallet_paths = list(dict.fromkeys(p for p in requested_wallet_paths if p in known_wallet_paths))
+        if not scoped_wallet_paths:
+            return redirect(url_for("findings_page"))
+
+        label = (
+            scoped_wallet_paths[0] if len(scoped_wallet_paths) == 1 else f"{len(scoped_wallet_paths)} selected wallet(s)"
+        )
+        # Not secret=True -- this job never reads private key material
+        # (only addresses + a key_type label), so its result is safe to
+        # leave visible through the normal get_job()/item_result.html
+        # path, unlike extract-key/auto-unlock.
+        job_id = run_job(run_credential_scan, scoped_wallet_paths, kind="credential-scan", label=label)
+        return redirect(url_for("item_result", job_id=job_id))
 
     @app.route("/findings/clear-all", methods=["POST"])
     def findings_clear_all():
@@ -1207,7 +1254,7 @@ _STATUS_ENDPOINT_BY_KIND = {
 
 
 def _job_status_endpoint(kind):
-    """Every job kind not listed here shares the generic item_result status page -- true for scan-wallet-dat, crawl, fork-coins, find/match-seed-phrases, drive-scan, and install-rclone."""
+    """Every job kind not listed here shares the generic item_result status page -- true for scan-wallet-dat, crawl, fork-coins, find/match-seed-phrases, drive-scan, install-rclone, and credential-scan."""
     return _STATUS_ENDPOINT_BY_KIND.get(kind, "item_result")
 
 
