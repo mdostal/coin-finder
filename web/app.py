@@ -464,6 +464,27 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("unlock_result.html", job_id=job_id, job=job)
 
+    def _render_auto_unlock_form(requested_wallet_paths):
+        # Shared by the GET confirm page (query-string scoped, fine for a
+        # single finding or a short link) and the POST confirm page below
+        # (form-body scoped -- for a large bulk selection, since a GET URL
+        # with one repeated query param per wallet can exceed the server's
+        # URI-length limit long before Flask ever sees the request;
+        # confirmed live with a 414 on a bulk "Try unlock selected" click
+        # against a large selection).
+        known_wallet_paths = _known_wallet_paths()
+        scoped_wallet_paths = list(dict.fromkeys(p for p in requested_wallet_paths if p in known_wallet_paths))
+        wallet_paths = scoped_wallet_paths or known_wallet_paths
+
+        return render_template(
+            "auto_unlock.html",
+            network_status=check_network_status(),
+            wallet_paths=wallet_paths,
+            scoped_wallet_paths=scoped_wallet_paths,
+            scoped_wallet_path=scoped_wallet_paths[0] if len(scoped_wallet_paths) == 1 else None,
+            error=None,
+        )
+
     @app.route("/auto-unlock", methods=["GET"])
     def auto_unlock_form():
         # Deliberately does NOT call list_vault_entries() here -- confirmed
@@ -478,25 +499,25 @@ def create_app(host="127.0.0.1"):
         #
         # ?wallet_path=<path> (repeatable) scopes the list to just those
         # known wallets -- the "click a finding, try unlock" entry point
-        # (findings.html) passes one for a single row, or several for the
-        # Findings bulk "Try unlock selected" action. Any value that isn't
+        # (findings.html) passes one for a single row. Any value that isn't
         # actually a known wallet path is silently dropped (no error
         # banner for a stale/malformed link) -- if nothing valid survives,
         # falls back to every known wallet, same as the plain
         # /auto-unlock page.
         requested_wallet_paths = [p.strip() for p in request.args.getlist("wallet_path") if p.strip()]
-        known_wallet_paths = _known_wallet_paths()
-        scoped_wallet_paths = list(dict.fromkeys(p for p in requested_wallet_paths if p in known_wallet_paths))
-        wallet_paths = scoped_wallet_paths or known_wallet_paths
+        return _render_auto_unlock_form(requested_wallet_paths)
 
-        return render_template(
-            "auto_unlock.html",
-            network_status=check_network_status(),
-            wallet_paths=wallet_paths,
-            scoped_wallet_paths=scoped_wallet_paths,
-            scoped_wallet_path=scoped_wallet_paths[0] if len(scoped_wallet_paths) == 1 else None,
-            error=None,
-        )
+    @app.route("/auto-unlock/confirm", methods=["POST"])
+    def auto_unlock_confirm():
+        # POST twin of auto_unlock_form() above, for the Findings bulk
+        # "Try unlock selected" action specifically -- a large selection's
+        # wallet_path list travels in the POST body (a hidden input per
+        # path, built client-side) instead of a GET query string, which
+        # has no practical size ceiling the way a URL does. Renders the
+        # exact same confirm template; does not start any job (that's
+        # still auto_unlock_submit() below, unchanged).
+        requested_wallet_paths = [p.strip() for p in request.form.getlist("wallet_path") if p.strip()]
+        return _render_auto_unlock_form(requested_wallet_paths)
 
     @app.route("/auto-unlock", methods=["POST"])
     def auto_unlock_submit():
@@ -625,6 +646,23 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("extract_key_result.html", job_id=job_id, job=job)
 
+    def _render_extract_keys_bulk_form(requested_pairs):
+        # Shared by the GET confirm page (query-string scoped) and the
+        # POST confirm page below (form-body scoped -- needed for a large
+        # bulk selection, same 414-URI-too-long failure mode as
+        # auto-unlock's bulk Try-unlock, and for the same reason: one
+        # repeated query param per selected pair has no practical size
+        # ceiling in a POST body the way it does in a GET URL).
+        known_pairs = _extractable_pairs()
+        scoped_pairs = list(dict.fromkeys(p for p in requested_pairs if p in known_pairs))
+
+        return render_template(
+            "extract_keys_bulk.html",
+            network_status=check_network_status(),
+            pairs=_pairs_context(scoped_pairs),
+            error=None,
+        )
+
     @app.route("/extract-keys-bulk", methods=["GET"])
     def extract_keys_bulk_form():
         # bpk-02: mirrors auto_unlock_form()'s shape, but keyed on
@@ -640,15 +678,18 @@ def create_app(host="127.0.0.1"):
         # row -- the real security-relevant re-check still happens again
         # in extract_keys_bulk_submit(), never trusted from this GET alone.
         requested_pairs = _parse_pair_params(request.args.getlist("pair"))
-        known_pairs = _extractable_pairs()
-        scoped_pairs = list(dict.fromkeys(p for p in requested_pairs if p in known_pairs))
+        return _render_extract_keys_bulk_form(requested_pairs)
 
-        return render_template(
-            "extract_keys_bulk.html",
-            network_status=check_network_status(),
-            pairs=_pairs_context(scoped_pairs),
-            error=None,
-        )
+    @app.route("/extract-keys-bulk/confirm", methods=["POST"])
+    def extract_keys_bulk_confirm():
+        # POST twin of extract_keys_bulk_form() above, for the Findings
+        # bulk "Extract keys selected" action -- a large selection's pair
+        # list travels in the POST body (a hidden input per pair, built
+        # client-side) instead of a GET query string. Renders the exact
+        # same confirm template; does not run any extraction (that's
+        # still extract_keys_bulk_submit() below, unchanged).
+        requested_pairs = _parse_pair_params(request.form.getlist("pair"))
+        return _render_extract_keys_bulk_form(requested_pairs)
 
     @app.route("/extract-keys-bulk", methods=["POST"])
     def extract_keys_bulk_submit():
@@ -1288,6 +1329,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "item_unlock_status": "unlock",
     "item_unlock_result": "unlock",
     "auto_unlock_form": "unlock",
+    "auto_unlock_confirm": "unlock",
     "auto_unlock_submit": "unlock",
     "auto_unlock_status": "unlock",
     "auto_unlock_result": "unlock",
@@ -1296,6 +1338,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "item_extract_key_status": "unlock",
     "item_extract_key_result": "unlock",
     "extract_keys_bulk_form": "unlock",
+    "extract_keys_bulk_confirm": "unlock",
     "extract_keys_bulk_submit": "unlock",
     "extract_keys_bulk_status": "unlock",
     "extract_keys_bulk_result": "unlock",

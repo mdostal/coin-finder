@@ -84,6 +84,36 @@ def test_extract_keys_bulk_form_drops_pairs_not_cached_as_key(mock_status, mock_
     assert b"No known extractable-key findings selected" in resp.data
 
 
+@patch("web.app.credential_status_index")
+@patch("web.app.check_network_status")
+def test_extract_keys_bulk_confirm_post_scopes_to_submitted_pairs(mock_status, mock_index, client, tmp_path):
+    """
+    Regression test for a real bug hit live: bulk 'Extract keys selected'
+    against a large selection built a GET URL with one repeated
+    ?pair=... query param per finding, which exceeded the server's
+    URI-length limit (414 URI Too Long) before Flask ever saw the
+    request. The confirm step must travel via POST body instead.
+    """
+    mock_status.return_value = "OFFLINE"
+    wallet = tmp_path / "wallet.dat"
+    wallet.write_bytes(b"x")
+    mock_index.return_value = _status_index({str(wallet): {"1abc": "key", "1ckey": "ckey"}})
+
+    resp = client.post("/extract-keys-bulk/confirm", data=MultiDict([
+        ("pair", f"{wallet}\t1abc"),
+        ("pair", f"{wallet}\t1ckey"),
+    ]))
+
+    assert resp.status_code == 200
+    assert b"1abc" in resp.data
+    assert b"1ckey" not in resp.data
+
+
+def test_extract_keys_bulk_confirm_get_is_not_registered(client):
+    resp = client.get("/extract-keys-bulk/confirm")
+    assert resp.status_code == 405
+
+
 # --- POST: offline gate ---
 
 
