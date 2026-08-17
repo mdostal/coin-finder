@@ -1,0 +1,154 @@
+id: bpk-02
+epic: bulk-private-key-extraction
+title: Bulk extraction confirm/job/result flow
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [bpk-01]
+
+description: >
+  The actual bulk extraction feature: an "Extract keys selected" button
+  on Findings that runs real key extraction against every checked
+  finding the credential-completeness cache already knows has an
+  unencrypted key, showing results on a once-only, per-row-masked page.
+
+  Because this reads real private key material, it must copy the
+  existing bulk Try-unlock flow's shape (confirm page -> job -> status
+  -> once-only result, with the offline gate re-checked server-side) --
+  NOT the bulk Check-credential-status flow's shape (a direct POST with
+  no confirm step), which is only safe because that flow never reads
+  key material at all. Confirmed via design-discussion research: once
+  the cache says an address is extractable, actually extracting it still
+  requires a full BDB leaf-page walk of that wallet file -- extracting
+  several addresses out of the same wallet file means several
+  independent full-file walks, so this is not free just because the
+  candidate is already known; it needs the same background-job
+  discipline as the original scan, and multiple candidates from one
+  wallet must each genuinely run, not be deduplicated away.
+
+acceptance_criteria:
+  - "'Extract keys selected' button on the bulk-action bar (findings.js,
+    mirroring the existing bulk-try-unlock button's click-to-navigate
+    pattern) filters checked rows to those with
+    data-key-extractable=\"1\" (from bpk-01) client-side, with a clear
+    alert if none of the checked rows qualify (e.g. 'None of the checked
+    findings have a known extractable key -- run Check credential status
+    first if you haven't yet') -- matching the existing 'none eligible'
+    alert pattern already used for Bitcoin-only bulk actions."
+  - "New GET confirm route scoped to the selected (wallet_path, address)
+    pairs (hidden fields per pair -- address-plus-wallet, since
+    extraction is per-address, not per-wallet), mirroring
+    auto_unlock_form()'s shape but keyed on address pairs instead of
+    just wallet paths."
+  - "New POST route re-checks check_network_status() server-side before
+    running anything (never trusts the confirm page), re-derives the
+    real candidate set from credential_status_index() rather than
+    trusting the submitted pairs (drop any pair that isn't cached as
+    key_type=='key'), then starts a background job via run_job(...,
+    secret=True, kind='extract-key-bulk', ...) -- mirroring
+    auto_unlock_submit()'s shape."
+  - "The job worker (mirroring _run_auto_unlock_job) iterates the
+    deduplicated (wallet_path, address) pair set, calling
+    extract_wif_for_address() per pair inside its own try/except so one
+    pair's failure (e.g. a ckey record somehow requested, the address
+    vanished since the scan, an offline-gate refusal) doesn't abort the
+    whole batch -- results keyed {(wallet_path, address): {wif, error}},
+    not {wallet_path: value}, since one wallet can legitimately produce
+    several rows. On each real success, calls bpk-01's marking function
+    to set extracted_at."
+  - "Once-only result page, reusing ccu-01's secret-reveal.js and
+    secret-field/secret-mask/secret-reveal-btn markup unmodified: one row
+    per (wallet_path, address) pair, WIF masked by default with its own
+    independent eye-toggle (no 'reveal all' -- confirmed as a hard
+    requirement per the design discussion's stakes discussion, since this
+    page can show several real spendable keys at once). Copy explicitly
+    notes that re-running extraction is safe/idempotent if a key was
+    missed, so the once-only banner's wording doesn't overstate the
+    'one shot or it's gone' stakes here the way it correctly does for a
+    genuinely single-attempt action."
+  - "New tests: end-to-end confirm->job->result flow with real BDB
+    fixtures (reuse tests/test_extract_private_key.py's builder); a
+    multi-address-same-wallet case producing multiple independent
+    result rows; a mixed-eligibility selection (some extractable, some
+    not) correctly filtering server-side even if the client somehow sent
+    an ineligible pair; a ckey-record pair in the request refused
+    per-row with a clear error, not aborting the batch; offline-gate
+    refusal when online; extracted_at getting set on real success."
+
+steps:
+  - id: research
+    description: >
+      Re-read auto_unlock_form/_submit/_status/_result and
+      _run_auto_unlock_job one more time as the exact shape to mirror --
+      confirm current line numbers/signatures haven't shifted since the
+      design discussion was written, and confirm bpk-01's marking
+      function signature before wiring it in.
+    agent: researcher
+  - id: test-spec
+    description: >
+      Write the end-to-end and edge-case tests listed in acceptance
+      criteria first, using real BDB wallet.dat fixtures. Confirm they
+      fail before implementing.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: >
+      Add the four routes, the job worker, the findings.js button/filter,
+      and the result template.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: >
+      Specifically verify per-row masking with no reveal-all, per-pair
+      error isolation (no aborted batch on one ckey/failure), and that
+      the server-side route never trusts the client's eligibility claim.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Run the full test suite, commit on feat/bulk-private-key-extraction.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/app.py
+      purpose: "auto_unlock_form/_submit/_status/_result (app.py:468-572) -- the exact shape this story's four new routes mirror."
+    - path: tools/extract_private_key.py
+      purpose: extract_wif_for_address() -- reused read-only, called once per pair inside the new job worker.
+    - path: web/credential_scan_cache.py
+      purpose: credential_status_index() for server-side re-derivation, plus bpk-01's new marking function.
+    - path: web/static/secret-reveal.js
+      purpose: Generic eye-toggle JS, reused unmodified for the new result template.
+
+files_to_modify:
+  - file: web/app.py
+    change: Four new routes (confirm/submit/status/result) + the bulk-extraction job worker function.
+  - file: web/templates/findings.html
+    change: "'Extract keys selected' button."
+  - file: web/static/findings.js
+    change: Click handler filtering to data-key-extractable="1" checked rows, with the none-eligible alert.
+  - file: web/templates/ (new result template, name TBD by implementer)
+    change: Once-only, per-row-masked bulk extraction result page.
+  - file: tests/test_web_app_extract_key.py (or a new adjacent test file)
+    change: End-to-end and edge-case bulk extraction tests.
+
+design_decisions:
+  - decision: Mirror auto-unlock's confirm-then-job shape, not credential-status's direct-POST shape.
+    rationale: This flow reads real private key material and needs the offline gate + explicit confirm step, exactly the case that gate exists for -- unlike credential-status, which never touches key material at all.
+  - decision: Keyed by (wallet_path, address) pairs throughout, never wallet_path alone.
+    rationale: Extraction is per-address; a wallet-only scope (as auto-unlock correctly uses, since one password unlocks a whole wallet) would be wrong here, since multiple addresses in one wallet each need their own independent extraction attempt.
+  - decision: No "reveal all" on the result page -- every row masks/reveals independently.
+    rationale: A bulk result page can show several real spendable keys at once; per-row masking is the named mitigation for that higher-stakes surface in the design discussion's risk section.
+
+risks:
+  - severity: high
+    description: Extraction from several addresses in the same wallet file costs more in aggregate than the original scan (multiple independent full-file walks) -- easy to under-estimate as "already cached, so cheap now."
+    mitigation: The job worker runs through run_job()'s background-job pattern with the same discipline as the original scan, not inline; explicitly not deduplicating same-wallet pairs since each is a real, separate, necessary extraction.
+  - severity: medium
+    description: A once-only page showing multiple real spendable keys at once is a bigger single-glance exposure surface than one key.
+    mitigation: Hard per-row masking requirement (no reveal-all), reusing the exact proven ccu-01 markup rather than inventing new display logic.
+
+references:
+  - path: .pHive/epics/bulk-private-key-extraction/docs/design-discussion.md
+    relevant_excerpt: "The shape to replicate is auto-unlock's confirm-then-job pattern, not credential-status's direct-POST pattern."

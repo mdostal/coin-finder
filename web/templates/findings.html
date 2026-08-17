@@ -62,6 +62,7 @@ below) always sort to the top, real balances sort right after them.</p>
     <button type="submit" form="bulk-form" formaction="{{ url_for('findings_watch_bulk') }}" class="btn-secondary">&#9733; Watch selected</button>
     <button type="button" id="bulk-try-unlock" data-unlock-url="{{ url_for('auto_unlock_form') }}" class="btn-secondary" title="Runs the existing Try-unlock flow, scoped to every checked finding that has a recorded source wallet file.">Try unlock selected</button>
     <button type="submit" form="bulk-form" formaction="{{ url_for('findings_check_credential_status') }}" id="bulk-check-credential-status" data-credential-status="1" class="btn-secondary" title="Scans checked findings' Bitcoin Core wallet.dat files for structurally extractable (unencrypted) vs genuinely encrypted (ckey) private keys -- runs as a background job, never blocks this page. Non-wallet.dat findings in the selection are skipped.">Check credential status</button>
+    <button type="button" id="bulk-extract-keys" data-extract-url="{{ url_for('extract_keys_bulk_form') }}" class="btn-secondary" title="Runs real private-key extraction against every checked finding with a known extractable (unencrypted) key -- run Check credential status first if a finding isn't marked extractable yet.">Extract keys selected</button>
     {% if has_bitcoin_findings %}
     <button type="submit" form="bulk-form" formaction="{{ url_for('item_crawl') }}" data-btc-only="1" class="btn-secondary">Graph selected</button>
     <button type="submit" form="bulk-form" formaction="{{ url_for('item_fork_coins') }}" data-btc-only="1" class="btn-secondary">Check fork coins selected</button>
@@ -70,8 +71,11 @@ below) always sort to the top, real balances sort right after them.</p>
   <p class="subtle" style="margin:0.5rem 0 0">Watch, Try unlock, and Check
   credential status apply to every checked finding, any coin (the latter
   two silently skip any row without a known Bitcoin Core wallet.dat).
-  Graph and Check fork coins run only against checked Bitcoin rows
-  (Bitcoin-only tools) -- every action here runs as one background job
+  Extract keys selected only runs against checked findings already known
+  (from a past Check credential status run) to have an extractable key --
+  it navigates to a confirm page first, same as Try unlock, since it reads
+  real key material. Graph and Check fork coins run only against checked
+  Bitcoin rows (Bitcoin-only tools) -- every action here runs as one background job
   per click, same tools as the per-finding actions below, just batched.</p>
 </div>
 
@@ -94,9 +98,19 @@ below) always sort to the top, real balances sort right after them.</p>
   {% set haystack = [f.coin, f.address, f.source_label, f.source_path, ("watched" if f.watched else "")] | select | join(" ") | lower %}
   <div class="finding-card{{ ' watched-row watched' if f.watched }}{{ ' has-balance-row has-balance confirmed-find' if f.balance }}" data-coin="{{ f.coin }}" data-search="{{ haystack }}">
     {{ m.coin_tab(f.coin) }}
+    {% set wallet_scan = credential_status_by_path.get(f.source_path) %}
+    {% set key_type = wallet_scan.addresses.get(f.address) if wallet_scan else none %}
     <div class="finding-card-body">
       <div class="finding-card-select">
-        <input type="checkbox" class="bulk-select" value="{{ f.address }}" data-coin="{{ f.coin }}" data-source-path="{{ f.source_path or '' }}">
+        {# bpk-01: data-key-extractable, read from the exact same
+           wallet_scan/key_type source credential_status_badge() reads
+           below -- checkbox and badge can never disagree, since both
+           read the same (wallet_path, address) lookup into
+           credential_status_by_path. Only reflects "structurally
+           extractable" (key_type == "key"), not whether it was already
+           extracted -- bpk-02's candidate filter, re-extraction stays
+           safe/idempotent per the design discussion. #}
+        <input type="checkbox" class="bulk-select" value="{{ f.address }}" data-coin="{{ f.coin }}" data-source-path="{{ f.source_path or '' }}" data-key-extractable="{{ '1' if key_type == 'key' else '0' }}">
       </div>
       <div class="finding-card-main">
         {% if f.balance %}

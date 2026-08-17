@@ -271,6 +271,8 @@ cython_debug/
 !.pHive/epics/candidate-match-integrity/**
 !.pHive/epics/credential-clarity-and-unlock-ux/
 !.pHive/epics/credential-clarity-and-unlock-ux/**
+!.pHive/epics/bulk-private-key-extraction/
+!.pHive/epics/bulk-private-key-extraction/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

@@ -1,0 +1,80 @@
+id: bpk-03
+epic: bulk-private-key-extraction
+title: Backport eye-toggle mask to the single-finding extract-key result page
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: >
+  Real gap found during this epic's research: web/templates/
+  extract_key_result.html (the single-finding "Extract key" action,
+  predating tonight's ccu-01 eye-toggle work) still renders the real WIF
+  in plaintext (`<pre>{{ job.result }}</pre>`) the instant the page
+  loads -- the exact same exposure ccu-01 already fixed for
+  auto_unlock_result.html and vault_reveal_result.html. This story
+  closes that inconsistency using the identical, already-proven,
+  unmodified mechanism (no new JS, no new display pattern).
+
+acceptance_criteria:
+  - "extract_key_result.html masks the WIF by default using the same
+    secret-field/secret-mask/secret-reveal-btn markup and
+    web/static/secret-reveal.js already used by
+    auto_unlock_result.html and vault_reveal_result.html -- zero changes
+    to secret-reveal.js itself, template-only."
+  - "Everything else on the page (which wallet, which address, the
+    once-only warning banner) stays visible exactly as today."
+  - "New test confirming the masked-by-default rendering, matching the
+    existing test pattern from ccu-01's
+    tests/test_web_app_auto_unlock.py coverage, applied to this page's
+    own test file."
+
+steps:
+  - id: research
+    description: Read extract_key_result.html and the ccu-01 masking pattern in the other two templates to match exactly.
+    agent: researcher
+  - id: test-spec
+    description: Write the masked-by-default test first, confirm it fails against current plaintext rendering.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Apply the identical markup pattern.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm parity with the other two masked pages -- no divergence in behavior or markup shape.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit on feat/bulk-private-key-extraction.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/templates/extract_key_result.html
+      purpose: Currently renders the WIF in plaintext via <pre>{{ job.result }}</pre> -- the gap this story closes.
+    - path: web/templates/auto_unlock_result.html
+      purpose: The proven eye-toggle pattern from ccu-01 to replicate exactly.
+    - path: web/static/secret-reveal.js
+      purpose: Generic, already-shipped, reused unmodified.
+
+files_to_modify:
+  - file: web/templates/extract_key_result.html
+    change: Masked-by-default WIF display with eye-toggle reveal, matching ccu-01's pattern exactly.
+  - file: tests/test_web_app_extract_key.py
+    change: Masked-by-default rendering test.
+
+design_decisions:
+  - decision: Reuse ccu-01's exact markup/JS rather than writing a new masking mechanism.
+    rationale: Three pages now show the same class of secret (password or private key) -- one proven mechanism, applied consistently, is safer than three slightly different ones.
+
+risks:
+  - severity: low
+    description: None significant -- this is a template-only consistency fix using an already-tested mechanism.
+    mitigation: n/a
+
+references:
+  - path: .pHive/epics/bulk-private-key-extraction/docs/design-discussion.md
+    relevant_excerpt: "Worth naming, not this epic's job to fix: the single-finding extract_key_result.html still renders its WIF in plaintext -- it predates ccu-01 and was never updated."

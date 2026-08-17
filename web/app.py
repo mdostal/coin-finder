@@ -47,7 +47,7 @@ from web.auto_unlock_history import (
     list_auto_unlock_history,
     record_auto_unlock_run,
 )
-from web.credential_scan_cache import credential_status_index, run_credential_scan
+from web.credential_scan_cache import credential_status_index, mark_address_extracted, run_credential_scan
 from web.scan_excludes import add_exclude, list_excludes, remove_exclude
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
@@ -625,6 +625,110 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("extract_key_result.html", job_id=job_id, job=job)
 
+    @app.route("/extract-keys-bulk", methods=["GET"])
+    def extract_keys_bulk_form():
+        # bpk-02: mirrors auto_unlock_form()'s shape, but keyed on
+        # (wallet_path, address) pairs instead of wallet paths alone --
+        # extraction is per-address, so a wallet-only scope isn't enough
+        # here (one wallet can legitimately have several extractable
+        # addresses, each needing its own real extraction). Repeated
+        # ?pair=<wallet_path>\t<address> query params, the same
+        # tab-separated encoding findings.js already uses for its coin/
+        # address bulk-watch selection. Scoped down to the cache's current
+        # "key"-type candidate set here too (not just on the POST) so a
+        # stale/crafted link can't populate the confirm page with a bogus
+        # row -- the real security-relevant re-check still happens again
+        # in extract_keys_bulk_submit(), never trusted from this GET alone.
+        requested_pairs = _parse_pair_params(request.args.getlist("pair"))
+        known_pairs = _extractable_pairs()
+        scoped_pairs = list(dict.fromkeys(p for p in requested_pairs if p in known_pairs))
+
+        return render_template(
+            "extract_keys_bulk.html",
+            network_status=check_network_status(),
+            pairs=_pairs_context(scoped_pairs),
+            error=None,
+        )
+
+    @app.route("/extract-keys-bulk", methods=["POST"])
+    def extract_keys_bulk_submit():
+        # Same re-check, at the moment of the actual request, as
+        # auto_unlock_submit()/item_extract_key() -- never trusted from the
+        # GET page load. Default (checkbox unchecked) still refuses when
+        # online; an explicit allow_online=1 is an informed-choice
+        # override, not a bypass.
+        network_status = check_network_status()
+        allow_online = request.form.get("allow_online") == "1"
+
+        # Re-derives the real candidate set from credential_status_index()
+        # rather than trusting the submitted pairs -- drops any pair that
+        # isn't cached as key_type == "key" right now, even if the client
+        # somehow sent one (stale page, crafted request). This is the
+        # actual security-relevant filter; the GET confirm page's filtering
+        # above is a UX nicety, not a substitute for this.
+        requested_pairs = _parse_pair_params(request.form.getlist("pair"))
+        known_pairs = _extractable_pairs()
+        scoped_pairs = list(dict.fromkeys(p for p in requested_pairs if p in known_pairs))
+
+        if network_status != "OFFLINE" and not allow_online:
+            return (
+                render_template(
+                    "extract_keys_bulk.html",
+                    network_status=network_status,
+                    pairs=_pairs_context(scoped_pairs),
+                    error=(
+                        f"Network status is {network_status}, not OFFLINE. Extracting real private "
+                        "keys is safest with network disabled. Disconnect and try again, or check "
+                        '"run anyway" below if you understand the risk and want to proceed online.'
+                    ),
+                ),
+                409,
+            )
+
+        if not scoped_pairs:
+            return (
+                render_template(
+                    "extract_keys_bulk.html",
+                    network_status=network_status,
+                    pairs=[],
+                    error=(
+                        "None of the submitted findings are currently cached as having a known "
+                        'extractable key. Run "Check credential status" again if the cache may be '
+                        "stale, then re-select from Findings."
+                    ),
+                ),
+                400,
+            )
+
+        label = (
+            f"{scoped_pairs[0][1]} ({scoped_pairs[0][0]})"
+            if len(scoped_pairs) == 1
+            else f"{len(scoped_pairs)} selected keys"
+        )
+        job_id = run_job(
+            _run_bulk_extract_key_job,
+            allow_online=allow_online,
+            pairs=scoped_pairs,
+            secret=True,
+            kind="extract-key-bulk",
+            label=label,
+        )
+        return redirect(url_for("extract_keys_bulk_status", job_id=job_id))
+
+    @app.route("/extract-keys-bulk/status/<job_id>")
+    def extract_keys_bulk_status(job_id):
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
+        return render_template("extract_keys_bulk_status.html", job_id=job_id, job=job)
+
+    @app.route("/extract-keys-bulk/result/<job_id>")
+    def extract_keys_bulk_result(job_id):
+        job = consume_job_result(job_id)
+        if job is None:
+            abort(404)
+        return render_template("extract_keys_bulk_result.html", job_id=job_id, job=job)
+
     @app.route("/findings")
     def findings_page():
         include_archived = request.args.get("include_archived") == "1"
@@ -1191,6 +1295,10 @@ _NAV_GROUP_BY_ENDPOINT = {
     "item_extract_key": "unlock",
     "item_extract_key_status": "unlock",
     "item_extract_key_result": "unlock",
+    "extract_keys_bulk_form": "unlock",
+    "extract_keys_bulk_submit": "unlock",
+    "extract_keys_bulk_status": "unlock",
+    "extract_keys_bulk_result": "unlock",
     "vault_page": "unlock",
     "vault_add": "unlock",
     "vault_revoke": "unlock",
@@ -1505,6 +1613,53 @@ def _known_wallet_paths():
     return sorted(p for p in paths if Path(p).is_file())
 
 
+def _parse_pair_params(raw_values):
+    """
+    bpk-02: splits each "<wallet_path>\\t<address>" value (the encoding
+    findings.js's "Extract keys selected" button and extract_keys_bulk.
+    html's own hidden fields both use) into a (wallet_path, address)
+    tuple. Any malformed value (no tab, an empty half) is silently
+    dropped -- same "stale/malformed input just doesn't survive scoping"
+    discipline auto_unlock_form/_submit already apply to a lone
+    wallet_path.
+    """
+    pairs = []
+    for raw in raw_values:
+        wallet_path, sep, address = raw.partition("\t")
+        wallet_path = wallet_path.strip()
+        address = address.strip()
+        if sep and wallet_path and address:
+            pairs.append((wallet_path, address))
+    return pairs
+
+
+def _extractable_pairs():
+    """
+    bpk-02: every (wallet_path, address) pair the credential-status cache
+    currently knows has a structurally extractable ("key") private key --
+    the real candidate set for bulk extraction, re-read live on every call
+    (credential_status_index() is already documented as cheap to read in
+    full each time). Plays the same role for extract_keys_bulk_form()/
+    extract_keys_bulk_submit() that _known_wallet_paths() plays for
+    auto_unlock_form()/auto_unlock_submit() -- both routes re-derive from
+    this rather than ever trusting a request's own claimed eligibility.
+    """
+    pairs = set()
+    for wallet_path, wallet_scan in credential_status_index().items():
+        for address, key_type in wallet_scan.get("addresses", {}).items():
+            if key_type == "key":
+                pairs.add((wallet_path, address))
+    return pairs
+
+
+def _pairs_context(pairs):
+    """[(wallet_path, address), ...] -> the list-of-dicts shape
+    extract_keys_bulk.html actually renders, with a pre-joined "raw" tab-
+    separated value for each pair's hidden <input name="pair"> -- keeps a
+    literal tab character out of the Jinja template source itself."""
+    return [{"wallet_path": wallet_path, "address": address, "raw": f"{wallet_path}\t{address}"} for wallet_path, address in pairs]
+
+
 def _run_auto_unlock_job(allow_online=False, wallet_paths=None):
     """
     Batch unlock: every enabled vault entry tried against every known
@@ -1547,6 +1702,51 @@ def _run_auto_unlock_job(allow_online=False, wallet_paths=None):
         Path(candidates_path).unlink(missing_ok=True)
 
     record_auto_unlock_run(results)
+    return {"results": results}
+
+
+def _run_bulk_extract_key_job(allow_online=False, pairs=None):
+    """
+    bpk-02: batch key extraction, mirroring _run_auto_unlock_job's
+    per-item try/except discipline above -- but keyed by (wallet_path,
+    address) pairs instead of wallet_path alone, since extraction is
+    per-address. One wallet_path can legitimately produce several
+    independent result rows, each its own full BDB leaf-page walk (see
+    .pHive/epics/bulk-private-key-extraction/docs/design-discussion.md's
+    cost finding: extracting several addresses out of one wallet file is
+    NOT cheaper than the original credential-status scan just because the
+    cache already knows the candidate list -- it's up to N full-file
+    passes instead of the scan's one). Deliberately does not deduplicate
+    same-wallet pairs -- every distinct (wallet_path, address) is a real,
+    separate extraction that must run.
+
+    Catches broadly (not narrowly RuntimeError) per pair -- same
+    discipline credential_scan_cache.scan_and_record_wallet already uses
+    for its own per-item try/except: a wallet file that vanished from disk
+    since the scan raises OSError, not RuntimeError, and must not abort
+    the rest of the batch either. A real per-pair failure (ckey record,
+    address no longer found, offline-gate refusal, vanished file) is
+    recorded as that row's own error and the loop continues.
+
+    :param pairs: [(wallet_path, address), ...] -- already re-derived and
+        filtered server-side in extract_keys_bulk_submit() before this job
+        ever starts; this function trusts its caller completely, same as
+        _run_auto_unlock_job trusts its own wallet_paths argument.
+    :return: {"results": {(wallet_path, address): {"wif": str|None, "error": str|None}}} --
+        not {wallet_path: value} like auto-unlock's, since one wallet_path
+        can legitimately produce several rows here.
+    """
+    results = {}
+    for wallet_path, address in pairs or []:
+        try:
+            wif = extract_wif_for_address(wallet_path, address, allow_online=allow_online)
+        except Exception as e:
+            results[(wallet_path, address)] = {"wif": None, "error": str(e)}
+            continue
+        results[(wallet_path, address)] = {"wif": wif, "error": None}
+        # Only ever a timestamp -- never the wif itself -- per
+        # mark_address_extracted's own "metadata only" discipline.
+        mark_address_extracted(wallet_path, address)
     return {"results": results}
 
 

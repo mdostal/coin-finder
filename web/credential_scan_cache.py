@@ -41,7 +41,23 @@ CREATE TABLE IF NOT EXISTS credential_scan_addresses (
 );
 """
 
-_MIGRATIONS = []
+# Columns added after credential_scan_addresses' original release --
+# `CREATE TABLE IF NOT EXISTS` above only applies to a brand new db file;
+# an existing credential_scan_cache.db on disk from before a column
+# existed needs it added explicitly. Each entry is a full `ALTER TABLE`
+# statement, run on every connect; `ADD COLUMN` on a column that already
+# exists raises OperationalError, treated below as "already migrated".
+# Same precedent as findings.py's own _MIGRATIONS list.
+#
+# bpk-01: extracted_at REAL, nullable -- a timestamp marking that a
+# structurally-extractable ("key") address's private key has actually
+# been extracted and copied out at least once, distinct from merely
+# "extractable." Deliberately never the WIF itself -- see this module's
+# top-of-file "metadata only" discipline; extracted_at is a "this already
+# happened" marker, not a retrieval mechanism.
+_MIGRATIONS = [
+    "ALTER TABLE credential_scan_addresses ADD COLUMN extracted_at REAL",
+]
 
 
 def _connect(db_path):
@@ -116,6 +132,23 @@ def record_credential_scan(wallet_path, is_wallet_dat, key_types=None, error=Non
     don't change once discovered (this project's own working assumption
     for this cache), so in practice this only ever runs once per wallet,
     but an explicit re-scan must never leave stale rows behind.
+
+    KNOWN LIMITATION (flagged in bpk-01, left unaddressed by bpk-02's bulk
+    extraction feature -- both scoped to their own story, this fix would
+    touch scan-recording logic neither owns): the delete-then-insert above
+    resets extracted_at to NULL for every address in this wallet_path, even
+    one whose key was already genuinely extracted in a past bulk/single
+    extraction. A re-scan after an extraction therefore makes
+    credential_status_badge() show "key extractable, no password needed"
+    again instead of "key extracted." This is a display/bookkeeping
+    regression only, not a safety issue: re-running extraction is
+    idempotent and self-verifying (extract_wif_for_address's own
+    docstring), and every extraction -- bulk or single -- still goes
+    through an explicit confirm step showing exactly which addresses are
+    about to be extracted, so nothing runs silently or by surprise. A
+    future fix would carry extracted_at forward for addresses whose
+    key_type is unchanged across delete-then-insert, rather than dropping
+    it unconditionally.
 
     :param is_wallet_dat: False for a file that isn't a recognized
         Bitcoin Core wallet.dat (or couldn't be read at all) -- key_types
@@ -208,6 +241,36 @@ def run_credential_scan(wallet_paths, db_path=DEFAULT_DB_PATH):
     return {"report": "\n".join(lines), "results": results}
 
 
+def mark_address_extracted(wallet_path, address, db_path=DEFAULT_DB_PATH):
+    """
+    bpk-01: records that a (wallet_path, address) pair's private key has
+    already been extracted, by stamping extracted_at to now. This story
+    only builds this marking function and the schema/badge/checkbox that
+    read it -- bpk-02 is what actually calls this after a real extraction
+    succeeds; no extraction logic runs here.
+
+    Only ever writes a timestamp -- never accepts or stores the actual
+    private key value, keeping this cache's "metadata only" discipline
+    intact. A no-op (zero rows affected) if the pair has no existing row
+    (e.g. address vanished from a later re-scan) -- there is nothing to
+    mark and this must not fabricate a row.
+
+    Re-marking is safe and idempotent: calling this again just moves
+    extracted_at forward, consistent with re-extraction being a safe,
+    read-only, self-verifying operation (per tools/extract_private_key.py's
+    own extraction function's docstring) rather than a one-shot lock.
+    """
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE credential_scan_addresses SET extracted_at = ? WHERE wallet_path = ? AND address = ?",
+            (time.time(), wallet_path, address),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def credential_status_index(db_path=DEFAULT_DB_PATH):
     """
     Cheap, always-live read of the whole cache -- the join Findings uses
@@ -218,11 +281,15 @@ def credential_status_index(db_path=DEFAULT_DB_PATH):
     already recorded.
 
     :return: {wallet_path: {"is_wallet_dat": bool, "scanned_at": float,
-        "error": str|None, "addresses": {address: "key"|"ckey"}}}.
-        A wallet_path never scanned is simply absent -- callers treat
-        that as "not checked yet" (folded into the same "not checked /
-        not applicable" badge state as a genuinely non-wallet.dat
-        finding, per this story's 4-state design).
+        "error": str|None, "addresses": {address: "key"|"ckey"},
+        "extracted_at": {address: float|None}}}. "addresses" keeps its
+        pre-bpk-01 shape unchanged (a plain key_type string per address)
+        -- extracted_at is a sibling dict, same address keys, so existing
+        callers reading "addresses" are unaffected. A wallet_path never
+        scanned is simply absent -- callers treat that as "not checked
+        yet" (folded into the same "not checked / not applicable" badge
+        state as a genuinely non-wallet.dat finding, per this story's
+        4-state design).
     """
     conn = _connect(db_path)
     try:
@@ -237,12 +304,15 @@ def credential_status_index(db_path=DEFAULT_DB_PATH):
             "scanned_at": row["scanned_at"],
             "error": row["error"],
             "addresses": {},
+            "extracted_at": {},
         }
         for row in wallet_rows
     }
     for row in address_rows:
         wallet = index.setdefault(
-            row["wallet_path"], {"is_wallet_dat": True, "scanned_at": None, "error": None, "addresses": {}}
+            row["wallet_path"],
+            {"is_wallet_dat": True, "scanned_at": None, "error": None, "addresses": {}, "extracted_at": {}},
         )
         wallet["addresses"][row["address"]] = row["key_type"]
+        wallet["extracted_at"][row["address"]] = row["extracted_at"]
     return index

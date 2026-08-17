@@ -1,5 +1,6 @@
 import sqlite3
 import struct
+import time
 
 from tests.test_extract_private_key import (
     _align_32bits,
@@ -8,6 +9,7 @@ from tests.test_extract_private_key import (
 )
 from web.credential_scan_cache import (
     credential_status_index,
+    mark_address_extracted,
     record_credential_scan,
     run_credential_scan,
     scan_and_record_wallet,
@@ -279,3 +281,95 @@ def test_credential_scan_cache_columns_via_pragma(tmp_path):
 
     assert {"wallet_path", "is_wallet_dat", "scanned_at", "error"} <= wallet_columns
     assert {"wallet_path", "address", "key_type"} <= address_columns
+
+
+# --- bpk-01: extracted_at -- "already extracted" state, distinct from "extractable" ---
+
+
+def test_credential_scan_addresses_gets_a_nullable_extracted_at_column(tmp_path):
+    """
+    The migration itself: a fresh db (via _connect/_SCHEMA + _MIGRATIONS)
+    has the column, and it's nullable -- a freshly-scanned address (never
+    extracted) must not be forced into some non-null default.
+    """
+    db_path = tmp_path / "credential_scan_cache.db"
+    record_credential_scan("/wallets/a.dat", is_wallet_dat=True, key_types={"1abc": "key"}, db_path=db_path)
+
+    conn = sqlite3.connect(str(db_path))
+    address_columns = {row[1] for row in conn.execute("PRAGMA table_info(credential_scan_addresses)").fetchall()}
+    row = conn.execute(
+        "SELECT extracted_at FROM credential_scan_addresses WHERE wallet_path = ? AND address = ?",
+        ("/wallets/a.dat", "1abc"),
+    ).fetchone()
+    conn.close()
+
+    assert "extracted_at" in address_columns
+    assert row[0] is None
+
+
+def test_schema_still_never_persists_raw_key_material_after_migration():
+    """
+    Same guarantee as test_schema_never_persists_raw_key_material, but
+    re-asserted against _MIGRATIONS too -- the new column must be a
+    timestamp, never a place a future edit could quietly stash the WIF.
+    """
+    import web.credential_scan_cache as cache_module
+
+    assert "wif" not in "".join(cache_module._MIGRATIONS).lower()
+    assert "private" not in "".join(cache_module._MIGRATIONS).lower()
+    assert "value_bytes" not in "".join(cache_module._MIGRATIONS).lower()
+
+
+def test_mark_address_extracted_sets_extracted_at_to_now(tmp_path):
+    db_path = tmp_path / "credential_scan_cache.db"
+    record_credential_scan("/wallets/a.dat", is_wallet_dat=True, key_types={"1abc": "key"}, db_path=db_path)
+    before = time.time()
+
+    mark_address_extracted("/wallets/a.dat", "1abc", db_path=db_path)
+
+    after = time.time()
+    index = credential_status_index(db_path=db_path)
+    extracted_at = index["/wallets/a.dat"]["extracted_at"]["1abc"]
+    assert extracted_at is not None
+    assert before <= extracted_at <= after
+
+
+def test_mark_address_extracted_leaves_other_rows_untouched(tmp_path):
+    db_path = tmp_path / "credential_scan_cache.db"
+    record_credential_scan(
+        "/wallets/a.dat",
+        is_wallet_dat=True,
+        key_types={"1abc": "key", "1def": "key"},
+        db_path=db_path,
+    )
+    record_credential_scan("/wallets/b.dat", is_wallet_dat=True, key_types={"1ghi": "key"}, db_path=db_path)
+
+    mark_address_extracted("/wallets/a.dat", "1abc", db_path=db_path)
+
+    index = credential_status_index(db_path=db_path)
+    assert index["/wallets/a.dat"]["extracted_at"]["1abc"] is not None
+    assert index["/wallets/a.dat"]["extracted_at"]["1def"] is None
+    assert index["/wallets/b.dat"]["extracted_at"]["1ghi"] is None
+
+
+def test_mark_address_extracted_never_stores_the_wif(tmp_path):
+    """
+    Direct check against mark_address_extracted's own source: it must
+    never accept or persist key material -- only a (wallet_path, address)
+    pair and a server-generated timestamp.
+    """
+    import inspect
+
+    import web.credential_scan_cache as cache_module
+
+    source = inspect.getsource(cache_module.mark_address_extracted)
+    assert "wif" not in source.lower()
+
+
+def test_credential_status_index_reports_none_extracted_at_for_never_extracted_address(tmp_path):
+    db_path = tmp_path / "credential_scan_cache.db"
+    record_credential_scan("/wallets/a.dat", is_wallet_dat=True, key_types={"1abc": "key"}, db_path=db_path)
+
+    index = credential_status_index(db_path=db_path)
+
+    assert index["/wallets/a.dat"]["extracted_at"]["1abc"] is None

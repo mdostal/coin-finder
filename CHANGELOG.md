@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-08-17
+
+### Added
+
+- **A new "Extract keys selected" bulk action on Findings.** For every
+  checked finding where a private key is known to be directly
+  extractable (no password needed at all), you can now run the real
+  extraction across all of them in one action instead of opening each
+  one by hand. Results show up on a once-only page with each key masked
+  behind its own reveal toggle -- nothing is ever shown all at once.
+  Findings that get extracted this way are now clearly marked "key
+  extracted" so you can tell them apart from ones that are extractable
+  but haven't been pulled yet.
+
+### Fixed
+
+- **The single-wallet "Extract key" result page was still showing the
+  real private key in plaintext the moment it loaded** -- a gap left
+  over from earlier tonight's password-masking fix, which only covered
+  the other two secret-display pages. It now matches them: masked by
+  default, revealed only on click.
+
+## [0.52.0] - 2026-08-17
 ## [0.52.0] - 2026-08-17
 
 ### Added

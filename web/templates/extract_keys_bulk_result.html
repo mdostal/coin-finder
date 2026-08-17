@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- extracted keys{% endblock %}
+{% block content %}
+<h2>Bulk extraction result</h2>
+<div class="banner warning">
+This is shown once. It is not saved anywhere and will not reappear if you
+reload or come back to this page. Copy any keys you need now -- each row
+below masks and reveals independently; there is no "reveal all" for a
+page that can show several real spendable keys at once.
+</div>
+<p class="subtle">Re-running extraction for any of these addresses later
+is safe (read-only, self-verifying) if you missed copying one down --
+unlike a one-shot unlock attempt, nothing is lost by running this again.</p>
+
+{% if job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% elif job.result %}
+<div class="card">
+  <table>
+    <thead><tr><th>Address</th><th>Wallet</th><th>Private key (WIF)</th></tr></thead>
+    <tbody>
+      {% for pair, r in job.result.results.items() %}
+      <tr>
+        <td><code>{{ pair[1] }}</code></td>
+        <td><code>{{ pair[0] }}</code></td>
+        <td>
+          {% if r.wif %}
+          <span class="secret-field">
+            <strong style="color:var(--accent)"><code class="secret-mask" data-secret="{{ r.wif }}" data-revealed="false">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</code></strong>
+            <button type="button" class="secret-reveal-btn btn-secondary" aria-label="Reveal private key" aria-pressed="false" title="Reveal">&#128065;</button>
+          </span>
+          {% else %}
+          <span class="subtle" style="color:var(--error)">{{ r.error }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="subtle">Import each key into <a href="https://electrum.org/">Electrum</a>
+("Wallet" -&gt; "Private keys" -&gt; "Import"), then use Electrum's own
+<strong>sweep</strong> function to move the entire balance to a fresh
+address you control long-term -- don't just spend part of it.</p>
+{% endif %}
+
+<a class="back-link" href="{{ url_for('findings_page') }}">&laquo; back to Findings</a>
+{% endblock %}
