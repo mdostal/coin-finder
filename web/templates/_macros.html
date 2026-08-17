@@ -2,6 +2,23 @@
 <span class="status-pill status-{{ status }}">{{ status }}</span>
 {% endmacro %}
 
+{# ccu-02: per-finding unlock-status badge, driven by the most recent
+   auto_unlock_history row for a finding's source_path. Deliberately says
+   "wallet," never "address," in every state -- auto_unlock_history is
+   wallet_path-scoped (one password unlocks the whole wallet file), not
+   per-address, and an "address" claim here would overstate the actual
+   precision of the underlying data. `status` is None (no row -- "not yet
+   tried"), or {"matched": bool, "vault_label", "run_at"}. #}
+{% macro unlock_status_badge(status) %}
+{% if status is none %}
+<span class="status-pill unlock-badge unlock-not-tried" title="This wallet file has not been tried in an auto-unlock run yet.">not yet tried</span>
+{% elif status.matched %}
+<span class="status-pill unlock-badge unlock-unlocked" title="A saved vault password successfully unlocked this wallet file in a past auto-unlock run.">unlocked</span>
+{% else %}
+<span class="status-pill unlock-badge unlock-no-match" title="This wallet file was tried in a past auto-unlock run; no saved vault password matched.">tried, no match</span>
+{% endif %}
+{% endmacro %}
+
 {# icon: real logo file under web/static/coin-icons/ (spothq/cryptocurrency-
    icons, CC0) when one exists for this coin -- initials, color used either
    as a fallback (no icon available, e.g. Diamond Coin/Helium/Shiba Inu --

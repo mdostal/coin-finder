@@ -288,3 +288,131 @@ def test_findings_page_vertical_coin_tab_uses_real_icon_and_coin_name(mock_list,
     assert "finding-card-tab" in body
     assert "coin-icons/btc.svg" in body
     assert ">Bitcoin<" in body
+
+
+# --- ccu-02: per-finding unlock-status badge + persistent batch-result banner ---
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path")
+@patch("web.app.list_findings")
+def test_findings_page_badge_shows_unlocked_for_matched_history_row(mock_list, mock_latest, mock_history, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": "/w.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_latest.return_value = {"/w.dat": {"matched": True, "vault_label": "password-1", "run_at": 100.0}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "unlocked" in body
+    assert "tried, no match" not in body
+    assert "not yet tried" not in body
+    # Badge copy must say "wallet," never "address" -- auto_unlock_history
+    # is wallet_path-scoped, not per-address.
+    assert "unlock-badge" in body
+    assert "address" not in body.lower().split("unlock-badge", 1)[1].split("</span>", 1)[0]
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path")
+@patch("web.app.list_findings")
+def test_findings_page_badge_shows_tried_no_match_for_unmatched_history_row(mock_list, mock_latest, mock_history, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": "/w.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_latest.return_value = {"/w.dat": {"matched": False, "vault_label": None, "run_at": 100.0}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "tried, no match" in body
+    assert ">unlocked<" not in body
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path")
+@patch("web.app.list_findings")
+def test_findings_page_badge_shows_not_yet_tried_for_no_history_row(mock_list, mock_latest, mock_history, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": "/w.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_latest.return_value = {}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "not yet tried" in body
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path", return_value={})
+@patch("web.app.list_findings")
+def test_findings_page_no_unlock_badge_for_finding_without_source_path(mock_list, mock_latest, mock_history, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b"unlock-badge" not in resp.data
+
+
+@patch("web.app.list_auto_unlock_history")
+@patch("web.app.latest_status_by_wallet_path", return_value={})
+@patch("web.app.list_findings", return_value=[])
+def test_findings_page_batch_summary_banner_shows_last_run_counts(mock_list, mock_latest, mock_history, client):
+    mock_history.return_value = [
+        {
+            "run_id": "run-2",
+            "run_at": 200.0,
+            "wallets": [
+                {"wallet_path": "/a.dat", "vault_label": "password-1", "matched": True},
+                {"wallet_path": "/b.dat", "vault_label": None, "matched": False},
+                {"wallet_path": "/c.dat", "vault_label": None, "matched": False},
+            ],
+        },
+        {
+            "run_id": "run-1",
+            "run_at": 100.0,
+            "wallets": [{"wallet_path": "/a.dat", "vault_label": None, "matched": False}],
+        },
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "Last batch" in body
+    assert "1 unlocked" in body
+    assert "2 no match" in body
+    # Reflects the newest run's counts, not the older one's.
+    assert "0 unlocked" not in body
+
+
+@patch("web.app.list_auto_unlock_history")
+@patch("web.app.latest_status_by_wallet_path", return_value={})
+@patch("web.app.list_findings", return_value=[])
+def test_findings_page_batch_summary_banner_links_to_history_page(mock_list, mock_latest, mock_history, client):
+    mock_history.return_value = [
+        {"run_id": "run-1", "run_at": 100.0, "wallets": [{"wallet_path": "/a.dat", "vault_label": "password-1", "matched": True}]}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b'href="/auto-unlock/history"' in resp.data
+
+
+@patch("web.app.list_auto_unlock_history", return_value=[])
+@patch("web.app.latest_status_by_wallet_path", return_value={})
+@patch("web.app.list_findings", return_value=[])
+def test_findings_page_no_batch_summary_banner_when_no_history(mock_list, mock_latest, mock_history, client):
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    assert b"Last batch" not in resp.data

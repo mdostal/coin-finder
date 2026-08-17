@@ -533,6 +533,14 @@ pre {
 .status-new { background: rgba(214, 165, 79, 0.12); color: var(--accent-bright); }
 .status-archived { background: var(--bg-inset); color: var(--text-dim); }
 
+/* ccu-02: per-finding unlock-status badge, next to the existing status
+   pill -- three visually distinct states so a wallet already unlocked, one
+   tried and failed, and one never attempted stop looking identical. */
+.unlock-badge { margin-left: 0.35rem; }
+.unlock-unlocked { background: rgba(111, 174, 127, 0.14); color: var(--success); }
+.unlock-no-match { background: rgba(110, 163, 207, 0.14); color: var(--info); }
+.unlock-not-tried { background: var(--bg-inset); color: var(--text-dim); }
+
 .empty { color: var(--text-dim); font-style: italic; font-size: 0.88rem; }
 
 .conn-status {

@@ -41,7 +41,12 @@ from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, res
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
 from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, list_crawl_runs, record_crawl_run
 from web.scan_history import clear_scan_history, list_scan_history, record_scan
-from web.auto_unlock_history import clear_auto_unlock_history, list_auto_unlock_history, record_auto_unlock_run
+from web.auto_unlock_history import (
+    clear_auto_unlock_history,
+    latest_status_by_wallet_path,
+    list_auto_unlock_history,
+    record_auto_unlock_run,
+)
 from web.scan_excludes import add_exclude, list_excludes, remove_exclude
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
@@ -622,12 +627,30 @@ def create_app(host="127.0.0.1"):
     @app.route("/findings")
     def findings_page():
         include_archived = request.args.get("include_archived") == "1"
+
+        # ccu-02: cheap, always-live per-wallet unlock-status join, plus a
+        # persistent summary of the most recent bulk Try-unlock batch --
+        # both sourced entirely from auto_unlock_history.py's existing
+        # data, no new schema/job. See "Last batch" below for the banner.
+        history_runs = list_auto_unlock_history()
+        last_batch = None
+        if history_runs:
+            latest_run = history_runs[0]
+            unlocked = sum(1 for w in latest_run["wallets"] if w["matched"])
+            last_batch = {
+                "unlocked": unlocked,
+                "no_match": len(latest_run["wallets"]) - unlocked,
+                "run_at": latest_run["run_at"],
+            }
+
         return render_template(
             "findings.html",
             findings=list_findings(include_archived=include_archived),
             include_archived=include_archived,
             overlap_count=len(find_overlap_addresses()),
             related_count=len(compute_confidence_scores(_known_bitcoin_addresses())),
+            unlock_status_by_path=latest_status_by_wallet_path(),
+            last_batch=last_batch,
         )
 
     @app.route("/findings/related")

@@ -38,6 +38,14 @@ below) always sort to the top, real balances sort right after them.</p>
 </div>
 {% endif %}
 
+{% if last_batch %}
+<div class="banner" style="margin-top:1rem">
+  <strong>Last batch:</strong> {{ last_batch.unlocked }} unlocked, {{ last_batch.no_match }} no match,
+  run at {{ last_batch.run_at | int | timestamp_to_local }}.
+  <a href="{{ url_for('auto_unlock_history_page') }}">View full history &rarr;</a>
+</div>
+{% endif %}
+
 {% if findings %}
 {% set has_bitcoin_findings = findings | selectattr("coin", "equalto", "Bitcoin") | list %}
 <form id="bulk-form" method="post">
@@ -101,6 +109,9 @@ below) always sort to the top, real balances sort right after them.</p>
           <span class="subtle">0 {{ f.coin }}</span>
           {% endif %}
           {{ m.status_pill(f.status) }}
+          {% if f.source_path %}
+          {{ m.unlock_status_badge(unlock_status_by_path.get(f.source_path)) }}
+          {% endif %}
         </div>
         <div class="finding-card-sub subtle">
           {{ f.coin }}
