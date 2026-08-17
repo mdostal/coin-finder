@@ -94,9 +94,19 @@ below) always sort to the top, real balances sort right after them.</p>
   {% set haystack = [f.coin, f.address, f.source_label, f.source_path, ("watched" if f.watched else "")] | select | join(" ") | lower %}
   <div class="finding-card{{ ' watched-row watched' if f.watched }}{{ ' has-balance-row has-balance confirmed-find' if f.balance }}" data-coin="{{ f.coin }}" data-search="{{ haystack }}">
     {{ m.coin_tab(f.coin) }}
+    {% set wallet_scan = credential_status_by_path.get(f.source_path) %}
+    {% set key_type = wallet_scan.addresses.get(f.address) if wallet_scan else none %}
     <div class="finding-card-body">
       <div class="finding-card-select">
-        <input type="checkbox" class="bulk-select" value="{{ f.address }}" data-coin="{{ f.coin }}" data-source-path="{{ f.source_path or '' }}">
+        {# bpk-01: data-key-extractable, read from the exact same
+           wallet_scan/key_type source credential_status_badge() reads
+           below -- checkbox and badge can never disagree, since both
+           read the same (wallet_path, address) lookup into
+           credential_status_by_path. Only reflects "structurally
+           extractable" (key_type == "key"), not whether it was already
+           extracted -- bpk-02's candidate filter, re-extraction stays
+           safe/idempotent per the design discussion. #}
+        <input type="checkbox" class="bulk-select" value="{{ f.address }}" data-coin="{{ f.coin }}" data-source-path="{{ f.source_path or '' }}" data-key-extractable="{{ '1' if key_type == 'key' else '0' }}">
       </div>
       <div class="finding-card-main">
         {% if f.balance %}

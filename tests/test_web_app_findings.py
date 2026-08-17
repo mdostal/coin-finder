@@ -609,3 +609,150 @@ def test_not_applicable_and_encrypted_locked_badges_are_visually_and_textually_d
     # story's risk section calls out.
     assert "var(--error)" not in not_applicable_rule
     assert "var(--error)" in encrypted_rule
+
+
+# --- bpk-01: "key extracted" badge state + bulk-select checkbox candidate attribute ---
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_key_extracted_when_extracted_at_set(mock_list, mock_credential, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_credential.return_value = {
+        str(wallet_file): {
+            "is_wallet_dat": True,
+            "error": None,
+            "addresses": {"1abc": "key"},
+            "extracted_at": {"1abc": 1700000000.0},
+        }
+    }
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "key extracted" in body
+    assert "credential-extracted" in body
+    # Must not simultaneously claim the never-extracted state.
+    assert "key extractable, no password needed" not in body
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_key_extractable_when_never_extracted(mock_list, mock_credential, client, tmp_path):
+    """
+    key_type == 'key' but extracted_at is None (or the wallet_scan dict
+    doesn't even carry an 'extracted_at' entry for this address) must
+    still render the original never-extracted state, not the new one.
+    """
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_credential.return_value = {
+        str(wallet_file): {"is_wallet_dat": True, "error": None, "addresses": {"1abc": "key"}, "extracted_at": {"1abc": None}}
+    }
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "key extractable, no password needed" in body
+    assert "credential-extractable" in body
+    assert "key extracted<" not in body
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.list_findings")
+def test_findings_page_credential_badge_key_extractable_when_extracted_at_key_missing(mock_list, mock_credential, client, tmp_path):
+    """
+    Backward-compat: a wallet_scan dict with no 'extracted_at' entry at
+    all (e.g. an older/mocked shape) must not error and must fall back
+    to the never-extracted rendering, never crash the page.
+    """
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_credential.return_value = {str(wallet_file): {"is_wallet_dat": True, "error": None, "addresses": {"1abc": "key"}}}
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "key extractable, no password needed" in body
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.list_findings")
+def test_findings_page_checkbox_data_key_extractable_set_for_key_type(mock_list, mock_credential, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_credential.return_value = {
+        str(wallet_file): {"is_wallet_dat": True, "error": None, "addresses": {"1abc": "key"}, "extracted_at": {"1abc": None}}
+    }
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert 'data-key-extractable="1"' in body
+
+
+@patch("web.app.credential_status_index")
+@patch("web.app.list_findings")
+def test_findings_page_checkbox_data_key_extractable_unset_for_ckey(mock_list, mock_credential, client, tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": str(wallet_file), "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+    mock_credential.return_value = {
+        str(wallet_file): {"is_wallet_dat": True, "error": None, "addresses": {"1abc": "ckey"}, "extracted_at": {}}
+    }
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert 'data-key-extractable="0"' in body
+    assert 'data-key-extractable="1"' not in body
+
+
+@patch("web.app.credential_status_index", return_value={})
+@patch("web.app.list_findings")
+def test_findings_page_checkbox_data_key_extractable_unset_when_never_scanned(mock_list, mock_credential, client):
+    mock_list.return_value = [
+        {"coin": "Bitcoin", "address": "1abc", "balance": 0.0, "source_path": "/never-scanned.dat", "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 0, "watch_note": ""}
+    ]
+
+    resp = client.get("/findings")
+
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert 'data-key-extractable="0"' in body
+
+
+def test_credential_extracted_badge_css_is_visually_distinct_from_extractable():
+    """
+    'key extracted' and 'key extractable, no password needed' are two
+    different facts (already-copied-out vs. never-touched) -- the CSS
+    must not render them identically, mirroring the not-applicable/
+    encrypted distinctness test above.
+    """
+    style_css = open("web/static/style.css").read()
+
+    assert ".credential-extracted" in style_css
+    assert ".credential-extractable" in style_css
+    extracted_rule = style_css.split(".credential-extracted", 1)[1].split("}", 1)[0]
+    extractable_rule = style_css.split(".credential-extractable", 1)[1].split("}", 1)[0]
+    assert extracted_rule != extractable_rule

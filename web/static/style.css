@@ -557,6 +557,14 @@ pre {
    someone scanning quickly. */
 .credential-badge { margin-left: 0.35rem; }
 .credential-extractable { background: var(--success); color: var(--accent-ink); font-weight: 700; }
+/* bpk-01: a "key extractable" address that has ALREADY had its private
+   key extracted and copied out -- a distinct, later fact from merely
+   "extractable," and must not render identically to it (a user
+   re-scanning the same wallet should be able to tell "already got this
+   one" apart from "still to do" at a glance). Solid brand-accent fill --
+   deliberately not the same success-green as still-untouched-extractable,
+   and deliberately not the alarm-red of encrypted-locked either. */
+.credential-extracted { background: var(--accent); color: var(--accent-ink); font-weight: 700; border: 1px solid var(--accent-bright); }
 .credential-encrypted { background: var(--error-bg); color: var(--error); border: 1px solid var(--error); }
 .credential-not-applicable {
   background: transparent;

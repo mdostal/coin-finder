@@ -40,7 +40,12 @@
    bool, a cheap stat() the caller already did (NOT the expensive BDB
    scan). wallet_scan: credential_status_by_path.get(source_path) --
    None if this wallet_path has never been scanned at all, otherwise
-   {"is_wallet_dat", "error", "addresses": {address: "key"|"ckey"}}.
+   {"is_wallet_dat", "error", "addresses": {address: "key"|"ckey"},
+   "extracted_at": {address: float|None}}. extracted_at is read via
+   .get("extracted_at", {}) rather than attribute access so a wallet_scan
+   dict from before bpk-01 (e.g. an older test double) that lacks the key
+   entirely still renders the pre-bpk-01 "extractable" state instead of
+   erroring.
 
    DELIBERATE DESIGN CHOICE, the story's named risk: every "can't tell
    you anything" branch below (wrong coin, no/missing source file, not
@@ -54,8 +59,11 @@
    UI awkwardness. Only the title tooltip differs branch to branch. #}
 {% macro credential_status_badge(coin, source_path, address, source_exists, wallet_scan) %}
 {% set key_type = wallet_scan.addresses.get(address) if wallet_scan else none %}
+{% set extracted_at = wallet_scan.get("extracted_at", {}).get(address) if wallet_scan else none %}
 {% if coin != "Bitcoin" or not source_path or not source_exists %}
 <span class="status-pill credential-badge credential-not-applicable" title="Credential-extractability is only checked for Bitcoin Core wallet.dat findings whose source file still exists on disk.">not checked / not applicable</span>
+{% elif key_type == "key" and extracted_at %}
+<span class="status-pill credential-badge credential-extracted" title="This address's private key was already extracted and copied out in a past bulk/single extraction. Re-extraction is safe and read-only if you need it again.">key extracted</span>
 {% elif key_type == "key" %}
 <span class="status-pill credential-badge credential-extractable" title="This address's private key was found in an UNENCRYPTED record in this wallet.dat -- no password needed at all. The strongest possible state.">key extractable, no password needed</span>
 {% elif key_type == "ckey" %}
