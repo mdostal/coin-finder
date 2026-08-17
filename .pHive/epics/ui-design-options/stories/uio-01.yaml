@@ -1,0 +1,139 @@
+id: uio-01
+epic: ui-design-options
+title: Unified hybrid Findings redesign
+status: pending
+complexity: high
+methodology: tdd
+depends_on: []
+
+description: >
+  Rebuild the Findings page (and the shared design tokens every page
+  inherits) as a deliberate hybrid of three independently-produced design
+  proposals, per the user's direct synthesis after reviewing all three live:
+  Option A's structure/majority styling (vertical coin-name tabs down the
+  card's left edge, wax-seal "CONFIRMED FIND" treatment for a real balance,
+  warm paper/brass palette) + Option B's path metadata wording ("LOGGED
+  {date} · SESSION {n} · DRIVE "{name}"" line, "Chain of custody — source
+  path" label) + Option C's expandable `└─` tree path visualization
+  (collapsed by default -- B's always-expanded version "takes up too much
+  real-estate") + Option C's coin filter tabs (All/BTC/LTC/...) + Option B's
+  search field + real coin icons (already built this session,
+  web/static/coin-icons/) restored into option A's vertical tabs, since none
+  of the three mockup agents had access to that existing asset.
+
+acceptance_criteria:
+  - Findings page renders coin-name tabs vertically down the left edge of
+    each card (option A layout), using real coin icons
+    (web/static/coin-icons/*.svg via the existing coin_badge macro pattern)
+    where available, falling back to the existing initials badge otherwise.
+  - A confirmed non-zero balance gets a distinct "CONFIRMED FIND"
+    wax-seal-style visual treatment, not just the existing gold-highlight
+    row from the session-1 pass -- must be unmistakable at a glance in a
+    long, mostly-zero-balance list (this is the direct continuation of the
+    partial-balance-visibility fix already shipped this session).
+  - Each finding with a source_path shows a metadata line in the exact
+    wording style "LOGGED {last_checked_at, formatted} · SOURCE
+    {source_label or 'scan'}" (SESSION/DRIVE fields from option B's mockup
+    were fictional demo data -- this app's real finding records don't carry
+    a session/drive id, so adapt the wording to fields that actually exist:
+    last_checked_at, source_label -- do not invent new backend fields for
+    this story) followed by a "Chain of custody — source path" disclosure.
+  - That disclosure is collapsed by default and, when expanded, renders the
+    full path as an indented tree with `└─` connectors, one path segment
+    per line, the filename bolded at the end -- replacing the current
+    truncated path_chip display. The full path must still be reachable via
+    copy (keep a Copy affordance) even when collapsed.
+  - A coin filter tab strip (All + one tab per distinct coin present in the
+    current findings) filters the visible list client-side (or via a query
+    param -- implementer's choice, tested either way) without a full page
+    reload feeling required for the common case.
+  - A search field filters the visible findings by address/coin/source
+    substring, client-side, live as you type.
+  - All existing findings.html functionality is preserved: bulk-select
+    checkboxes for Bitcoin rows, per-finding Watch/Unwatch with note,
+    per-finding Try unlock / Graph / Check fork coins / Archive-Unarchive,
+    the "Archive all zero-balance" and "Clear all findings" actions, the
+    overlap/related-count banners.
+  - Existing tests in tests/test_web_app_findings.py and
+    tests/test_findings.py continue to pass (balance-sort-priority,
+    coin-icon rendering, path-chip Copy/title attributes covered by
+    existing tests must still hold true in the new tree-based path display
+    -- adapt those specific assertions to the new markup shape, do not
+    delete the underlying guarantees they check).
+
+steps:
+  - phase: research
+    notes: >
+      Reference mockups (do not literally copy their demo/fictional data or
+      session/drive fields -- adapt structure and visual language only):
+      /private/tmp/claude-501/-Users-mdostal-Documents-work-personal-coin-finder/b8795e65-2189-40bd-99c4-ea7bd6fa6967/scratchpad/design-option-a-archival.html
+      (structure/majority styling),
+      /private/tmp/claude-501/-Users-mdostal-Documents-work-personal-coin-finder/b8795e65-2189-40bd-99c4-ea7bd6fa6967/scratchpad/design-option-b-investigative.html
+      (path metadata wording -- "Chain of custody — source path"),
+      /private/tmp/claude-501/-Users-mdostal-Documents-work-personal-coin-finder/b8795e65-2189-40bd-99c4-ea7bd6fa6967/scratchpad/design-option-c-terminal.html
+      (expandable tree path viz + coin tabs -- NOTE this mockup had real
+      bugs when tested live: Actions column overflowed the viewport, and
+      path truncation was mid-string rather than end-anchored -- do not
+      carry those specific implementation choices over, only the tree
+      -connector visual idea and the coin-tabs idea).
+      Current real implementation to build on top of, not from scratch:
+      web/templates/findings.html, web/templates/_macros.html
+      (coin_badge, path_chip macros), web/static/style.css (existing
+      token system + .finding-card/.coin-badge/.path-chip component
+      styles), web/static/path-chip.js (existing Copy-button JS, extend
+      rather than replace), web/static/coin-icons/*.svg (existing real
+      coin logos), web/findings.py (list_findings, already sorts
+      watched-then-balance-then-recency).
+  - phase: test-spec
+    notes: >
+      Extend tests/test_web_app_findings.py: coin filter tabs present and
+      named per distinct coin in the findings list; search input present;
+      collapsed-by-default tree disclosure present (a <details> or
+      equivalent, not expanded by default); tree connector markup present
+      when expanded (or in the DOM even if visually collapsed, implementer's
+      choice, whichever is simpler to test reliably); CONFIRMED-style
+      treatment present for a non-zero-balance finding, absent for a zero
+      -balance one; existing bulk-select/action assertions still pass
+      against the new markup.
+  - phase: implement
+  - phase: review
+  - phase: integrate
+
+context:
+  files_to_modify:
+    - web/templates/findings.html
+    - web/templates/_macros.html
+    - web/static/style.css
+    - web/static/path-chip.js (extend for tree expand/collapse + search/filter JS, or add a new findings.js addition -- implementer's choice)
+    - tests/test_web_app_findings.py
+    - tests/test_findings.py (only if list_findings() sort/shape needs any adjustment -- expected to be unaffected, this is a display-layer story)
+
+design_decisions:
+  - Hybrid, not a straight pick of one option -- majority structure from A,
+    specific named elements from B and C, per the user's own explicit
+    synthesis instruction, not an implementer's re-interpretation of "pick
+    the best one."
+  - Session/drive metadata fields from option B's mockup were fictional
+    demo data for that mockup only -- this app's real Finding record has no
+    session/drive concept. Adapt the WORDING STYLE (a compact "LOGGED ...
+    · ..." metadata line) to real fields (last_checked_at, source_label),
+    do not invent new backend schema to manufacture fake session/drive
+    data just to match the mockup literally.
+  - Tree path display is collapsed by default specifically because the user
+    said B's always-expanded version "takes up too much real-estate" --
+    this is a direct, explicit requirement, not a style preference to
+    reconsider.
+
+risks:
+  - severity: medium
+    description: Reconciling three visually distinct reference mockups into one coherent hybrid risks an inconsistent, seams-showing result if elements are copy-pasted rather than genuinely integrated into option A's existing token system.
+    mitigation: Treat option A's existing tokens/typography/spacing as the base system throughout -- B and C only contribute specific named UI elements (path wording, tree connectors, coin tabs, search), not their own competing token systems.
+  - severity: low
+    description: Client-side search/filter JS could regress for a very large findings list (hundreds of rows) if done naively (full DOM re-render per keystroke).
+    mitigation: Simple show/hide via a class toggle per row is sufficient at this app's realistic scale (a personal recovery tool, not a multi-tenant SaaS) -- no need for virtualization.
+
+references:
+  - path: web/templates/findings.html
+    relevant_excerpt: existing card-based structure, coin_badge/path_chip macro usage, bulk-select wiring (already redesigned this session, this story extends it, not replaces from scratch)
+  - path: web/static/style.css
+    relevant_excerpt: existing --accent/--bg/--text token system, .finding-card/.coin-badge/.path-chip component classes to extend

@@ -76,18 +76,69 @@ A review pass then evaluates all three (plus the already-merged pass as a
 fourth reference point) against section 3's real constraints, and the user
 makes the final call.
 
-## 5. Open questions for the user
+## 5. User review (resolved)
 
-1. Any of the three (or the existing merged pass) an immediate no?
-2. Is single-page (Findings) enough to judge by, or do you want the winning
-   direction mocked up on a second page type (e.g. the Scan page) before
-   committing to implementation?
-3. Keep the light/dark toggle regardless of which direction wins, or is that
-   negotiable per-direction?
+All three options were built (by three independent agents, blind to each
+other and to the session-1 pass), published as artifacts, and reviewed
+live by the user. Verbatim reaction: "man... all of these are SO MUCH
+NICER!!" All three held up under direct inspection (not just the
+proposing agent's own report) -- option C had real, verified bugs (Actions
+column overflowing the viewport, mid-string path truncation instead of
+end-anchored, more visible encoding mangling) that were caught and
+disclosed before the user picked, consistent with this project's
+trust-but-verify discipline.
+
+**Winning synthesis -- not a single option, a deliberate hybrid:**
+
+- **Structure/majority styling: Option A** (archival/vault) -- vertical
+  coin-name tabs down the card's left edge (card-catalog style), the
+  wax-seal "CONFIRMED FIND" treatment for a real non-zero balance, warm
+  paper/brass palette as the default.
+- **Path metadata wording: Option B's phrasing** -- the "LOGGED
+  {date} · SESSION {n} · DRIVE "{name}" ({size})" line and the "Chain of
+  custody — source path" label, which the user called out by name as
+  something they specifically liked.
+- **Path visualization: Option C's expandable tree** -- `└─` connector
+  tree, collapsed by default (B's always-expanded version "takes up too
+  much real-estate" per direct user feedback), click to expand.
+- **Filtering: Option C's coin tabs** (All / BTC / LTC / OKCash / ...)
+  **+ Option B's search field.**
+- **Real coin icons** (already built this session, `web/static/coin-icons/`)
+  restored into option A's vertical tabs -- none of the three mockup
+  agents had access to that existing asset, so all three fell back to
+  text/initials there.
+- **Theme mechanism:** not full structural swapping between A/B/C (three
+  parallel template systems is real, ongoing maintenance weight for
+  little payoff) -- one unified layout (the hybrid above) with a
+  **Settings page offering multiple named color palettes** to swap
+  between (e.g. Archival/warm-brass, a cooler Docket-tinted palette, an
+  amber Terminal-tinted palette), using the same CSS-custom-property
+  token-swap mechanism the existing dark/light toggle already proved out,
+  just extended from 2 states to N named presets.
+- **Group actions on Findings:** Watch and Try-unlock added to the
+  existing bulk-select flow (Graph and Check-fork-coins already run in
+  bulk from a prior epic this session).
+
+## 5b. Traceability gap (flagged, not silently dropped)
+
+The user also asked, in the same message, for related-account discovery
+to specifically surface **which of the user's own known wallets** touched
+a candidate address that holds coinage -- "there is a chance you know
+what it is or may still have access to that other one as well." The
+existing `confidence-scored-related-accounts` epic (shipped earlier this
+session) already factors multi-crawl overlap into its confidence score
+(`cross_run_count` bonus) but does not surface the actual list of which
+known findings/wallets a candidate was co-spent/output-linked with. That
+readable "touched by: wallet X, wallet Y" surface is a real, distinct
+enhancement to `web/crawl_runs.py`'s confidence scoring + the related
+-accounts template, not a Findings-page styling concern. **Out of scope
+for this UI epic** -- tracked as a follow-on rather than dropped.
 
 ## 6. Scale assessment
 
-**Medium.** Multi-file (style system + every template that renders findings
--- already touched ~9 files in the session-1 pass), but not
-multi-system/long-horizon. No H/V slicing needed beyond "mockup and choose,
-then implement the winner as its own story."
+**Medium.** Multi-file (style system + every template that renders
+findings, a new settings route/page/persistence, JS for the
+expand/collapse tree, bulk-action wiring) -- already touched ~9 files in
+the session-1 pass and this hybrid adds a real settings subsystem on top.
+Not multi-system/long-horizon; no H/V slicing needed beyond the story
+breakdown below.

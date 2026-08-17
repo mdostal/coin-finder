@@ -1,0 +1,20 @@
+name: ui-design-options
+title: Hybrid findings redesign (A structure + B path wording + C tree/tabs) + swappable color themes + group actions
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+stories:
+  - id: uio-01
+    title: Unified hybrid Findings redesign
+    complexity: high
+    depends_on: []
+  - id: uio-02
+    title: Settings page with swappable color palettes
+    complexity: medium
+    depends_on: [uio-01]
+  - id: uio-03
+    title: Group Watch + Try-unlock bulk actions
+    complexity: low
+    depends_on: [uio-01]
