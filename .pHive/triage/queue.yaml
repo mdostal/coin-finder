@@ -1,0 +1,49 @@
+items:
+  - id: bulk-private-key-extraction
+    title: Bulk "try to extract private keys" across findings
+    description: >
+      User's own words: "can we try to extract keys from MOST of them etc
+      as well" -- extend tools/extract_private_key.py's existing
+      per-address WIF-extraction flow (currently a manual, one-at-a-time
+      action) into a bulk action over a multi-select of findings, same
+      shape as the bulk Try-unlock action shipped in ui-design-options
+      (uio-03). Directly related to the in-flight
+      credential-clarity-and-unlock-ux epic's credential-completeness
+      indicator -- that epic's research into extract_private_key.py's
+      real preconditions/cost should inform whether this is safe to run
+      unattended across many findings at once or needs throttling/limits.
+      Deliberately NOT folded into the in-flight epic per the user's
+      explicit instruction to keep recording new asks as backlog rather
+      than scope-creeping the epic already in flight.
+    priority: high
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T10:45:00-05:00"
+    raised_by: mathew
+
+  - id: multi-cluster-relationship-graph
+    title: Graph multiple related-account groups together, see cross-sections
+    description: >
+      User's own words: "view related accounts should also allow us to
+      graph all of them together and see their clusters and if there are
+      cross sections and whatnot, i really care about seeing multiple of
+      them together there." Today's group-view-graph /
+      confidence-scored-related-accounts epics only visualize ONE
+      related-account group at a time. This asks for a real graph-viz
+      feature: combine multiple crawl_runs/related-account groups into
+      one view so overlaps/cross-sections between groups are visible --
+      e.g. a wallet that shows up as related in more than one group.
+      Needs real design work: how multiple groups compose visually at
+      scale, what "cross-section" means concretely against the existing
+      web/crawl_runs.py confidence-scoring data model, whether Cytoscape
+      (already vendored, web/static/vendor/cytoscape.min.js) can take
+      this directly or needs new aggregation logic first.
+    priority: high
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-17T10:40:00-05:00"
+    raised_by: mathew
