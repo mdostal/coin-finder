@@ -45,6 +45,30 @@ def test_mount_starts_rclone_nfsmount_read_only(mock_popen, tmp_path):
 
 
 @patch("web.mounts.subprocess.Popen")
+def test_mount_tunes_checkers_and_skips_dangling_shortcuts(mock_popen, tmp_path):
+    """
+    Regression test for a real stalled scan hit live: a `find` job over a
+    large (6TB) real Google Drive mount ran for 10+ hours with rclone's
+    default --checkers 8, no visible progress, and a mostly-idle rclone
+    process -- the mount log itself was clean (no errors), just too
+    little listing concurrency for the drive's real size. --checkers 32
+    and --drive-skip-dangling-shortcuts (a handful of broken shortcuts on
+    this real Drive were getting needlessly re-resolved on every
+    directory cache refresh) fix that.
+    """
+    mock_popen.return_value = MagicMock(pid=12345)
+    state_path = tmp_path / "mounts_state.json"
+    mount_point = tmp_path / "mnt"
+
+    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path)
+
+    args = mock_popen.call_args[0][0]
+    assert "--checkers" in args
+    assert args[args.index("--checkers") + 1] == "32"
+    assert "--drive-skip-dangling-shortcuts" in args
+
+
+@patch("web.mounts.subprocess.Popen")
 def test_mount_captures_stderr_to_a_log_file_not_devnull(mock_popen, tmp_path):
     mock_popen.return_value = MagicMock(pid=12345)
     state_path = tmp_path / "mounts_state.json"
