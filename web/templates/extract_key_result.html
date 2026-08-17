@@ -11,7 +11,10 @@ reload or come back to this page. Copy it now.
 <div class="banner error">{{ job.error }}</div>
 {% elif job.result %}
 <div class="card">
-<pre>{{ job.result }}</pre>
+  <span class="secret-field">
+    <strong style="color:var(--accent)"><code class="secret-mask" data-secret="{{ job.result }}" data-revealed="false">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</code></strong>
+    <button type="button" class="secret-reveal-btn btn-secondary" aria-label="Reveal private key" aria-pressed="false" title="Reveal">&#128065;</button>
+  </span>
 </div>
 <p class="subtle">Import this into <a href="https://electrum.org/">Electrum</a>
 ("Wallet" -&gt; "Private keys" -&gt; "Import"), then use Electrum's own

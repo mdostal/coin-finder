@@ -1,3 +1,4 @@
+import re
 import time
 from unittest.mock import patch
 
@@ -109,6 +110,51 @@ def test_extract_key_defaults_allow_online_false_when_checkbox_unchecked(mock_st
     _wait_for_terminal(client, job_id)
 
     mock_extract.assert_called_once_with(str(wallet_file), "1abc", allow_online=False)
+
+
+@patch("web.app.extract_wif_for_address")
+@patch("web.app.check_network_status")
+def test_extract_key_result_masks_wif_by_default_with_eye_toggle(mock_status, mock_extract, client, tmp_path):
+    """
+    bpk-03: the single-finding extract-key result page must not paint the
+    real WIF as its default visible text -- same masked placeholder +
+    eye-toggle pattern ccu-01 already shipped for auto-unlock result and
+    vault reveal, applied here for consistency. The real value is still
+    present in the page's initial HTML (a data attribute) so the
+    client-side reveal needs no second request.
+    """
+    mock_status.return_value = "OFFLINE"
+    mock_extract.return_value = "5JsomeRealLookingWIFStringHere1234567890abcd"
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_bytes(b"x")
+
+    resp = client.post(
+        "/item/extract-key",
+        data={"wallet_path": str(wallet_file), "address": "1abc"},
+        follow_redirects=False,
+    )
+    job_id = _job_id_from_redirect(resp)
+    _wait_for_terminal(client, job_id)
+
+    view = client.get(f"/item/extract-key-result/{job_id}")
+    assert view.status_code == 200
+    html = view.data.decode()
+
+    # The real value is still in the page's initial HTML (no second
+    # request needed to reveal it) -- but as a data attribute, not as
+    # the default visible text.
+    assert 'data-secret="5JsomeRealLookingWIFStringHere1234567890abcd"' in html
+
+    # The visible text content of the masked element must NOT be the
+    # raw secret -- it's a bullet/dot placeholder instead.
+    match = re.search(r'<code class="secret-mask"[^>]*>([^<]*)</code>', html)
+    assert match is not None, "expected a masked secret-mask element on the extract-key result page"
+    visible_text = match.group(1)
+    assert "5Jsome" not in visible_text
+    assert visible_text.strip() != ""
+
+    # An eye-toggle button must be present next to it to reveal in place.
+    assert 'class="secret-reveal-btn' in html
 
 
 def test_extract_key_rejects_missing_wallet_file(client, tmp_path):
