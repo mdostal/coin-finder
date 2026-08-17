@@ -631,6 +631,21 @@ pre {
   flex-shrink: 0;
 }
 
+/* Masked-by-default secret value (auto-unlock result Password column,
+   vault reveal page) + its eye-toggle button -- client-side reveal/
+   re-mask only, web/static/secret-reveal.js. */
+.secret-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.secret-reveal-btn {
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.2rem 0.5rem;
+  flex-shrink: 0;
+}
+
 /* ============ Findings toolbar: coin filter tabs + live search ============
    Option C's coin-tab idea + Option B's search field, client-side only
    (web/static/findings.js) -- filters .finding-card rows via `hidden`,

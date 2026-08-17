@@ -19,7 +19,10 @@ reload or come back to this page.
         <td><code>{{ path }}</code></td>
         <td>
           {% if r.value %}
-          <strong style="color:var(--accent)"><code>{{ r.value }}</code></strong>
+          <span class="secret-field">
+            <strong style="color:var(--accent)"><code class="secret-mask" data-secret="{{ r.value }}" data-revealed="false">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</code></strong>
+            <button type="button" class="secret-reveal-btn btn-secondary" aria-label="Reveal password" aria-pressed="false" title="Reveal">&#128065;</button>
+          </span>
           {% else %}
           <span class="subtle">no match</span>
           {% endif %}

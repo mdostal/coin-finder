@@ -1,3 +1,4 @@
+import re
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -146,6 +147,32 @@ def test_vault_reveal_never_creates_a_job(mock_resolve, client):
 
     jobs_resp = client.get("/jobs")
     assert b"hunter2!!" not in jobs_resp.data
+
+
+@patch("web.app.resolve_vault_entries_with_values")
+def test_vault_reveal_masks_value_by_default_with_eye_toggle(mock_resolve, client):
+    """
+    ccu-01: the vault reveal page must not paint the real secret as its
+    default visible text -- masked placeholder + eye-toggle, real value
+    still present in the initial HTML (data attribute) so no second
+    request is needed to reveal it.
+    """
+    mock_resolve.return_value = [("password-1", "hunter2!!")]
+
+    resp = client.post("/vault/reveal", data={"name": "password-1"})
+
+    assert resp.status_code == 200
+    html = resp.data.decode()
+
+    assert 'data-secret="hunter2!!"' in html
+
+    match = re.search(r'<code class="secret-mask"[^>]*>([^<]*)</code>', html)
+    assert match is not None, "expected a masked secret-mask element on the reveal page"
+    visible_text = match.group(1)
+    assert "hunter2!!" not in visible_text
+    assert visible_text.strip() != ""
+
+    assert 'class="secret-reveal-btn' in html
 
 
 @patch("web.app.list_auto_unlock_history")
