@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-08-17
+
+### Added
+
+- **Findings now show what you actually have to unlock each wallet with,
+  not just whether a balance was found.** A password result page or a
+  vault reveal used to print the real value in plaintext the instant the
+  page loaded -- it now stays masked behind a click-to-reveal eye icon,
+  right in place, no page navigation.
+- **Every finding with a source file now shows whether it's already been
+  tried.** A small badge next to each finding says "unlocked," "tried,
+  no match," or "not yet tried," pulled from your past unlock attempts --
+  and after running a batch of unlock attempts, a persistent summary
+  ("N unlocked, M no match") stays visible on the Findings page itself
+  instead of only showing once and disappearing.
+- **A new "Check credential status" action tells you, for Bitcoin wallet
+  files specifically, whether a private key is directly extractable with
+  no password at all, or the wallet is genuinely encrypted with no known
+  password yet.** This runs as a background check (never blocking page
+  load) and is clearly marked as not-yet-checked/not-applicable for
+  every other wallet format, so an unscanned wallet never looks
+  indistinguishable from one that's genuinely a dead end.
+
 ## [0.51.3] - 2026-08-17
 
 ### Fixed
