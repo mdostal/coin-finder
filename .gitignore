@@ -10,6 +10,7 @@
 # web/app.py's own scan output + local runtime state -- never commit
 /ui_output/
 /web/bound_targets.json
+/web/scan_excludes.json
 /web/mounts_state.json
 /web/findings.db
 /web/crawl_runs.db

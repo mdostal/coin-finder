@@ -13,6 +13,21 @@ CHECKPOINT_EVERY_SECONDS = 20
 PROGRESS_EVERY_SECONDS = 0.5
 
 
+def _is_excluded(candidate_path, excludes):
+    """
+    True if candidate_path is one of excludes, or nested under one --
+    matched on real path components (via Path.parts), not a naive string
+    prefix, so an exclude of "/Volumes/Old" never accidentally also
+    matches "/Volumes/OldDrive2".
+    """
+    candidate_parts = Path(candidate_path).parts
+    for excluded in excludes:
+        excluded_parts = Path(excluded).parts
+        if candidate_parts[: len(excluded_parts)] == excluded_parts:
+            return True
+    return False
+
+
 def _load_checkpoint(checkpoint_path, start_path):
     if not checkpoint_path or not Path(checkpoint_path).exists():
         return set(), []
@@ -26,7 +41,7 @@ def _load_checkpoint(checkpoint_path, start_path):
     return set(data.get("completed_dirs", [])), list(data.get("potential_wallets", []))
 
 
-def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_callback=None):
+def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_callback=None, excludes=None):
     """
     Walks start_path looking for likely wallet files. A long walk over a
     huge mounted drive is exactly the kind of job that used to be thrown
@@ -51,9 +66,16 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
         current path) rather than a fabricated percentage. Throttled to
         roughly every PROGRESS_EVERY_SECONDS so a fast walk over small
         directories doesn't flood the caller.
+    :param excludes: optional list of paths -- user-configurable (see
+        web/scan_excludes.py), never a built-in blocklist. A directory
+        that is one of these, or nested under one, is skipped entirely
+        (pruned from os.walk, not just excluded from the results) --
+        the actual point being to avoid both wasted time AND false-
+        positive matches from paths already known not to matter.
     """
     if progress_callback is None:
         progress_callback = lambda current, total, message="": None
+    excludes = excludes or []
 
     completed_dirs, potential_wallets = _load_checkpoint(checkpoint_path, start_path)
     if completed_dirs:
@@ -76,6 +98,13 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
     dirs_walked = len(completed_dirs)
 
     for root, dirs, files in os.walk(start_path):
+        if excludes and _is_excluded(root, excludes):
+            dirs[:] = []  # don't descend into an excluded subtree at all
+            continue
+
+        if excludes:
+            dirs[:] = [d for d in dirs if not _is_excluded(str(Path(root) / d), excludes)]
+
         if root in completed_dirs:
             continue
 

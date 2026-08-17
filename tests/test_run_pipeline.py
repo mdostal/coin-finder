@@ -189,7 +189,7 @@ def test_find_forwards_progress_callback_with_stage_prefixes(tmp_path):
     output_dir = tmp_path / "output"
     input_dir.mkdir()
 
-    def fake_search(start_path, output_file, checkpoint_path=None, progress_callback=None):
+    def fake_search(start_path, output_file, checkpoint_path=None, progress_callback=None, excludes=None):
         progress_callback(3, None, "3 potential wallet(s) found so far — /a")
         with open(output_file, "w") as f:
             pass

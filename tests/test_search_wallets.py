@@ -105,3 +105,55 @@ def test_search_for_wallets_reports_indeterminate_progress(tmp_path, monkeypatch
     assert calls  # at least one progress report happened
     assert all(total is None for _, total, _ in calls)  # always indeterminate
     assert calls[-1][2].startswith("1 potential wallet(s) found")  # final call reports the real count
+
+
+def test_search_for_wallets_skips_an_excluded_directory_entirely(tmp_path):
+    excluded_dir = tmp_path / "junk"
+    excluded_dir.mkdir()
+    (excluded_dir / "wallet.dat").write_bytes(b"x" * 100)
+    (tmp_path / "real_wallet.dat").write_bytes(b"x" * 100)
+    output_file = tmp_path / "out.txt"
+
+    results = search_for_wallets(str(tmp_path), str(output_file), excludes=[str(excluded_dir)])
+
+    assert str(tmp_path / "real_wallet.dat") in results
+    assert str(excluded_dir / "wallet.dat") not in results
+
+
+def test_search_for_wallets_excludes_nested_subdirectories_too(tmp_path):
+    excluded_dir = tmp_path / "junk"
+    nested = excluded_dir / "deeper" / "still_deeper"
+    nested.mkdir(parents=True)
+    (nested / "wallet.dat").write_bytes(b"x" * 100)
+    output_file = tmp_path / "out.txt"
+
+    results = search_for_wallets(str(tmp_path), str(output_file), excludes=[str(excluded_dir)])
+
+    assert results == []
+
+
+def test_search_for_wallets_exclude_does_not_match_a_similarly_named_sibling(tmp_path):
+    """
+    Regression guard: excluding "/Volumes/Old" must not accidentally also
+    exclude "/Volumes/OldDrive2" -- a naive string-prefix match would get
+    this wrong; real path-component matching gets it right.
+    """
+    excluded_dir = tmp_path / "Old"
+    excluded_dir.mkdir()
+    sibling_dir = tmp_path / "OldDrive2"
+    sibling_dir.mkdir()
+    (sibling_dir / "wallet.dat").write_bytes(b"x" * 100)
+    output_file = tmp_path / "out.txt"
+
+    results = search_for_wallets(str(tmp_path), str(output_file), excludes=[str(excluded_dir)])
+
+    assert str(sibling_dir / "wallet.dat") in results
+
+
+def test_search_for_wallets_with_no_excludes_is_unchanged(tmp_path):
+    (tmp_path / "wallet.dat").write_bytes(b"x" * 100)
+    output_file = tmp_path / "out.txt"
+
+    results = search_for_wallets(str(tmp_path), str(output_file))
+
+    assert str(tmp_path / "wallet.dat") in results

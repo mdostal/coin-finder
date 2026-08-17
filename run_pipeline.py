@@ -22,7 +22,7 @@ def _paths(output_dir):
     }
 
 
-def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, progress_callback=None):
+def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
     """
     Stage 1 -- search + analyze only. No network calls, so it's fast
     regardless of how many addresses turn up. Returns a summary (files
@@ -45,6 +45,7 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, progre
         walked, no known total) and analyze_wallets (determinate -- a
         known file count), each with its own stage prefix so a caller
         showing one progress bar can tell which sub-stage is running.
+    :param excludes: optional list of paths -- see tools.search_wallets.search_for_wallets().
     :return: {"output_dir", "files_found", "coin_counts", "total_address_instances"}
     """
     if progress_callback is None:
@@ -60,6 +61,7 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, progre
         paths["search_output"],
         checkpoint_path=checkpoint_path,
         progress_callback=lambda c, t, m="": progress_callback(c, t, f"Searching: {m}"),
+        excludes=excludes,
     )
 
     print("Running wallet analysis...")

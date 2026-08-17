@@ -98,7 +98,7 @@ def test_find_job_lifecycle_reaches_done(mock_pipeline, mock_hidden, client, tmp
 @patch("web.app.scan_for_hidden_volumes")
 @patch("web.app.run_pipeline")
 def test_find_job_wires_live_progress_from_both_search_and_hidden_volume_stages(mock_pipeline, mock_hidden, client, tmp_path):
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
         progress_callback(3, None, "Searching: 3 potential wallet(s) found so far — /a")
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
 
@@ -167,7 +167,7 @@ def test_check_balances_records_findings_and_flows_progress(mock_pipeline, mock_
     output_dir = tmp_path / "out"
     balances_data = {"walletA.dat": {"Bitcoin": {"1abc": 0.5}}}
 
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
         return {"output_dir": out_dir, "files_found": 1, "coin_counts": {"Bitcoin": 1}, "total_address_instances": 1}
 
     def fake_check_balances(out_dir, progress_callback=None, checkpoint_path=None):
@@ -209,7 +209,7 @@ def test_check_balances_404s_while_find_job_still_running(mock_pipeline, mock_hi
     started = threading.Event()
     release = threading.Event()
 
-    def slow_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None):
+    def slow_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
         started.set()
         release.wait(timeout=2)
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}

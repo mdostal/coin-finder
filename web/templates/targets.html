@@ -74,6 +74,38 @@ crawl.</p>
 </div>
 
 <div class="card">
+  <h3 style="margin-top:0">Excluded paths</h3>
+  <p class="subtle">Paths a scan skips entirely -- never descended into, not just filtered from
+  results. Nothing is excluded by default; add whatever you already know isn't worth scanning
+  (an old junk Windows install, a path you know is empty, wherever false positives keep coming
+  from). Excluding a parent path also excludes everything nested under it.</p>
+  {% if excludes %}
+  <table>
+    <thead><tr><th>Path</th><th></th></tr></thead>
+    <tbody>
+      {% for e in excludes %}
+      <tr>
+        <td><code>{{ e.path }}</code></td>
+        <td>
+          <form method="post" action="{{ url_for('targets_excludes_remove') }}" style="display:inline">
+            <input type="hidden" name="path" value="{{ e.path }}">
+            <button type="submit" class="btn-secondary">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Nothing excluded yet.</p>
+  {% endif %}
+  <form class="inline-form" method="post" action="{{ url_for('targets_excludes_add') }}">
+    {{ m.path_input("Path to exclude", "path", mode="directory", required=True) }}
+    <button type="submit">Exclude</button>
+  </form>
+</div>
+
+<div class="card">
   <h3 style="margin-top:0">Add a target manually</h3>
   <form class="inline-form" method="post" action="{{ url_for('targets_add') }}">
     <label>Label</label>

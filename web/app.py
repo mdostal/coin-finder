@@ -42,6 +42,7 @@ from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
 from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, list_crawl_runs, record_crawl_run
 from web.scan_history import clear_scan_history, list_scan_history, record_scan
 from web.auto_unlock_history import clear_auto_unlock_history, list_auto_unlock_history, record_auto_unlock_run
+from web.scan_excludes import add_exclude, list_excludes, remove_exclude
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
 
@@ -750,7 +751,7 @@ def create_app(host="127.0.0.1"):
 
     @app.route("/targets")
     def targets_page():
-        return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), error=None)
+        return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), excludes=list_excludes(), error=None)
 
     @app.route("/targets/add", methods=["POST"])
     def targets_add():
@@ -758,7 +759,7 @@ def create_app(host="127.0.0.1"):
         path = (request.form.get("path") or "").strip()
         kind = (request.form.get("kind") or "local").strip()
         if not label or not path:
-            return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), error="Enter both a label and a path."), 400
+            return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), excludes=list_excludes(), error="Enter both a label and a path."), 400
 
         add_target(label, path, kind)
         return redirect(url_for("targets_page"))
@@ -767,6 +768,20 @@ def create_app(host="127.0.0.1"):
     def targets_remove():
         label = (request.form.get("label") or "").strip()
         remove_target(label)
+        return redirect(url_for("targets_page"))
+
+    @app.route("/targets/excludes/add", methods=["POST"])
+    def targets_excludes_add():
+        path = (request.form.get("path") or "").strip()
+        if not path:
+            return render_template("targets.html", targets=list_targets(), volumes=list_mounted_volumes(), excludes=list_excludes(), error="Enter a path to exclude."), 400
+
+        add_exclude(path)
+        return redirect(url_for("targets_page"))
+
+    @app.route("/targets/excludes/remove", methods=["POST"])
+    def targets_excludes_remove():
+        remove_exclude((request.form.get("path") or "").strip())
         return redirect(url_for("targets_page"))
 
     @app.route("/mounts")
@@ -1035,6 +1050,8 @@ _NAV_GROUP_BY_ENDPOINT = {
     "targets_page": "sources",
     "targets_add": "sources",
     "targets_remove": "sources",
+    "targets_excludes_add": "sources",
+    "targets_excludes_remove": "sources",
     "mounts_page": "sources",
     "mounts_install_rclone": "sources",
     "mounts_mount": "sources",
@@ -1561,6 +1578,7 @@ def _run_find_job(input_dir, job_id, index_db_path=None):
         index_db_path=index_db_path,
         checkpoint_path=_find_checkpoint_path(output_dir),
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+        excludes=[e["path"] for e in list_excludes()],
     )
 
     hidden_volumes = scan_for_hidden_volumes(
