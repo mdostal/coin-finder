@@ -265,3 +265,22 @@ ADDRESS_VALIDATORS = {
     "IOTA": _pass_through,
     "Binance Coin": _pass_through,
 }
+
+
+def filter_valid_addresses(coin, matches):
+    """The one shared filter both CRYPTO_PATTERNS call sites
+    (tools/analyze_wallets.py's analyze_wallet_file() and
+    tools/scan_gmail.py's find_addresses_in_payload()) must use -- keeps
+    the filtering logic in exactly one place instead of each call site
+    reimplementing the ADDRESS_VALIDATORS lookup independently.
+
+    :param coin: a CRYPTO_PATTERNS key.
+    :param matches: iterable of raw regex matches for that coin.
+    :return: list of matches whose coin validator returned True. A coin
+        missing from ADDRESS_VALIDATORS (should not happen -- see
+        test_every_crypto_pattern_coin_has_a_validator_entry) falls back
+        to the documented pass-through rather than silently dropping
+        every match for that coin.
+    """
+    validator = ADDRESS_VALIDATORS.get(coin, _pass_through)
+    return [match for match in matches if validator(match)]

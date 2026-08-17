@@ -159,6 +159,35 @@ def test_find_addresses_in_payload_empty_when_no_match():
     assert find_addresses_in_payload(payload) == {}
 
 
+def test_find_addresses_in_payload_filters_out_garbage_matches():
+    """End-to-end regression test: the same offline validator filter
+    tools/analyze_wallets.py gets must also apply here -- an independent
+    second path over Gmail message bodies that would keep the identical
+    false-positive bug alive if only the analyze_wallets.py site were
+    fixed. A fake message body mixes a real, checksum-valid Bitcoin
+    address with tonight's actual garbage strings; only the real address
+    may survive."""
+    garbage_digibyte_and_diamond = "d6thread6Thread5cname17hd86fb86E"
+    garbage_digibyte_only = "df29a6dde7b3e33ab57f416f11"
+    real_bitcoin_address = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
+    payload = {
+        "mimeType": "text/plain",
+        "body": {
+            "data": _b64(
+                f"your address is {real_bitcoin_address} also seen: "
+                f"{garbage_digibyte_and_diamond} and {garbage_digibyte_only}"
+            )
+        },
+    }
+
+    found = find_addresses_in_payload(payload)
+
+    assert found.get("Bitcoin") == [real_bitcoin_address]
+    for matches in found.values():
+        assert garbage_digibyte_and_diamond not in matches
+        assert garbage_digibyte_only not in matches
+
+
 def test_is_wallet_like_attachment_matches_extension():
     assert _is_wallet_like_attachment("old_backup.dat") is True
 

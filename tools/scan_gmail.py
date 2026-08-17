@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config.address_validators import filter_valid_addresses
 from config.analysis import CRYPTO_PATTERNS
 from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS
 from web.vault import add_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
@@ -211,14 +212,18 @@ def find_addresses_in_payload(payload):
     """
     Regex-matches known cryptocurrency address patterns (the same
     CRYPTO_PATTERNS every other tool here uses) against the message body.
-    Returns only the matched addresses -- public identifiers, safe to
-    display same as everywhere else in this project -- never the
-    surrounding email text.
+    Every raw match is filtered through that coin's offline checksum
+    validator (config/address_validators.py) before it's included below
+    -- the same filter tools/analyze_wallets.py's analyze_wallet_file()
+    applies, so a shape-only false positive can't slip through this
+    independent, Gmail-sourced path either. Returns only the matched
+    addresses -- public identifiers, safe to display same as everywhere
+    else in this project -- never the surrounding email text.
     """
     body_text = _extract_plain_text(payload)
     found = {}
     for crypto, pattern in CRYPTO_PATTERNS.items():
-        matches = re.findall(pattern, body_text)
+        matches = filter_valid_addresses(crypto, re.findall(pattern, body_text))
         if matches:
             found[crypto] = sorted(set(matches))
     return found
