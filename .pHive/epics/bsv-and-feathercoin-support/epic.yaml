@@ -1,0 +1,42 @@
+name: bsv-and-feathercoin-support
+title: Bitcoin SV Fork Check + Feathercoin Support
+description: >
+  Two direct responses to real user requests in the same conversation: (1)
+  a zero-current-balance address can still hold value on a fork chain if
+  the original coin was spent *after* that fork's snapshot -- Bitcoin SV
+  was a known, stated gap in check_fork_coins.py, now filled (Blockchair
+  supports it the same way as BCH/BTG). (2) The user mined LTC, DOGE, and
+  Feathercoin "as a joke" years ago and never cashed them in -- Feathercoin
+  had no balance-check service or search keyword in this project at all;
+  added both (Trezor's Blockbook explorer at explorer.feathercoin.com,
+  standard REST API, verified live before writing the service).
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, new-coin-support]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Extends existing services/ and config/ modules, same pattern as every prior coin addition."
+    cli-tool: "No new tool -- wires into check_fork_coins.py's existing FORK_COINS list and config/search.py's existing keyword list."
+    new-coin-support: "Both additions follow the exact established WalletService/WALLET_SERVICES/COIN_NAMES pattern from every prior coin in this project."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as every prior epic. Feathercoin's
+      API was verified live (a real address balance query) before writing
+      the service, not assumed from memory -- Chainz Cryptoid (this
+      project's usual multi-coin API host) does not support Feathercoin at
+      all, a real dead end hit and documented, not silently worked around.
+
+stories:
+  - id: bfs-01-bsv-and-feathercoin
+    title: Bitcoin SV fork coin + Feathercoin balance/search support
+    complexity: small
+    depends_on: []

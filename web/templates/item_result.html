@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- result {{ job_id }}{% endblock %}
+{% block content %}
+<h2>Result</h2>
+<p>{{ m.status_pill(job.status) }}</p>
+
+{% if job.status == "running" %}
+<div class="card"><p>Working -- this page will refresh automatically.</p><div id="job-progress"></div></div>
+{% elif job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% elif job.result %}
+{% if job.kind == "crawl" and job.result.results %}
+<div class="card">
+  <h3 style="margin-top:0">Cluster graph</h3>
+  <div id="cy" style="width:100%;height:600px;border:1px solid var(--border);"></div>
+  <p class="subtle">Ring distance = hops from the seed address(es); a line connects each address to
+  the one that led to it. Scroll/pinch to zoom, drag to pan, hover a node for detail, click to copy
+  its address.</p>
+</div>
+<script type="application/json" id="graph-data">{{ job.result.results | tojson }}</script>
+<script src="{{ url_for('static', filename='vendor/cytoscape.min.js') }}"></script>
+<script src="{{ url_for('static', filename='graph.js') }}"></script>
+{% endif %}
+{% if job.kind == "gmail-scan" and job.result.results is defined %}
+<div class="card">
+  <h3 style="margin-top:0">Gmail search results</h3>
+  <p class="subtle">Addresses shown are public identifiers, safe to display same as
+  everywhere else in this app -- nothing else from an email's body is shown here.
+  Open the saved JSON or any downloaded attachment directly on disk to review further.</p>
+  {% if job.result.results %}
+  <table>
+    <thead><tr><th>From</th><th>Subject</th><th>Date</th><th>Addresses found</th><th>Attachment saved</th></tr></thead>
+    <tbody>
+      {% for r in job.result.results %}
+      <tr>
+        <td>{{ r.from }}</td>
+        <td>{{ r.subject }}</td>
+        <td>{{ r.date }}</td>
+        <td>
+          {% for coin, addrs in r.addresses.items() %}
+          <div>{{ coin }}: {% for a in addrs %}<code>{{ a }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+          {% endfor %}
+        </td>
+        <td>
+          {% for path in r.attachments_saved %}
+          <div><code>{{ path }}</code></div>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No matching emails found.</p>
+  {% endif %}
+</div>
+{% endif %}
+<div class="card"><pre>{{ job.result.report }}</pre></div>
+{% endif %}
+
+<a class="back-link" href="{{ url_for('index') }}">&laquo; back</a>
+
+<script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}"></script>
+{% endblock %}

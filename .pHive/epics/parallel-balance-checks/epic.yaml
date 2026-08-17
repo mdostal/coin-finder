@@ -1,0 +1,33 @@
+name: parallel-balance-checks
+title: Parallelize balance checks across coin services
+description: >
+  check_wallet_balances() checks every address for every coin fully
+  serially, even though each of the ~21 configured coin services hits a
+  distinct external API with no shared rate limit. Restructures around
+  one worker thread per coin so independent services run concurrently,
+  cutting wall-clock time on large wallet.dat files (1000+ addresses)
+  from potentially hours to roughly however long the slowest single
+  coin's own sequential stream takes.
+target_codebase: .
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session: real codebase research, TDD test-first, live smoke tests
+      with real data, explicit risk call-outs, disclosed here rather than
+      silently presented as a full Hive multi-agent run. First of a
+      3-epic technical track (parallel-balance-checks ->
+      visual-transaction-graph -> scan-exclude-list) planned from one
+      user request; each ships independently.
+stories:
+  - id: pbc-01
+    title: Worker-per-coin concurrency in check_wallet_balances
+    complexity: medium
+    depends_on: []

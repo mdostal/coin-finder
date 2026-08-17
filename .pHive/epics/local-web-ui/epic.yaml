@@ -1,0 +1,67 @@
+name: local-web-ui
+title: Local Web UI
+description: >
+  A local Flask web app tying together all 13 existing standalone tools plus
+  the default run_pipeline.py flow into one Disk-Drill-style experience: pick
+  a drive/directory, scan it, browse everything found (candidate wallets,
+  balances, relationship graph, dormancy, hidden-volume flags) in one place,
+  act on any item (unlock, seed-phrase match, fork-coin check, transaction
+  cluster crawl), and copy anything worth keeping to a safe staging area.
+  Runs as `python web/app.py`, opened at http://127.0.0.1:5000. Every safety
+  property already established this session (offline gate for real
+  password/seed recovery, secrets from file only, secrets never persisted to
+  a log) is preserved end to end through the new HTTP surface. An Electron
+  wrapper around this app is explicitly out of scope -- the user owns that as
+  a separate, later effort.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, frontend, cli-tool, security-critical, new-dependency]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Flask app built on top of the existing single-language Python codebase."
+    frontend: "First epic with a real UI -- server-rendered templates + polling JS. project-profile.yaml's has_ui flips to true as part of this epic."
+    cli-tool: "Still project_type: framework -- the UI is a new consumer of the existing tools/services/config layout, not a restructuring of it."
+    security-critical: "Moves the offline-gated unlock flows (BTCRecover, hashcat) from CLI-only to an HTTP surface; the offline gate and file-only-secrets properties must be re-verified server-side, not just carried over by assumption."
+    new-dependency: "flask, the first web-framework dependency this project has added."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as all 13 prior epics this session:
+      one agent (no separate live personas) does research, design discussion,
+      scale assessment, and story decomposition directly, then implements
+      each story via TDD. Scale assessed as Large (new application layer);
+      H/V planning resolved directly in docs/design-discussion.md as a
+      vertical-slice-first decision rather than a separate live review round.
+      Structured outline: the story list below (01 core scan/results slice,
+      02 item actions, 03 unlock workflows, 04 staging + Drive + safety
+      hardening) *is* the structured outline -- each is a shippable vertical
+      slice building on the previous one's app skeleton.
+
+stories:
+  - id: lwu-01-scan-and-results
+    title: Flask skeleton, scan job runner, results page
+    complexity: large
+    depends_on: []
+
+  - id: lwu-02-item-actions
+    title: Per-item on-demand tool actions (scan_wallet_dat, crawl, fork coins, seed phrases)
+    complexity: medium
+    depends_on: [lwu-01-scan-and-results]
+
+  - id: lwu-03-unlock-workflows
+    title: Web-safe unlock flows for BTCRecover and hashcat (offline-gated)
+    complexity: medium
+    depends_on: [lwu-01-scan-and-results]
+
+  - id: lwu-04-staging-drive-and-hardening
+    title: Staging/copy area, Google Drive entry point, localhost-only hardening
+    complexity: medium
+    depends_on: [lwu-01-scan-and-results]

@@ -1,0 +1,72 @@
+id: ql-01-quick-lookup
+epic: quick-lookup
+title: Quick single-address lookup form + job
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  New GET/POST /lookup: address input + coin dropdown, runs a single
+  balance check as a background job reusing tools/check_wallet_balances.py's
+  existing load_service()/_check_balance_with_retries(), records the result
+  via record_finding(), and renders through item_result.html's existing
+  generic report template -- no new results page needed.
+
+acceptance_criteria:
+  - "Given GET /lookup, then it renders a form with an address input and a coin dropdown populated from config.wallet.WALLET_SERVICES"
+  - "Given POST /lookup with a coin+address, then a background job runs load_service(coin) + _check_balance_with_retries(service, address) and records the result via record_finding(coin, address, balance, source_label='quick_lookup')"
+  - "Given the job completes, then it redirects to the existing /item-result/<job_id> page, which already renders job.result.report generically"
+  - "Given an empty address or coin, then the form re-renders with an error, no job started"
+
+steps:
+  - id: research
+    description: Confirm load_service()/_check_balance_with_retries()'s exact signatures in tools/check_wallet_balances.py.
+    agent: researcher
+  - id: test-spec
+    description: Write failing route tests modeled on tests/test_web_app_item_actions.py's job-route pattern.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Add /lookup GET+POST routes, _run_quick_lookup_job, web/templates/lookup.html; link from index.html's action-link row.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm no auto-detection guessing of coin from address (explicit dropdown only, per design-discussion.md §3).
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: |
+      Commit on feat/quick-lookup, bump version_bump: minor across all four
+      version sources, CHANGELOG entry, rebuild sidecar + tauri build,
+      gh release, install after confirming 0 jobs running.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/check_wallet_balances.py
+      purpose: "load_service(crypto_name) and _check_balance_with_retries(service, address) -- the two functions this story reuses directly, unmodified."
+    - path: config/wallet.py
+      purpose: "WALLET_SERVICES -- the coin dropdown's options."
+    - path: web/templates/item_result.html
+      purpose: "Already renders job.result.report generically -- no new results template needed."
+    - path: web/app.py
+      purpose: "_run_fork_coins_job (~line 776) is the closest existing pattern: a job function that checks addresses and records findings."
+
+files_to_modify:
+  - file: web/app.py
+    change: "Add GET/POST /lookup routes + _run_quick_lookup_job; import load_service, _check_balance_with_retries from tools.check_wallet_balances."
+  - file: web/templates/lookup.html
+    change: "New file -- address input + coin select + submit."
+  - file: web/templates/index.html
+    change: "Add a link to /lookup in the existing action-link row."
+  - file: tests/test_web_app_lookup.py
+    change: "New file -- route tests."
+
+design_decisions:
+  - decision: "No coin auto-detection from address format."
+    rationale: "CRYPTO_PATTERNS regex are deliberately loose (cast a wide net across file content) -- the documented false-positive source for OKCash/DigiByte/Ripple. An explicit dropdown can't silently guess wrong."
+  - decision: "Reuse item_result.html instead of a new results template."
+    rationale: "It already renders job.result.report generically -- every other one-off job action (install-rclone, crawl, fork-coins) uses it unchanged."

@@ -1,0 +1,128 @@
+id: crb-01-retry-and-inconclusive-tracking
+epic: conservative-balance-retries
+title: Retry balance checks and track inconclusive results
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.2.0"
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  In tools/check_wallet_balances.py:
+
+  1. Add `_check_balance_with_retries(service, address, max_retries=3,
+     backoff_seconds=2)`: calls `service.check_balance(address)`; if the result is
+     `None`, retries up to `max_retries` total attempts, sleeping
+     `backoff_seconds` between attempts (never after the last). Returns the first
+     non-None result immediately, or `None` if every attempt failed.
+  2. In `check_wallet_balances()`, use this helper instead of calling
+     `service.check_balance(address)` directly. Track every `(file_path,
+     crypto_name, address)` triple whose final result is still `None` in an
+     `inconclusive` list.
+  3. After the main loop, if `inconclusive` is non-empty, write it to a new file:
+     `{file_path: {crypto_name: [address, ...]}}` shape (mirrors
+     wallet_analysis.json's shape for familiarity). Default path: sibling of
+     `output_file` named `inconclusive_balances.json`, overridable via a new
+     optional `inconclusive_output=None` parameter. Existing callers (CLI,
+     run_pipeline.py) are unaffected by the new parameter (default applies).
+  4. `run_pipeline.py`: print the inconclusive-file path after the balance-check
+     stage, only when the file was actually written (non-empty inconclusive
+     list) -- one line, no new stage.
+
+  `wallet_balances.json`'s existing shape and semantics are unchanged: `None`
+  still means "couldn't confirm" for that address, exactly as before. This story
+  only adds retries before reaching that outcome, and a new file that surfaces
+  which addresses hit it.
+
+acceptance_criteria:
+  - "Given service.check_balance() returns a non-None value on the first call, when _check_balance_with_retries runs, then it returns that value immediately and does not call check_balance again"
+  - "Given service.check_balance() returns None twice then a float on the third call, when _check_balance_with_retries runs with max_retries=3, then it returns the float and stops retrying"
+  - "Given service.check_balance() returns None on every call, when _check_balance_with_retries runs with max_retries=3, then check_balance is called exactly 3 times and the function returns None"
+  - "Given time.sleep is patched in tests, when _check_balance_with_retries retries, then time.sleep is called between attempts but not after the final attempt"
+  - "Given an address's final result (after retries) is None, when check_wallet_balances() completes, then that (file_path, crypto_name, address) triple appears in the written inconclusive_balances.json"
+  - "Given no address in a run is ever inconclusive after retries, when check_wallet_balances() completes, then no inconclusive_balances.json file is written"
+  - "Given an address returns a confirmed 0.0 balance (not None), when check_wallet_balances() completes, then it is NOT treated as inconclusive and does not appear in inconclusive_balances.json"
+
+steps:
+  - id: research
+    description: Re-confirm the exact call site in check_wallet_balances() where service.check_balance(address) is invoked, and the existing wallet_balances.json output shape it must not change.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_check_wallet_balances.py against
+      _check_balance_with_retries() and check_wallet_balances(), using a fake
+      WalletService test double (no real network calls, no real time.sleep --
+      patch time.sleep) covering every acceptance criterion above.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement _check_balance_with_retries() and wire it into check_wallet_balances(), plus the inconclusive-file write and the run_pipeline.py print line, to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that wallet_balances.json's shape/semantics are unchanged, that sleep is never called after the final attempt, and that a confirmed 0.0 is never treated as inconclusive.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/check_wallet_balances.py, run_pipeline.py, and tests/test_check_wallet_balances.py to the feat/conservative-balance-retries branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    language: python
+    test_framework: pytest
+  key_files:
+    - path: tools/check_wallet_balances.py
+      purpose: Owns the single call site (service.check_balance(address)) this story wraps with retries, and the output-writing logic this story extends.
+    - path: services/bitcoin.py
+      purpose: "Confirms the None = inconclusive / float (incl. 0.0) = confirmed contract this story relies on and must not change."
+
+files_to_modify:
+  - file: tools/check_wallet_balances.py
+    change: add _check_balance_with_retries(), inconclusive tracking, and inconclusive_balances.json write
+  - file: run_pipeline.py
+    change: print the inconclusive-file path when non-empty
+  - file: tests/test_check_wallet_balances.py
+    change: new file -- retry and inconclusive-tracking tests
+
+code_examples:
+  - title: Existing None-on-failure contract every service follows
+    file: services/bitcoin.py
+    snippet: |
+      def check_balance(self, address):
+          try:
+              response = requests.get(url)
+              if response.status_code != 200:
+                  return None
+              data = response.json()
+              return (funded - spent) / 1e8  # can legitimately be 0.0
+          except Exception as e:
+              print(f"Error checking Bitcoin balance: {e}")
+              return None
+
+design_decisions:
+  - decision: Retry at the orchestration layer (check_wallet_balances.py), not inside each of the 21 service files.
+    rationale: One fix covers every coin uniformly with zero service-file edits -- lowest blast-radius option, per design-discussion.md Section 3.
+  - decision: Only retry when the result is None; a confirmed float (including 0.0) returns immediately.
+    rationale: Avoids wasting API calls/quota on addresses that already have a confirmed answer.
+
+risks:
+  - severity: medium
+    description: Retries make real pipeline runs slower against flaky/rate-limited APIs (up to 3x calls per address on failure, plus backoff sleep).
+    mitigation: Deliberate tradeoff per north-star ask (thoroughness over speed); constants are easy to tune later.
+  - severity: low
+    description: Retrying on None doesn't distinguish "will succeed on retry" from "permanently invalid address" since services only expose None, not status codes.
+    mitigation: Explicitly out of scope for this epic -- would require touching all 21 services.
+
+references:
+  - path: .pHive/epics/conservative-balance-retries/docs/design-discussion.md
+    relevant_excerpt: |
+      Section 3: the _check_balance_with_retries() helper, inconclusive tracking,
+      and the new sibling output file with its default/override path behavior.
+  - path: .pHive/epics/conservative-balance-retries/docs/research-brief.md
+    relevant_excerpt: |
+      "None already semantically means 'couldn't confirm'... the bug isn't
+      ambiguous semantics -- it's that None is reached after a single attempt."

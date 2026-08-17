@@ -1,0 +1,104 @@
+id: wwm-04-wizard-and-polish
+epic: web-ui-wizard-and-mounting
+title: Guided setup wizard + continued visual polish
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.17.0"
+complexity: medium
+methodology: tdd
+depends_on: [wwm-01-connectivity-and-progress, wwm-02-bound-targets-and-volumes, wwm-03-rclone-mounting]
+
+description: |
+  GET /wizard (+POST per step): a linear, plain-language guided flow --
+  the "integration" slice that sequences stories 1-3 for a non-technical
+  user rather than adding new scanning/mounting mechanics of its own.
+
+  Steps:
+  1. "What do you want to scan?" -- local directory / a physical drive
+     already plugged in / Google Drive / a GCS bucket.
+  2. Branch by answer:
+     - Local directory: thinnest path, hands off straight to the existing
+       `/` scan form (pre-filled if they typed a path here).
+     - Physical drive: lists wwm-02's detected /Volumes, explains what
+       "bind" means before asking, hands off to /scan on selection.
+     - Google Drive / GCS: walks through wwm-03's install -> `rclone
+       config` guidance (plain-language explanation of what OAuth/service-
+       account setup is and why it's needed, with a "run this command"
+       instruction since the OAuth/credential step itself can't be
+       automated) -> mount -> bind, one screen per step, explaining *why*
+       before *how* at each one.
+  3. Every step explains what's about to happen and what happened, using
+     the connectivity/progress infrastructure from wwm-01 where relevant
+     (e.g. showing mount health from wwm-03 before proceeding).
+
+  Also in this story: a second visual-design pass on web/static/style.css
+  and templates, addressing live feedback after the v1 restyle ("looking
+  better, but still need another pass") -- deeper component polish (empty
+  states, clearer visual hierarchy now that nav has grown to Scan/Unlock/
+  Drive/Targets/Mounts/Wizard), and a proper dashboard-style home view
+  tying bound targets + recent scans + connectivity status together as the
+  app's real front door instead of a single bare scan form.
+
+acceptance_criteria:
+  - "Given the wizard's first step, when 'local directory' is chosen, then it hands off to the existing /scan form without introducing a second scan-trigger implementation"
+  - "Given the wizard's Drive/GCS branch, when rclone/macfuse isn't installed yet, then it surfaces the install step before offering rclone config guidance"
+  - "Given a successful mount reached through the wizard, when the final step completes, then the target is bound (wwm-02's add_target) exactly once, not duplicated by both the wizard and a manual /mounts bind"
+  - "Given every wizard step, when rendered, then it never claims a step succeeded without checking the actual result (e.g. does not say 'Drive mounted' without calling wwm-03's is_mounted() first)"
+
+steps:
+  - id: research
+    description: (Builds directly on wwm-01/02/03 -- no new research needed.)
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests in tests/test_web_app_wizard.py covering each branch and the hand-off/no-duplicate-bind assertions above.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement /wizard routes/templates and the second visual-design pass.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm the wizard never claims success without verifying it (the "loudly wrong" failure mode called out in wwm-03's risks) -- every "done" step must read real state (is_mounted(), job status), not just "the request didn't error."
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit, make /wizard the linked "first time here?" entry point from the home page, update README.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/bound_targets.py
+      purpose: add_target() -- the wizard's Drive/GCS branch must call this exactly once on success, not duplicate wwm-03's own manual bind button.
+    - path: web/mounts.py
+      purpose: is_mounted() -- the wizard's source of truth for "did the mount actually work," never assumed from a non-erroring subprocess call.
+
+files_to_modify:
+  - file: web/app.py
+    change: add GET/POST /wizard (multi-step)
+  - file: web/templates/wizard_*.html
+    change: new files, one per step
+  - file: web/templates/index.html
+    change: dashboard-style home view (bound targets + recent scans + connectivity status), link to /wizard
+  - file: web/static/style.css
+    change: second polish pass
+  - file: tests/test_web_app_wizard.py
+    change: new file
+  - file: README.md
+    change: wizard walkthrough section
+
+design_decisions:
+  - decision: The wizard delegates to existing routes/functions at every step rather than reimplementing scan-trigger, mount, or bind logic inline.
+    rationale: A second parallel implementation of "start a scan" or "bind a target" living inside the wizard would drift from the main flows over time -- the wizard's entire value is sequencing and explaining what already exists, not duplicating it.
+  - decision: Every "success" message in the wizard is gated on an actual state check, never on "the command didn't throw."
+    rationale: Directly addresses wwm-03's highest-severity risk (a wizard confidently telling a non-technical user "Drive mounted!" when it silently isn't, right before a multi-day crawl that would report false-empty results).
+
+risks:
+  - severity: medium
+    description: A 4-story epic's final integration story is the one most likely to reveal gaps in the prior three (e.g. a bind-path mismatch between wwm-02 and wwm-03).
+    mitigation: This story explicitly reuses wwm-02/03's functions rather than re-deriving target/mount shapes, so any mismatch surfaces as a test failure here rather than a silent runtime inconsistency.
+
+references:
+  - path: .pHive/epics/web-ui-wizard-and-mounting/docs/design-discussion.md
+    relevant_excerpt: "This is the \"integration\" slice -- it doesn't add new scanning/mounting mechanics, it sequences stories 2 and 3 into one guided path"

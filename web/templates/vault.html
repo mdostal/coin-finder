@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- vault{% endblock %}
+{% block content %}
+{{ m.group_tabs('unlock') }}
+<h2>Password vault</h2>
+<p>Save known/guessed passwords once, label them ("password-1", "grandpa's
+laptop guess"), then pick them from a list when unlocking a wallet instead of
+retyping. Backed by <a href="https://github.com/mdostal/portunus">Portunus</a>
+when it's installed -- values are encrypted at rest and shown by name only,
+never their real value, <strong>except</strong> the one-time Reveal action
+below: click it, see the real value once, gone the moment you navigate away
+-- never persisted or logged. If Portunus isn't installed, a local fallback
+store is used instead so the feature still works.</p>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0">Saved entries</h3>
+  {% if entries %}
+  <table>
+    <thead><tr><th>Label</th><th>Description</th><th>State</th><th></th></tr></thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td>{{ e.name }}</td>
+        <td>
+          <form method="post" action="{{ url_for('vault_edit') }}" style="display:flex;gap:0.4rem;align-items:center">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <input type="text" name="description" value="{{ e.description }}" style="margin:0;min-width:12rem">
+            <button type="submit" class="btn-secondary">Save</button>
+          </form>
+        </td>
+        <td>{{ e.state }}</td>
+        <td>
+          <form method="post" action="{{ url_for('vault_reveal') }}" style="display:inline">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <button type="submit" class="btn-secondary">Reveal</button>
+          </form>
+          <form method="post" action="{{ url_for('vault_revoke') }}" style="display:inline">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <button type="submit" class="btn-secondary">Revoke</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No saved passwords yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Add a password</h3>
+  <form method="post" action="{{ url_for('vault_add') }}">
+    <label>Label</label>
+    <input type="text" name="name" placeholder="password-1" required>
+    <label>Description</label>
+    <input type="text" name="description" placeholder="guess from 2015, grandpa's laptop, etc">
+    <label>Value</label>
+    <input type="password" name="value" required>
+    <button type="submit">Save</button>
+  </form>
+</div>
+
+<p class="subtle">Try saved entries against a wallet from the <a href="{{ url_for('item_unlock_form') }}">Unlock</a> page.
+Past auto-unlock runs (which label matched which wallet, if any): <a href="{{ url_for('auto_unlock_history_page') }}">history &rarr;</a></p>
+{% endblock %}

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- attach {{ "Google Drive" if kind == "gdrive" else "a GCS bucket" }}{% endblock %}
+{% block content %}
+{{ m.group_tabs('sources') }}
+<h2>Attach {{ "Google Drive" if kind == "gdrive" else "a GCS bucket" }}</h2>
+<p>Multi-terabyte cloud storage can't be scanned by downloading it all
+first -- there isn't enough disk space or time for that. Instead, this
+attaches it as a folder your Mac can browse directly, fetching each file's
+contents only when something actually needs to read it.</p>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0">Step 1 -- Install the tools</h3>
+  {% if rclone_installed %}
+  <p>&#x2713; rclone is installed.</p>
+  {% else %}
+  <p>Not installed yet.</p>
+  <form method="post" action="{{ url_for('mounts_install_rclone') }}">
+    <button type="submit">Install now</button>
+  </form>
+  <p class="subtle">Installs <a href="https://rclone.org/">rclone</a> (does
+  the actual attaching) and macFUSE (a macOS component rclone needs).
+  <strong>macOS will ask you to approve macFUSE in System Settings -&gt;
+  Privacy &amp; Security</strong> -- that one step can't be automated by
+  anything, this button included; you'll see exactly what to do on the
+  result page.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Step 2 -- Connect your account</h3>
+  {% if remotes %}
+  <table>
+    <thead><tr><th>Connection</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for r in remotes %}
+      <tr>
+        <td>{{ r.name }}</td>
+        <td>{{ m.status_pill("done" if r.status == "connected" else "error") }} {{ r.status }}</td>
+        <td>
+          <form method="post" action="{{ url_for('mounts_remove') }}" style="display:inline" onsubmit="return confirm('Remove this connection?');">
+            <input type="hidden" name="remote_name" value="{{ r.name }}">
+            <button type="submit" class="btn-secondary">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if remotes | selectattr("status", "equalto", "incomplete") | list %}
+  <p class="subtle">A connection marked "incomplete" never actually finished signing in -- remove it
+  and try again below rather than expecting it to work.</p>
+  {% endif %}
+  <p class="subtle">Want another account or bucket? Fill out the form below with a new name.</p>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('wizard_cloud_connect') }}">
+    <input type="hidden" name="kind" value="{{ kind }}">
+
+    <label>Name this connection</label>
+    <input type="text" name="remote_name" placeholder="gdrive" required>
+
+    {% if kind == "gdrive" %}
+    <label>Access level</label>
+    {% for value, description in scope_choices %}
+    <label class="radio-row">
+      <input type="radio" name="scope" value="{{ value }}" {{ "checked" if value == default_scope }}>
+      {{ description }}
+    </label>
+    {% endfor %}
+    {% endif %}
+
+    <p class="subtle" style="margin-top:1rem">Clicking Connect opens your
+    browser to sign in to Google and approve access -- the same "Allow"
+    screen you'd see for any app asking to use your account. It opens in
+    your regular browser, not inside this window. rclone only ever reads
+    your files (this project mounts everything read-only), never writes or
+    deletes anything. <strong>This is all most people need</strong> -- the
+    fields below are for a specific, rare situation, not a required step.</p>
+
+    <details>
+      <summary>Advanced: use your own Google API credentials (optional, most people should skip this)</summary>
+      <p class="subtle">Leave both blank -- the button above already uses rclone's own shared
+      credentials and works without anything here. Only fill this in if Google has specifically
+      throttled the shared credentials for you (rare, only happens with very heavy scanning), and
+      only with a REAL client ID/secret from
+      <a href="https://rclone.org/drive/#making-your-own-client-id">Google Cloud Console via rclone's
+      guide</a> -- a real client ID always ends in ".apps.googleusercontent.com". Typing anything
+      else here (a password, a made-up name) will fail with a confusing Google error page instead of
+      working -- if in doubt, leave this blank. Your client secret is stored in the vault (Portunus),
+      never in this app's own plaintext state.</p>
+      <label>Client ID</label>
+      <input type="text" name="client_id" autocomplete="off" placeholder="123...-abc...apps.googleusercontent.com">
+      <label>Client Secret</label>
+      <input type="password" name="client_secret" autocomplete="off">
+    </details>
+
+    <button type="submit">Connect</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Not sure about a step? Ask AI</h3>
+
+  <p id="ai-checking" class="subtle">Checking for a saved API key&hellip;</p>
+
+  <div id="ai-assist" style="display:none">
+    <label>Question</label>
+    <textarea id="ai-question" rows="2" placeholder="What's the difference between the access levels? / Where do I get a client id?"></textarea>
+    <button type="button" id="ai-ask-btn">Ask</button>
+    <div id="ai-answer" class="subtle" style="margin-top:0.75rem"></div>
+    <form method="post" action="{{ url_for('ai_assist_key_clear') }}" style="margin-top:0.75rem">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <button type="submit" class="btn-secondary">Forget saved API key</button>
+    </form>
+  </div>
+
+  <div id="ai-key-form" style="display:none">
+    <p class="subtle">Bring your own <a href="https://console.anthropic.com/settings/keys">Anthropic API key</a>
+    to get a plain-English answer to anything on this page (client id, scopes,
+    whatever's unclear) instead of guessing. Optional -- everything above
+    works without this. The key is stored in the vault (Portunus), and each
+    question here sends only your typed question plus this page's own
+    context to Anthropic's API, never any wallet data. See the
+    <a href="{{ url_for('network_page') }}">Network</a> page for the full
+    accounting.</p>
+    <form method="post" action="{{ url_for('ai_assist_key') }}">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <label>Anthropic API key</label>
+      <input type="password" name="api_key" placeholder="sk-ant-..." required>
+      <button type="submit">Save key</button>
+    </form>
+  </div>
+
+  <script src="{{ url_for('static', filename='ai_assist.js') }}"></script>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Step 3 -- Mount it</h3>
+  <p>Once you've done steps 1 and 2, head to the
+  <a href="{{ url_for('mounts_page') }}">Mounts page</a> to actually attach
+  it and check it's working -- that page shows a real, live status (not
+  just "it didn't error"), and lets you add it to your saved scan targets
+  once it's confirmed healthy.</p>
+</div>
+{% endblock %}

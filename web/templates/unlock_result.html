@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- unlock result{% endblock %}
+{% block content %}
+<h2>Unlock result</h2>
+<div class="banner warning">
+This is shown once. It is not saved anywhere and will not reappear if you
+reload or come back to this page.
+</div>
+
+{% if job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% elif job.result %}
+{% if job.result.vault_label %}
+<div class="banner">Matches saved vault entry <strong>{{ job.result.vault_label }}</strong>.</div>
+{% endif %}
+<div class="card">
+<pre>{{ job.result.stdout }}</pre>
+{% if job.result.stderr %}
+<h3>stderr</h3>
+<pre>{{ job.result.stderr }}</pre>
+{% endif %}
+</div>
+{% endif %}
+
+<a class="back-link" href="{{ url_for('index') }}">&laquo; back</a>
+{% endblock %}

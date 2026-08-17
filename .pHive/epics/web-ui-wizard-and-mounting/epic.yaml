@@ -1,0 +1,61 @@
+name: web-ui-wizard-and-mounting
+title: Setup Wizard, Bound Drives, and Google Drive/GCS Mounting
+description: >
+  Turns the local web UI into a real, approachable application: a
+  persistent, honest online/offline status indicator and real job progress
+  reporting; a persisted list of bound/saved scan targets plus detected
+  mounted volumes for one-click full-drive scans; rclone-based mounting so
+  a multi-terabyte Google Drive or GCS bucket can be attached as a
+  local-looking directory instead of requiring a full download; and a
+  guided setup wizard tying all of it together in plain language ("makes it
+  so any idiot can do this"). Direct response to the user's own stated
+  next-priority: this machine's scan was a dry run, Google Drive is next
+  and expected to take days, so the tooling needs to be trustworthy and
+  guided before that starts.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, frontend, cli-tool, new-dependency]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Extends web/app.py, web/jobs.py on the existing Flask codebase."
+    frontend: "New wizard flow, new Targets/Mounts pages, continued visual polish on web/static/style.css."
+    cli-tool: "scripts/install_rclone.sh follows the exact install-script pattern from btcrecover/hashcat/bitcoin installs earlier this session."
+    new-dependency: "rclone (Homebrew, verified installable live) + macfuse cask (manual OS approval required, documented not scripted around)."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as every prior epic this session.
+      rclone's mount mechanics were verified live during research (brew
+      info, macFUSE requirement confirmed) before being designed around,
+      not assumed from memory. Scale assessed Large; H/V resolved directly
+      in docs/design-discussion.md as four dependency-ordered vertical
+      slices, same discipline as the local-web-ui epic.
+
+stories:
+  - id: wwm-01-connectivity-and-progress
+    title: Site-wide connectivity status + job progress reporting
+    complexity: medium
+    depends_on: []
+
+  - id: wwm-02-bound-targets-and-volumes
+    title: Bound/saved scan targets + mounted-volume detection
+    complexity: medium
+    depends_on: []
+
+  - id: wwm-03-rclone-mounting
+    title: rclone-based Google Drive/GCS mounting
+    complexity: large
+    depends_on: [wwm-02-bound-targets-and-volumes]
+
+  - id: wwm-04-wizard-and-polish
+    title: Guided setup wizard + continued visual polish
+    complexity: medium
+    depends_on: [wwm-01-connectivity-and-progress, wwm-02-bound-targets-and-volumes, wwm-03-rclone-mounting]

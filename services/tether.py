@@ -1,6 +1,6 @@
 import requests
 import os
-from . import WalletService
+from . import REQUEST_TIMEOUT_SECONDS, WalletService
 
 class TetherService(WalletService):
     def __init__(self):
@@ -13,7 +13,7 @@ class TetherService(WalletService):
         try:
             # Tether exists on multiple chains; this example uses Ethereum
             url = f"https://api.etherscan.io/api?module=account&action=tokenbalance&contractaddress=0xdac17f958d2ee523a2206206994597c13d831ec7&address={address}&tag=latest&apikey={self.api_key}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
             data = response.json()

@@ -1,0 +1,56 @@
+id: crb-02-readme-docs
+epic: conservative-balance-retries
+title: Document retry behavior and the inconclusive-results file
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.2.0"
+complexity: low
+methodology: tdd
+depends_on: [crb-01-retry-and-inconclusive-tracking]
+
+description: |
+  Update README.md's "Wallet Checker Tool" subsection and "Failsafes" section to
+  document: (a) balance checks now retry up to 3 times with a 2s backoff before
+  giving up, and (b) addresses still inconclusive after retries are written to
+  `inconclusive_balances.json` instead of silently disappearing.
+
+  Satisfies the `documentation` cross-cutting concern
+  (.pHive/cross-cutting-concerns.yaml) -- this story changes documented failsafe
+  behavior and adds a new output file.
+
+acceptance_criteria:
+  - "Given the README's Wallet Checker Tool subsection, when this story is done, then it documents the retry behavior (attempts, backoff)"
+  - "Given the README's Failsafes section (item 2, API Errors), when this story is done, then it documents that addresses still inconclusive after retries are written to inconclusive_balances.json rather than silently dropped"
+
+steps:
+  - id: implement
+    description: Update README.md per the two sections above.
+    agent: developer
+  - id: review
+    description: Review for consistency with existing README tone/format and accuracy against the wrg-01... err crb-01 implementation.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit README.md.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: README.md
+      purpose: Wallet Checker Tool subsection and Failsafes section both need updates for the new retry/inconclusive behavior.
+
+files_to_modify:
+  - file: README.md
+    change: document retry behavior in the Wallet Checker Tool subsection and the new inconclusive_balances.json in Failsafes
+
+cross_cutting:
+  - concern: documentation
+    action: "Update README.md Wallet Checker Tool subsection (retry behavior) and Failsafes section (inconclusive_balances.json) to reflect crb-01's changes."
+
+references:
+  - path: .pHive/epics/conservative-balance-retries/stories/crb-01-retry-and-inconclusive-tracking.yaml
+    relevant_excerpt: |
+      max_retries=3, backoff_seconds=2; inconclusive_balances.json shape
+      {file_path: {crypto_name: [address, ...]}}.

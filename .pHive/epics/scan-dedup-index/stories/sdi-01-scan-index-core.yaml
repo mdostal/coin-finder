@@ -1,0 +1,76 @@
+id: sdi-01-scan-index-core
+epic: scan-dedup-index
+title: Content-hash dedup index + analyze_wallets/find() opt-in wiring
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  New tools/scan_index.py (sqlite, content-hash keyed) plus an optional
+  index_db_path parameter threaded through tools/analyze_wallets.py's
+  analyze_wallets() and run_pipeline.py's find() -- default None is a
+  complete no-op (byte-identical existing behavior), a path enables
+  hash-based dedup: a file whose content was already analyzed once is
+  skipped (its prior result reused) regardless of its current path.
+
+acceptance_criteria:
+  - "Given analyze_wallets(input_file, output_file) with no index_db_path, then behavior is byte-identical to today -- every existing test in tests/test_analyze_wallets.py (if any) and tests/test_run_pipeline.py passes unchanged"
+  - "Given index_db_path is set and a file's content hash is already recorded, when analyze_wallets() processes that file, then analyze_wallet_file() is NOT called for it (no regex work) and its previously recorded result is used"
+  - "Given index_db_path is set and a file's content hash is new, when analyze_wallets() processes it, then it's analyzed as normal AND its hash+result is recorded via record_scanned_file()"
+  - "Given the exact same file content at two different paths, when both are analyzed with the same index_db_path, then the second is recognized as a duplicate even though its path differs"
+  - "Given clear_scan_index() is called, then list_scanned_files() returns empty afterward"
+
+steps:
+  - id: research
+    description: Confirm analyze_wallet_file()'s exact read/regex flow (tools/analyze_wallets.py) before adding the hash hook.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for tools/scan_index.py's is_known/record_scanned_file/list_scanned_files/clear_scan_index, and for analyze_wallets()'s index_db_path=None no-op + dedup-hit/dedup-miss paths.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Write tools/scan_index.py; add index_db_path=None param to analyze_wallets() and find().
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm zero behavior change when index_db_path is omitted, and that analyze_wallet_file() itself is untouched.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit on feat/scan-dedup-index.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/analyze_wallets.py
+      purpose: "analyze_wallet_file(file_path) already reads full file bytes for regex matching -- the hash hook reuses those bytes at the call site in analyze_wallets(), not inside analyze_wallet_file() itself (kept untouched for zero regression risk)."
+    - path: run_pipeline.py
+      purpose: "find(input_dir, output_dir) calls analyze_wallets() -- needs the same passthrough param."
+    - path: web/findings.py
+      purpose: "The _connect/_SCHEMA sqlite pattern to replicate exactly."
+    - path: web/paths.py
+      purpose: "app_data_dir() -- zero Flask dependency (web/__init__.py is empty), safe for tools/ to import directly."
+
+files_to_modify:
+  - file: tools/scan_index.py
+    change: "New file -- hash_file_bytes, is_known, record_scanned_file, list_scanned_files, clear_scan_index."
+  - file: tools/analyze_wallets.py
+    change: "Add index_db_path=None param to analyze_wallets(); dedup logic in its per-file loop, analyze_wallet_file() itself unchanged."
+  - file: run_pipeline.py
+    change: "Add index_db_path=None passthrough param to find()."
+  - file: tests/test_scan_index.py
+    change: "New file, modeled on tests/test_findings.py."
+
+design_decisions:
+  - decision: "Hash computed at the analyze_wallets() loop level, not inside analyze_wallet_file()."
+    rationale: "Keeps analyze_wallet_file() byte-for-byte unchanged -- zero regression risk on its own existing tests/callers. Costs one extra read for genuinely-new files (the common case on a fresh drive); accepted tradeoff, see design-discussion.md §4."
+  - decision: "tools/scan_index.py imports web.paths.app_data_dir() directly."
+    rationale: "web/paths.py has zero Flask dependency (confirmed: web/__init__.py is empty) -- safe reuse, avoids duplicating the frozen-vs-dev path resolution logic."
+
+risks:
+  - severity: low
+    description: "Double file read for new files (hash + analyze_wallet_file's own read)."
+    mitigation: "Bounded to wallet-candidate files only (already size-capped by the search stage's MAX_FILE_SIZE filter), not the whole drive."

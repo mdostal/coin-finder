@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- auto-unlock{% endblock %}
+{% block content %}
+{{ m.group_tabs('unlock') }}
+{% if scoped_wallet_path %}
+<h2>Try unlock: <code>{{ scoped_wallet_path }}</code></h2>
+<p>Tries every enabled <a href="{{ url_for('vault_page') }}">vault</a>
+password against this one wallet file. Want every known wallet instead?
+<a href="{{ url_for('auto_unlock_form') }}">Run against all of them</a>.</p>
+{% else %}
+<h2>Auto-unlock across all wallets</h2>
+<p>Tries every enabled <a href="{{ url_for('vault_page') }}">vault</a>
+password against every wallet file already recorded from a scan (its
+"source" path), all in one run, and maps which one (if any) unlocked
+which wallet.</p>
+{% endif %}
+
+<div class="banner {{ 'warning' if network_status != 'OFFLINE' else '' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
+  Network status right now: <strong style="color:inherit">{{ network_status }}</strong>.
+  {% if network_status != "OFFLINE" %}
+  Nothing in this app ever sends a password, key, or seed phrase over the
+  network -- the reason offline is recommended here is local, not remote:
+  if this machine were ever compromised, being online during an unlock
+  attempt means a candidate list and the real wallet files sit together on
+  a machine that can reach the outside world. Offline removes that risk
+  category. Full details: <a href="{{ url_for('network_page') }}">what
+  actually touches the network</a>. Your call either way -- see the
+  checkbox below.
+  {% else %}
+  Safe to test candidates against real wallets.
+  {% endif %}
+</div>
+
+<div class="banner warning">
+  The result (which wallet matched which saved password, if any) is shown
+  to you exactly once, immediately after the job finishes, and is never
+  written to disk or logged. Leave that page and it is gone for good -- if
+  you need it again, run this again.
+</div>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0">What this will try</h3>
+  <p>Every enabled entry in your <a href="{{ url_for('vault_page') }}">vault</a> against
+  {% if scoped_wallet_path %}this wallet file{% else %}
+  {{ wallet_paths | length }} known wallet file{{ "s" if wallet_paths | length != 1 else "" }}
+  (from Findings' recorded source paths){% endif %}. Checked for real when you click
+  Run -- if the vault turns out to be empty, you'll see that then.</p>
+  {% if wallet_paths %}
+  <ul>
+    {% for path in wallet_paths %}
+    <li><code>{{ path }}</code></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No known wallet files yet -- run a scan first, or use <a href="{{ url_for('item_unlock_form') }}">Unlock</a> for a single wallet directly.</p>
+  {% endif %}
+</div>
+
+{% if wallet_paths %}
+<div class="card">
+  <form method="post" action="{{ url_for('auto_unlock_submit') }}">
+    {% if scoped_wallet_path %}
+    <input type="hidden" name="wallet_path" value="{{ scoped_wallet_path }}">
+    {% endif %}
+    {% if network_status != "OFFLINE" %}
+    <label style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:1rem">
+      <input type="checkbox" name="allow_online" value="1" style="width:auto;margin-top:0.2rem">
+      <span>I understand the risk and want to run this <strong>while online</strong> anyway.
+      Recommended path is still OFFLINE (see above) -- this is your choice to make, not a hard requirement.</span>
+    </label>
+    {% endif %}
+    <button type="submit">Run auto-unlock</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

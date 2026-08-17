@@ -1,0 +1,139 @@
+id: wker-01-extraction-and-report
+epic: wif-key-extraction-and-recovery-report
+title: WIF extraction (offline-gated) + wallet recoverability report
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.15.0"
+complexity: large
+methodology: tdd
+depends_on: []
+
+description: |
+  tools/extract_private_key.py:
+  - find_key_value_pair_for_address(wallet_path, target_address): walks the
+    same BDB leaf-page structure as scan_wallet_dat.py's
+    read_btree_key_items, this time also capturing the paired VALUE-half
+    bytes for the one key/ckey item matching target_address -- every other
+    value-half in the file stays unread.
+  - decode_cprivkey_to_wif(value_bytes, compressed): value_bytes is
+    compact_size(len) + DER CPrivKey + trailing metadata. Cross-validates
+    the compact-size-declared length against the DER SEQUENCE's own
+    self-described length before trusting the slice, then extracts the raw
+    32-byte private key via a minimal, self-validating fixed-field parse
+    (SEQUENCE -> INTEGER version=1 -> OCTET STRING[32]) -- not a
+    general-purpose DER/EC-key loader, because `cryptography`'s own loader
+    refuses Bitcoin Core's explicit-curve-parameter secp256k1 encoding.
+  - extract_wif_for_address(wallet_path, target_address, allow_online=False):
+    hard offline gate (same discipline as unlock_wallet.py); refuses
+    encrypted (ckey) records with a clear error; self-verifies by
+    re-deriving the address from the produced WIF and refusing to return
+    anything that doesn't match target_address exactly.
+  - CLI: python tools/extract_private_key.py <wallet_path> <address>
+    <output_file> [--allow-online]. Never prints the key -- writes to a
+    local file only, then prints next-step guidance (import into Electrum,
+    sweep to a fresh address).
+
+  tools/generate_wallet_report.py:
+  - identify_wallet_software(wallet_path): deterministic from file magic
+    bytes (Bitcoin Core BDB Btree v9, or "Unknown").
+  - build_wallet_report(wallet_path, target_addresses=None, now=None):
+    file metadata, software, encryption status, and (only for explicitly
+    passed target_addresses, to avoid an accidental full-wallet on-chain
+    crawl) public on-chain dormancy via crawl_transaction_graph.py's
+    existing functions.
+  - render_wallet_report(report): Markdown report pointing back to
+    docs/wallet_recovery_reference.md for the self-custody-vs-custodial
+    judgment call this project's tools can't automate.
+  - CLI: python tools/generate_wallet_report.py <wallet_path> <output_file>
+    [--address ADDR ...].
+
+  Real-data validation performed during this story (documented here since
+  it's the actual evidence this code is trustworthy, not just that tests
+  pass): extract_wif_for_address run with --allow-online against
+  backup-wallet-1/wallet.dat for 16 different zero-balance addresses
+  (1 initial + a 15-address random sample) -- 16/16 produced a WIF that
+  round-tripped back to the exact same address. Real extraction of the
+  actual funded address (1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB) is left to a
+  separate, explicit, offline run -- not part of this story's automated
+  work, per the offline-gate discipline this whole project follows for real
+  secret material.
+
+acceptance_criteria:
+  - "Given a synthetic wallet with a known keypair, when find_key_value_pair_for_address runs, then it returns exactly that keypair's value bytes, not a neighboring pair's"
+  - "Given the machine is online, when extract_wif_for_address runs without --allow-online, then it raises before touching any key material"
+  - "Given a real (but zero-balance) address from a real wallet.dat, when extract_wif_for_address runs offline, then the produced WIF decodes back to the exact same address"
+  - "Given both compressed and uncompressed pubkey records, when decode_cprivkey_to_wif runs, then the WIF's compression flag matches and round-trips correctly"
+  - "Given an address in an encrypted (ckey) record, when extract_wif_for_address runs, then it refuses with a clear error rather than misinterpreting encrypted bytes as a DER key"
+  - "Given a wallet.dat's magic bytes, when identify_wallet_software runs, then it returns a deterministic software identification or an explicit Unknown"
+
+steps:
+  - id: research
+    description: (Already completed live during this story -- explored and abandoned a Bitcoin Core `bitcoin-wallet`/`migratewallet`-based approach after it failed on real-shaped legacy wallets; settled on direct BDB value-half extraction with a minimal, self-validating DER field parse instead of a general-purpose DER/EC-key library, after that library refused Bitcoin Core's explicit-curve-parameter key encoding.)
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests in tests/test_extract_private_key.py and tests/test_generate_wallet_report.py using synthetic BDB fixtures (following test_scan_wallet_dat.py's established hand-built-page pattern) and real secp256k1 keypairs generated via the `cryptography` library for round-trip verification.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement both modules to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Adversarial review of extract_private_key.py specifically -- confirm the offline gate cannot be bypassed silently, the self-verification round-trip cannot be skipped, and ckey (encrypted) records are refused rather than mishandled.
+    agent: reviewer
+    depends_on: [implement]
+  - id: real-data-validation
+    description: Run extract_wif_for_address --allow-online against 15+ real zero-balance addresses from the actual found wallet.dat, confirming every one round-trips to the correct address, before this story is considered complete.
+    agent: developer
+    depends_on: [review]
+  - id: integrate
+    description: Commit both tools, both test files, requirements-dev.txt (cryptography, test-only), and README/docs updates.
+    agent: developer
+    depends_on: [real-data-validation]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/scan_wallet_dat.py
+      purpose: read_btree_key_items' BDB leaf-page walk and value/key pairing convention, reused (not re-derived) for locating the target value-half.
+    - path: tools/unlock_wallet.py
+      purpose: check_network_status reused directly for the same offline-gate discipline.
+    - path: tests/test_scan_wallet_dat.py
+      purpose: build_synthetic_wallet_bytes' hand-built-BDB-page pattern, the template this story's synthetic fixtures follow.
+
+files_to_modify:
+  - file: tools/extract_private_key.py
+    change: new file
+  - file: tools/generate_wallet_report.py
+    change: new file
+  - file: tests/test_extract_private_key.py
+    change: new file
+  - file: tests/test_generate_wallet_report.py
+    change: new file
+  - file: requirements-dev.txt
+    change: add cryptography (test-only -- generates synthetic keys for round-trip tests)
+  - file: README.md
+    change: add tool sections for both, with explicit sweep-to-fresh-address guidance
+
+design_decisions:
+  - decision: Sweeping funds is explicitly NOT this project's job -- extraction stops at a WIF file, with instructions to import into Electrum and use Electrum's own sweep function.
+    rationale: Hand-rolling UTXO selection, fee estimation, transaction signing, and broadcast is a large amount of new financial-transaction-critical code where a bug is irreversible once broadcast. Delegating that step to well-audited, widely-used software (Electrum) keeps this project's own custom code out of the highest-consequence part of the pipeline.
+  - decision: A Bitcoin Core `bitcoin-wallet`/`migratewallet`-based approach (native, never touches raw key bytes ourselves) was tried first and abandoned.
+    rationale: `bitcoin-wallet dump` on the current Homebrew build only supports SQLite-format dumps for `createfromdump`; loading the original legacy BDB wallet requires the `migratewallet` RPC, which failed with "Address book data in wallet cannot be identified to belong to migrated wallets" against every available real-shaped test wallet.dat. This is a real, encountered failure mode, not a hypothetical -- documented here so a future attempt at the Core-native path knows this dead end.
+  - decision: Manual fixed-field DER parsing instead of `cryptography`'s general DER/EC-key loader.
+    rationale: That loader refuses Bitcoin Core's explicit-curve-parameter secp256k1 encoding by design (an anti-footgun policy for arbitrary curves, not a bug). The fields this tool actually needs (version, 32-byte private key OCTET STRING) are fixed and asserted against expected values; the pre-existing self-verification round-trip in extract_wif_for_address is the independent correctness backstop regardless.
+
+risks:
+  - severity: critical
+    description: A bug in DER/value-byte parsing could produce a wrong or corrupted private key.
+    mitigation: Self-verification round-trip (re-derive address, refuse on mismatch) inside extract_wif_for_address itself -- not just tests, a runtime guarantee. Validated against 16 real addresses from the actual target wallet before any real balance was touched.
+  - severity: high
+    description: Extracting a real private key while online exposes it to a materially larger attack surface than an offline machine.
+    mitigation: Hard offline gate, identical discipline to unlock_wallet.py/unlock_exodus_wallet.py; the tool never prints the key, only writes it to a local file.
+  - severity: medium
+    description: This tool only handles UNENCRYPTED "key" records -- the real target wallet happens to be unencrypted, but this won't help with any encrypted wallet found later.
+    mitigation: Explicitly refuses ckey records with a clear pointer to unlock_wallet.py (BTCRecover) instead of silently mishandling them -- a stated gap, not a silent one.
+
+references:
+  - path: .pHive/epics/local-web-ui/epic.yaml
+    relevant_excerpt: "Every safety property already established this session (offline gate for real password-recovery runs...)"

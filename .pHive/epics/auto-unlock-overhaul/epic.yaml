@@ -1,0 +1,38 @@
+name: auto-unlock-overhaul
+title: Auto-unlock shows real passwords and survives a restart
+description: >
+  Auto-unlock exists but has two real gaps confirmed live: results
+  vanish forever (once-only, never persisted, on top of the in-memory-
+  only job registry), and even a successful run only shows which vault
+  entry LABEL matched, not the actual password value -- forcing a
+  second lookup the vault UI doesn't even support. Fixes both: show the
+  real matched password in a clean table (already resolved in memory,
+  just never reached the template), and add durable run history
+  (metadata only, never raw values) plus a "reveal value" action on the
+  vault page so a labeled match from days ago can still be looked up.
+target_codebase: .
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session. Direct, urgent user complaint with real stakes (real
+      wallet passwords) -- extra care given to keeping the once-only
+      raw-value display consistent with the existing single-wallet
+      unlock flow's precedent, not introducing a new, less-conservative
+      secret-handling pattern.
+stories:
+  - id: auo-01
+    title: Show the real matched password in a clean results table
+    complexity: small
+    depends_on: []
+  - id: auo-02
+    title: Durable run history (metadata only) + vault reveal-value action
+    complexity: medium
+    depends_on: [auo-01]

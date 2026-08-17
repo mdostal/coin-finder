@@ -1,0 +1,166 @@
+project_name: "coin-finder"
+type: brownfield
+discovered: "2026-08-12"
+source: "README.md + codebase scan (no CLAUDE.md present)"
+
+project_type: framework
+has_ui: true
+
+ship_target:
+  kind: github-release
+  notes: "Personal open-source CLI toolset hosted on GitHub; shipping = cutting a GitHub release."
+
+claude_md_summary: |
+  No CLAUDE.md found in this repo. README.md is the primary source of truth for
+  conventions:
+  - Pipeline stages run in order: search -> analyze -> check balances -> filter.
+  - Add a new coin by (1) registering it in config/wallet.py's WALLET_SERVICES map,
+    (2) implementing services/<coin>.py as a WalletService subclass with check_balance(),
+    (3) adding a regex pattern to config/analysis.py's CRYPTO_PATTERNS.
+  - API keys (ETHERSCAN_API_KEY, BLOCKFROST_API_KEY, etc.) are loaded via python-dotenv
+    from a local .env file (see .env.sample); tools without a key fail gracefully.
+  - Failure philosophy: invalid coins, API errors, and unreadable files should be logged
+    and skipped, not crash the pipeline; empty results still produce (empty) output files.
+
+tech_stack:
+  languages: [python]
+  frameworks: [flask]
+  build_tools: []
+  package_managers: [pip]
+  versions:
+    python: "3.13 (local interpreter observed; no pin in requirements.txt)"
+    requests: "unpinned"
+    python-dotenv: "unpinned"
+
+structure:
+  modules:
+    - name: tools
+      purpose: Pipeline stage scripts orchestrated by run_pipeline.py
+      source: tools/
+      tests: none
+    - name: services
+      purpose: One WalletService subclass per supported cryptocurrency, each implementing check_balance()
+      source: services/
+      tests: none
+    - name: config
+      purpose: Search extensions/keywords, wallet-address regex patterns, and coin-name-to-service mapping
+      source: config/
+      tests: none
+  entry_points:
+    - run_pipeline.py
+
+architecture:
+  pattern: "Modular linear pipeline (search -> analyze -> check balances -> filter) with a plugin-style service-per-coin design"
+  di_framework: "manual — services dynamically resolved via config/wallet.py's WALLET_SERVICES name-to-module map"
+  state_management: "Stateless between runs; intermediate JSON/text files under output/<run>/checks/ carry state between pipeline stages"
+  navigation: "N/A — CLI, run via run_pipeline.py <input_dir> <output_dir> or individual tools/*.py scripts"
+  data_layer: "Local filesystem scan for candidate wallet files + external blockchain explorer/API calls per coin (Blockstream, Blockchair, Etherscan, Blockfrost, Mintscan, SoChain, Blockcypher, XRPL.org, IOTA Tangle Explorer, Helium Explorer, Zcash Explorer, Binance Explorer, etc.)"
+
+conventions:
+  naming: "snake_case files/functions; PascalCase service classes (e.g. BitcoinService(WalletService))"
+  file_organization: "One file per pipeline stage in tools/; one file per coin in services/; config split into search.py / analysis.py / wallet.py"
+  branching: "Single-branch linear history observed (main only); no feature-branch pattern detected"
+  commit_messages: "Short, conversational, imperative-ish descriptions; no enforced convention (e.g. 'adding dmd coin', 'updating some of the wallets')"
+
+test_infrastructure:
+  unit:
+    framework: none
+    location: none
+    count: "0 files"
+    coverage_tool: none
+  integration:
+    framework: none
+    location: none
+  e2e:
+    framework: none
+    location: none
+    count: "0 flows"
+  mocking: none
+  test_commands: []
+
+ci_cd:
+  platform: none
+  workflows: []
+  gating: "none — no .github/workflows found"
+
+documentation_found:
+  - path: README.md
+    content_summary: "Project overview, tool usage/examples, supported-coin table with regex+API provider, config docs, failsafes, how to add a new coin"
+  - path: .env.sample
+    content_summary: "Sample env vars for API keys (ETHERSCAN_API_KEY, BLOCKFROST_API_KEY)"
+
+existing_knowledge:
+  mcp_servers: []
+  existing_skills: []
+  existing_hooks: []
+
+integrations:
+  cli_tools:
+    linearis: missing
+    frame0: missing
+    codex: detected
+    maestro: missing
+  mcp_servers:
+    firecrawl: missing
+    context7: missing
+    posthog: detected
+    firebase: missing
+    mobile-mcp: missing
+  vaults:
+    obsidian: missing
+
+code_quality:
+  linters: []
+  formatters: []
+  pre_commit:
+    framework: null
+    hooks: []
+  code_snippets:
+    - path: services/__init__.py
+      pattern: abstract-service-base
+      annotation: "Base WalletService class defines the check_balance(address) contract every coin service must implement; loads .env via python-dotenv at import time."
+      lines: "1-15"
+    - path: run_pipeline.py
+      pattern: cli-pipeline-orchestrator
+      annotation: "argparse-driven entry point that threads output files between search -> analyze -> check_wallet_balances -> filter stages."
+      lines: "1-45"
+  test_first_signals:
+    co_located_tests: false
+    test_before_source: inconclusive
+    test_runner_in_precommit: false
+    bdd_keywords: false
+    test_absence: true
+
+project_maturity: early
+
+north_star:
+  goal: >
+    Beyond finding, analyzing, and filtering wallet files down to ones that hold funds:
+    build graph views of discovered wallets/coins to surface other wallets that may be
+    missing, and provide guidance/paths toward recovering access to those coins.
+    Longer-term, add a simple UI for running scans and reviewing results (not CLI-only).
+  audience: >
+    Personal use plus other crypto hobbyists/collectors who run the tool on their own
+    machines to rediscover old, forgotten wallet files.
+  expected_scale: "N/A — single-user local CLI tool; no concurrency or hosting concerns."
+  pain_points: >
+    Coin coverage/accuracy (adding and maintaining regex patterns and balance-check
+    services for more coins is tedious); false positives in search/analyze surfacing
+    files/addresses that aren't real wallets; no automated tests, so changes risk
+    silently breaking a wallet service or pattern; no way to visualize/graph
+    relationships between wallets and coins to spot ones still missing; CLI-only, no UI
+    for running scans and reviewing results.
+  success: >
+    Confidently recovering every wallet with a balance across the user's (and hobbyist
+    users') files, with minimal false positives, and a graph/UI that makes coverage gaps
+    obvious.
+  avoid: >
+    Avoid false positives as much as possible. Avoid writing off a wallet/address as
+    empty just because an API call failed or timed out too few times to be conclusive —
+    be conservative about negating results. Be as accurate and thorough as possible when
+    crawling multi-terabyte drives and backups, including internal Windows backup formats
+    and other archive/image formats, to dig as deep as possible. Also flag hidden drives,
+    encrypted volumes, or unusual partitions (e.g. old VeraCrypt/TrueCrypt containers) so
+    the user can attempt to unlock and check them, rather than silently skipping them.
+    Given this tool handles private keys and wallet secrets, never log, transmit, or
+    otherwise handle key material insecurely.

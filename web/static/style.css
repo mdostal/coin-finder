@@ -1,0 +1,578 @@
+@font-face {
+  font-family: "Fraunces";
+  src: url("fonts/fraunces-variable.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Warm, ledger-dark palette -- an old vault at night, not a generic
+     teal-on-slate SaaS dashboard. Grounded in the actual subject: digging
+     old, buried value back out. */
+  --bg: #14110d;
+  --bg-raised: #1c180f;
+  --bg-inset: #0e0b07;
+  --border: #332a1b;
+  --border-strong: #4a3c22;
+  --text: #f2ead9;
+  --text-dim: #ab9c81;
+
+  /* Brand/interactive -- brass. Reserved for links, buttons, active nav,
+     brand mark, and "you found something" emphasis. Never used for
+     job/connection status, which gets its own semantic tokens below. */
+  --accent: #d6a54f;
+  --accent-dim: #a67f3b;
+  --accent-bright: #eec87c;
+  --accent-ink: #241a08; /* text color ON a solid accent surface (buttons) */
+
+  /* Semantic state -- deliberately a different hue from --accent so
+     "the job succeeded" never gets visually confused with "the brand
+     color" or "this row has money in it". */
+  --success: #6fae7f;
+  --success-bg: #17241a;
+  --warning: #e0b34a;
+  --warning-bg: #2a2213;
+  --warning-border: #4a3a10;
+  --error: #d1594f;
+  --error-bg: #2b1815;
+  --error-border: #4a1a1e;
+  --info: #6ea3cf;
+
+  --radius: 10px;
+  --radius-sm: 7px;
+  --mono: "SF Mono", "Menlo", "Consolas", monospace;
+  --sans: -apple-system, "Segoe UI", Roboto, sans-serif;
+  --display: "Fraunces", Georgia, "Iowan Old Style", serif;
+}
+
+/* Light theme -- same warm/brass identity, paper-and-ink instead of
+   vault-at-night. Manually toggled (button in the top nav, web/static/
+   theme.js), not tied to the OS setting -- this app has always been
+   dark by default and stays that way unless the user opts out. */
+:root[data-theme="light"] {
+  --bg: #f7f1e2;
+  --bg-raised: #fffbf1;
+  --bg-inset: #ece0c3;
+  --border: #dccea0;
+  --border-strong: #c3ac74;
+  --text: #2a2013;
+  --text-dim: #6d5c3c;
+
+  --accent: #9c6c26;
+  --accent-dim: #7d551d;
+  --accent-bright: #b98431;
+  --accent-ink: #fffaf0;
+
+  --success: #3f7a54;
+  --success-bg: #e2efe3;
+  --warning: #96701c;
+  --warning-bg: #f3e8cb;
+  --warning-border: #d9c283;
+  --error: #a13f34;
+  --error-bg: #f4e0dc;
+  --error-border: #dbb2a6;
+  --info: #3c6e94;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  padding-bottom: 4rem;
+}
+
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 1.75rem;
+}
+
+header.topbar {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2.25rem;
+  background: linear-gradient(180deg, var(--bg-raised), var(--bg) 140%);
+}
+
+header.topbar .page {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding-top: 1.15rem;
+  padding-bottom: 1.15rem;
+}
+
+.brand {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.35rem;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.brand span {
+  color: var(--accent);
+}
+
+nav.topnav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+  margin-left: auto;
+}
+nav.topnav a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.88rem;
+  padding: 0.2rem 0;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+nav.topnav a:hover {
+  color: var(--text);
+  border-bottom-color: var(--accent-dim);
+}
+
+.nav-single.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* In-page tab strip (_macros.html's group_tabs()) -- shown at the top of
+   every page within a nav group (Sources/Unlock/About), so switching
+   between e.g. Manage/Cloud/Scan is a real page-level tab, not a hover
+   dropdown that duplicates the top nav link's destination. */
+.page-tabs {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.75rem;
+  padding-bottom: 0;
+}
+.page-tabs a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.86rem;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.page-tabs a:hover { color: var(--text); }
+.page-tabs a.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.page-tabs a.subtle { color: var(--text-dim); font-size: 0.8rem; margin-left: auto; }
+
+.jobs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--warning);
+  text-decoration: none;
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  padding: 0.22rem 0.65rem;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.jobs-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
+.jobs-chip .dot.idle { background: var(--text-dim); }
+.jobs-chip:hover { border-color: var(--text); color: var(--text); }
+
+h1, h2, h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 0;
+  text-wrap: balance;
+}
+h2 { font-size: 1.6rem; margin-bottom: 0.6rem; }
+h3 { font-size: 1.15rem; color: var(--text); margin-top: 2.1rem; margin-bottom: 0.85rem; font-weight: 600; }
+
+p { line-height: 1.6; color: var(--text-dim); }
+p code, li code { color: var(--accent-bright); font-family: var(--mono); font-size: 0.9em; }
+
+a { color: var(--accent); }
+a:hover { color: var(--accent-bright); }
+
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.6rem 1.7rem;
+  margin-bottom: 1.6rem;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2), 0 8px 24px -16px rgba(0, 0, 0, 0.5);
+}
+
+.subtle { color: var(--text-dim); font-size: 0.88rem; }
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+  font-weight: 500;
+}
+
+input[type=text], input[type=password], textarea, select {
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.75rem;
+  font-family: var(--sans);
+  font-size: 0.92rem;
+  margin-bottom: 1rem;
+  transition: border-color 0.15s ease;
+}
+input[type=text]:focus, input[type=password]:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+textarea { font-family: var(--mono); resize: vertical; }
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+.radio-row input[type=radio] { margin: 0; }
+
+input[type=checkbox], input[type=radio] {
+  accent-color: var(--accent);
+}
+
+details {
+  margin: 0.75rem 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+}
+details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+details[open] summary { margin-bottom: 0.75rem; }
+
+button, input[type=submit] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.62rem 1.15rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+button:hover { background: var(--accent-bright); }
+button:active { transform: translateY(1px); }
+
+/* Secondary/destructive-adjacent actions (Remove, Unmount, etc.) --
+   deliberately less visually prominent than the primary accent buttons
+   (Scan, Mount, Add) so the eye lands on the constructive action first. */
+button.btn-secondary {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+}
+button.btn-secondary:hover {
+  background: var(--bg-inset);
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.path-input-row { display: flex; gap: 0.5rem; align-items: stretch; margin-bottom: 1rem; }
+.path-input-row input[type=text] { flex: 1; margin-bottom: 0; }
+.path-input-row button { flex-shrink: 0; white-space: nowrap; }
+
+form.inline-form {
+  border-top: 1px solid var(--border);
+  padding-top: 1.1rem;
+  margin-top: 1.1rem;
+}
+form.inline-form:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5rem 0 1.5rem;
+  font-size: 0.85rem;
+}
+th, td {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+td { font-family: var(--mono); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+tr.watched-row td { background: rgba(214, 165, 79, 0.09); border-bottom-color: rgba(214, 165, 79, 0.22); }
+tr.watched-row:hover td { background: rgba(214, 165, 79, 0.14); }
+
+/* A confirmed non-zero balance -- the entire reason this app exists --
+   must never blend into a long, mostly-zero-balance table. Distinct from
+   watched-row (a user's own bookmark) even though both lean on the same
+   brand hue: a real balance earns a left rail, watched doesn't. */
+tr.has-balance-row td { background: rgba(214, 165, 79, 0.13); }
+tr.has-balance-row:hover td { background: rgba(214, 165, 79, 0.18); }
+tr.has-balance-row td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.balance-found { color: var(--accent-bright); }
+
+pre {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.banner {
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+  border: 1px solid transparent;
+}
+.warning { background: var(--warning-bg); border-color: var(--warning-border); color: var(--warning); }
+.error { background: var(--error-bg); border-color: var(--error-border); color: var(--error); }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.status-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.status-running { background: rgba(110, 163, 207, 0.14); color: var(--info); }
+.status-done { background: rgba(111, 174, 127, 0.14); color: var(--success); }
+.status-error { background: var(--error-bg); color: var(--error); }
+.status-new { background: rgba(214, 165, 79, 0.12); color: var(--accent-bright); }
+.status-archived { background: var(--bg-inset); color: var(--text-dim); }
+
+.empty { color: var(--text-dim); font-style: italic; font-size: 0.88rem; }
+
+.conn-status {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: default;
+}
+.conn-offline { color: var(--success); }
+.conn-online { color: var(--info); }
+.conn-unknown { color: var(--text-dim); }
+
+.theme-toggle-btn {
+  font-size: 0.74rem;
+  padding: 0.3rem 0.7rem;
+  margin: 0;
+}
+
+.progress-bar {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+  margin: 0.5rem 0 0.35rem;
+}
+.progress-bar-fill {
+  background: var(--accent);
+  height: 100%;
+  transition: width 0.2s ease;
+}
+.progress-bar-indeterminate .progress-bar-fill {
+  width: 35% !important;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: progress-indeterminate-slide 1.2s ease-in-out infinite;
+}
+@keyframes progress-indeterminate-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(285%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar-indeterminate .progress-bar-fill { animation: none; }
+}
+.progress-label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+.back-link { display: inline-block; margin-top: 1.5rem; font-size: 0.88rem; }
+
+.coin-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.3rem;
+  height: 2.3rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  border: 1px solid;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+.coin-badge-icon { padding: 0.5rem; }
+.coin-badge-icon img { width: 100%; height: 100%; object-fit: contain; }
+
+/* A long, deeply-nested path (a drive within a drive within a backup)
+   truncated from the START so the actual filename at the end -- the
+   part that matters -- stays visible, not a repeated generic mount
+   prefix. Hover for the full path (native title tooltip); Copy grabs it
+   without needing to select truncated text. */
+.path-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+}
+.path-chip-text {
+  display: inline-block;
+  vertical-align: bottom;
+}
+.path-chip-copy {
+  font-size: 0.68rem;
+  padding: 0.15rem 0.5rem;
+  flex-shrink: 0;
+}
+
+.finding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.5rem 0 1.5rem;
+}
+.finding-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+}
+.finding-card.has-balance {
+  background: rgba(214, 165, 79, 0.1);
+  border-color: rgba(214, 165, 79, 0.35);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.finding-card.watched:not(.has-balance) {
+  border-color: rgba(214, 165, 79, 0.25);
+}
+.finding-card-select { padding-top: 0.55rem; }
+.finding-card-main { flex: 1; min-width: 0; }
+.finding-card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.finding-card-top code {
+  font-size: 0.92rem;
+  color: var(--text);
+}
+.finding-card-sub {
+  margin-top: 0.3rem;
+  word-break: break-word;
+}
+.finding-card-sub .watch-note { color: var(--accent-bright); }
+.finding-card-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.finding-card-actions form { margin: 0; }
+.finding-card-actions details {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+}
+.finding-card-actions details summary { font-size: 0.78rem; white-space: nowrap; }
+.finding-card-actions .more-actions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.6rem;
+  min-width: 11rem;
+}
+.finding-card-actions .more-actions-panel button { width: 100%; }
+.watch-form {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.watch-form input[type=text] {
+  width: 11rem;
+  margin: 0;
+}
+
+/* A cell packing several small action forms/links (findings.html) --
+   consistent stacking instead of inline forms wrapping unpredictably. */
+.action-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+.action-stack form { margin: 0; }
+.action-stack a.btn-secondary {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
+.action-stack button { width: 100%; }

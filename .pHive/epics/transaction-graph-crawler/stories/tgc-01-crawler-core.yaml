@@ -1,0 +1,116 @@
+id: tgc-01-crawler-core
+epic: transaction-graph-crawler
+title: Co-spend clustering + bounded output-following core module
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.4.0"
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  New module tools/crawl_transaction_graph.py:
+
+  - `fetch_address_transactions(address)`: GET
+    https://blockstream.info/api/address/{address}/txs, retried on failure
+    (reuse the retry-with-backoff pattern from
+    tools/check_wallet_balances.py::_check_balance_with_retries -- retry on
+    request exception / non-200, never on a valid-but-empty list). Returns the
+    raw tx list (up to 25 recent confirmed transactions per Blockstream's API).
+  - `find_co_spend_addresses(tx, known_address) -> set[str]`: returns every OTHER
+    address in `tx["vin"][*]["prevout"]["scriptpubkey_address"]` when
+    `known_address` also appears among the tx's input addresses. Empty set when
+    known_address is not an input on this tx.
+  - `find_output_addresses(tx, known_address, max_outputs=20) -> set[str]`:
+    returns `tx["vout"][*]["scriptpubkey_address"]` (excluding known_address
+    itself) ONLY when known_address is an input on `tx` AND `len(tx["vout"]) <=
+    max_outputs`. Empty set otherwise (including when the tx exceeds
+    max_outputs -- this is the mining-pool/exchange-batch guard from
+    design-discussion.md Section 4).
+  - `crawl_wallet_cluster(seed_addresses, max_generations=2, max_addresses=200,
+    balance_threshold=1.0) -> dict`: BFS from seed_addresses. Each generation:
+    fetch transactions for the current frontier, collect co-spend addresses
+    (always followed) and bounded-output addresses (followed, tagged lower
+    confidence), stop admitting NEW addresses once max_addresses visited total
+    (in-flight generation still completes). After the crawl, check balance for
+    every discovered address via `services.bitcoin.BitcoinService().check_balance()`
+    (reuse, no duplicated balance logic). Returns
+    `{address: {"confidence": "co-spend"|"output", "generation": N, "balance":
+    float|None}}`. Seed addresses themselves are included with
+    `confidence: "seed"`.
+
+acceptance_criteria:
+  - "Given a tx where known_address is one of 2+ inputs, when find_co_spend_addresses runs, then it returns every other input address on that tx, excluding known_address itself"
+  - "Given a tx where known_address is NOT an input, when find_co_spend_addresses runs, then it returns an empty set"
+  - "Given a tx where known_address is an input and the tx has <= max_outputs outputs, when find_output_addresses runs, then it returns every output address excluding known_address"
+  - "Given a tx where known_address is an input but the tx has MORE than max_outputs outputs, when find_output_addresses runs, then it returns an empty set (mining-pool/exchange-batch guard)"
+  - "Given a tx where known_address is not an input at all, when find_output_addresses runs, then it returns an empty set even if outputs exist"
+  - "Given a seed address whose transactions co-spend with address B, when crawl_wallet_cluster runs with max_generations=1, then B appears in the result with confidence='co-spend' and generation=1"
+  - "Given a crawl that would discover more than max_addresses addresses, when crawl_wallet_cluster runs, then the result contains at most max_addresses entries and no error is raised (bounded, not crashing)"
+  - "Given every discovered address, when crawl_wallet_cluster completes, then each has a balance value populated via the mocked BitcoinService (no real network call in tests)"
+
+steps:
+  - id: research
+    description: Re-confirm the exact Blockstream /txs response shape (vin/vout/prevout/scriptpubkey_address/is_coinbase) against the live API call already made during epic research, and confirm services/bitcoin.py::BitcoinService's check_balance signature for reuse.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_crawl_transaction_graph.py using small
+      hand-built tx fixtures shaped like the real Blockstream response (no real
+      network calls -- monkeypatch fetch_address_transactions and
+      BitcoinService.check_balance), covering every acceptance criterion above.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement fetch_address_transactions, find_co_spend_addresses, find_output_addresses, and crawl_wallet_cluster to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that the max_addresses cap can never be exceeded, that the mining-pool/exchange-batch guard (max_outputs) is applied before following any output address, and that services/bitcoin.py is reused rather than duplicated.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/crawl_transaction_graph.py and tests/test_crawl_transaction_graph.py to the feat/transaction-graph-crawler branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    language: python
+    test_framework: pytest
+  key_files:
+    - path: tools/check_wallet_balances.py
+      purpose: "_check_balance_with_retries() is the retry-with-backoff pattern this story's fetch_address_transactions() reuses."
+    - path: services/bitcoin.py
+      purpose: BitcoinService.check_balance() is reused directly for balance-checking discovered addresses -- no new balance logic.
+
+files_to_modify:
+  - file: tools/crawl_transaction_graph.py
+    change: new file -- fetch_address_transactions, find_co_spend_addresses, find_output_addresses, crawl_wallet_cluster
+  - file: tests/test_crawl_transaction_graph.py
+    change: new file -- core heuristic and BFS tests
+
+design_decisions:
+  - decision: Common-input-ownership (co-spend) clustering as the primary, always-followed signal; bounded output-following as a secondary, capped, lower-confidence signal.
+    rationale: Real data from the actual found address showed 100+-output transactions (mining pool/exchange pattern) that would explode a naive full-graph BFS. design-discussion.md Section 3-4.
+  - decision: Reuse services/bitcoin.py::BitcoinService for balance checks rather than writing new balance logic.
+    rationale: Avoids duplicating the existing, already-tested balance-check code path.
+
+risks:
+  - severity: high
+    description: Even bounded, a busy address could discover many addresses across generations.
+    mitigation: Hard max_addresses cap, explicitly reported when reached (never silent truncation).
+  - severity: medium
+    description: Output-following can misattribute a genuine third-party payment as same-owner.
+    mitigation: Tagged confidence="output" (vs "co-spend") in every result entry so downstream consumers (report, user) can weight accordingly.
+
+references:
+  - path: .pHive/epics/transaction-graph-crawler/docs/design-discussion.md
+    relevant_excerpt: |
+      Section 3: exact function signatures, the co-spend vs output-following
+      confidence distinction, and the max_outputs mining-pool/exchange guard.
+  - path: .pHive/epics/transaction-graph-crawler/docs/research-brief.md
+    relevant_excerpt: |
+      Live-verified Blockstream /txs response shape; the 100+-output transaction
+      finding from the real address that motivated the output-cap guard.

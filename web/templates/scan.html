@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% set result = job.result if job else result %}
+{% block title %}coin-finder -- scan {{ job_id if job_id else "results" }}{% endblock %}
+
+{% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start'), ('Past scans', 'scans_page')]) }}
+<h2>Find results</h2>
+{% if job %}<p>{{ m.status_pill(job.status) }}</p>{% else %}<p class="subtle">Saved scan -- <code>{{ result.output_dir }}</code></p>{% endif %}
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+{% if job and job.status == "running" %}
+<div class="card"><p>Searching &amp; analyzing -- no network calls, but a huge drive can still take a
+while to walk. This page will refresh automatically.</p><div id="job-progress"></div></div>
+{% elif job and job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% elif result %}
+  <div class="card">
+    <h3 style="margin-top:0">What was found</h3>
+    <p><strong>{{ result.files_found }}</strong> file(s) with wallet-shaped content,
+    <strong>{{ result.total_address_instances }}</strong> address instance(s) matched across them.</p>
+
+    {% if result.coin_counts %}
+    <table>
+      <thead><tr><th>Coin (pattern matched)</th><th>Address instances</th></tr></thead>
+      <tbody>
+        {% for coin, count in result.coin_counts.items() | sort(attribute="1", reverse=True) %}
+        <tr><td>{{ coin }}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="subtle">These are pattern matches, not verified wallets -- a large count for a
+    loosely-matching coin (OKCash, DigiByte, Ripple) against a directory full of source/doc text
+    usually means false positives, not real addresses. Skim the numbers before committing to the
+    slow stage below.</p>
+
+    <h3>Files matched</h3>
+    <form id="bulk-form" method="post">
+      <input type="hidden" name="addresses" id="bulk-addresses">
+      {% if not job %}<input type="hidden" name="output_dir" value="{{ result.output_dir }}">{% endif %}
+      <p>
+        <label class="radio-row"><input type="checkbox" id="bulk-select-all"> Select all</label>
+        {% if job %}
+        <button type="submit" formaction="{{ url_for('scan_check_balances_selected', job_id=job_id) }}" class="btn-secondary">Check balances for selected</button>
+        {% else %}
+        <button type="submit" formaction="{{ url_for('scans_view_check_balances_selected') }}" class="btn-secondary">Check balances for selected</button>
+        {% endif %}
+        <label class="radio-row">Hops <select name="generations">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select></label>
+        <button type="submit" formaction="{{ url_for('item_crawl') }}" class="btn-secondary">Graph selected</button>
+        <button type="submit" formaction="{{ url_for('item_fork_coins') }}" class="btn-secondary">Check fork coins for selected</button>
+      </p>
+      <p class="subtle" style="margin-top:-0.5rem">Graph/Check fork coins only use each selected
+      file's Bitcoin addresses (both tools are Bitcoin-only) -- a non-Bitcoin file contributes
+      nothing to those two, no error. "Hops" only applies to Graph -- how many steps outward from
+      each selected address to follow (co-spend + received-from/sent-to) before stopping; higher
+      means more real network calls and a slower crawl.</p>
+      <table>
+        <thead><tr><th></th><th>File</th><th>Coins matched</th></tr></thead>
+        <tbody>
+          {% for f in result.files %}
+          <tr>
+            <td>
+              {% if "Bitcoin" in f.coins %}
+              <input type="checkbox" name="files" class="bulk-select" value="{{ f.path }}" data-addresses="{{ f.coins.Bitcoin | join(',') }}">
+              {% else %}
+              <input type="checkbox" name="files" class="bulk-select" value="{{ f.path }}">
+              {% endif %}
+            </td>
+            <td><code>{{ f.path }}</code></td>
+            <td>
+              {% for coin, addresses in f.coins.items() %}
+              {{ coin }} ({{ addresses | length }}){{ ", " if not loop.last }}
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </form>
+    {% else %}
+    <p class="empty">No wallet-shaped files found.</p>
+    {% endif %}
+
+    {% if result.hidden_volumes_report %}
+    <h3>Hidden/encrypted volume detection</h3>
+    <pre>{{ result.hidden_volumes_report }}</pre>
+    {% endif %}
+  </div>
+
+  {% if result.total_address_instances %}
+  <div class="card">
+    <h3 style="margin-top:0">Next: check balances</h3>
+    <p>The slow part -- one real network call per address instance above, with retries. Can take
+    minutes to days depending on how much was found. Runs as its own background job, so you can
+    kick off another Find against a different drive/directory while this one grinds through
+    overnight.</p>
+    {% if job %}
+    <form method="post" action="{{ url_for('scan_check_balances', job_id=job_id) }}">
+      <button type="submit">Check balances now</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('scans_view_check_balances') }}">
+      <input type="hidden" name="output_dir" value="{{ result.output_dir }}">
+      <button type="submit">Check balances now</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if not job and balances and (balances.balances or balances.inconclusive or balances.filtered) %}
+  <div class="card">
+    <h3 style="margin-top:0">Balance check results</h3>
+    <p class="subtle">From a balance check already run against this scan.</p>
+    {{ m.table(balances.balances) }}
+    {% if balances.inconclusive %}
+    <h4>Inconclusive balances (recheck later)</h4>
+    {{ m.table(balances.inconclusive) }}
+    {% endif %}
+    {% if balances.filtered %}
+    <h4>Filtered (non-zero / interesting) wallets</h4>
+    {{ m.table(balances.filtered) }}
+    {% endif %}
+    {% if balances.relationships_report %}
+    <h4>Relationship graph</h4>
+    <pre>{{ balances.relationships_report }}</pre>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3 style="margin-top:0">More actions</h3>
+    <p class="subtle">Run one of the deeper, on-demand tools against something found above.</p>
+
+    <form class="inline-form" method="post" action="{{ url_for('item_scan_wallet_dat') }}">
+      {{ m.path_input("Full wallet.dat scan -- path", "wallet_path", mode="file") }}
+      <button type="submit">Run</button>
+    </form>
+
+    <form class="inline-form" method="post" action="{{ url_for('item_crawl') }}">
+      <label>Transaction-graph crawl -- addresses (one per line)</label>
+      <textarea name="addresses" rows="3"></textarea>
+      <label class="radio-row">Hops <select name="generations">
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+      </select></label>
+      <button type="submit">Run</button>
+    </form>
+
+    <form class="inline-form" method="post" action="{{ url_for('item_fork_coins') }}">
+      <label>Fork coin check -- addresses (one per line)</label>
+      <textarea name="addresses" rows="3"></textarea>
+      <button type="submit">Run</button>
+    </form>
+
+    <form class="inline-form" method="post" action="{{ url_for('item_find_seed_phrases') }}">
+      {{ m.path_input("Find seed phrases -- directory or file", "target_path", mode="directory") }}
+      <button type="submit">Run</button>
+    </form>
+
+    <form class="inline-form" method="post" action="{{ url_for('item_match_seed_phrases') }}">
+      {{ m.path_input("Match seed phrases -- existing candidates file", "phrases_file", mode="file") }}
+      <button type="submit">Run</button>
+    </form>
+
+    <form class="inline-form" method="post" action="{{ url_for('item_stage') }}">
+      {{ m.path_input("Stage a file for backup/recovery (copy only, original untouched) -- path", "file_path", mode="file") }}
+      <button type="submit">Stage</button>
+    </form>
+
+    <p class="subtle" style="margin-top:1rem;margin-bottom:0">
+      <a href="{{ url_for('item_unlock_form') }}">Unlock a wallet (BTCRecover / hashcat) &rarr;</a>
+    </p>
+  </div>
+{% endif %}
+
+{% if job %}
+<script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}"></script>
+{% endif %}
+<script src="{{ url_for('static', filename='scan.js') }}"></script>
+{% endblock %}

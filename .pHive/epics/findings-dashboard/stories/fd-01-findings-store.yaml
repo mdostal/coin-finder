@@ -1,0 +1,101 @@
+id: fd-01-findings-store
+epic: findings-dashboard
+title: SQLite-backed findings store + wiring into existing scan jobs
+status: shipped
+shipped_at: "2026-08-14T00:00:00Z"
+release_id: "v0.19.0"
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  web/findings.py: sqlite3-backed store (web/findings.db, gitignored),
+  schema per docs/design-discussion.md:
+  - record_finding(coin, address, balance, source_path=None,
+    source_label=None, db_path=DEFAULT): upsert keyed on (coin, address).
+    Updates balance/last_checked_at on an existing row; preserves status
+    so a manual archive isn't undone by a later re-scan; sets
+    first_seen_at only on true insert.
+  - list_findings(include_archived=False, db_path=DEFAULT): all rows,
+    newest-checked first.
+  - archive(coin, address, db_path=DEFAULT) / unarchive(...).
+  - archive_all_zero_balance(db_path=DEFAULT): archives every row with
+    balance == 0.0 and status == "new" in one call.
+
+  Wiring: web/app.py's _run_scan_job, _run_scan_wallet_dat_job,
+  _run_crawl_job, and _run_fork_coins_job each gain one additional call at
+  the end of their existing work, feeding their already-computed results
+  into record_finding() -- no scan/balance-check logic duplicated, this is
+  a side-effect recorder only.
+
+acceptance_criteria:
+  - "Given a fresh db, when record_finding runs for a new (coin, address), then list_findings includes it with the given balance"
+  - "Given an existing finding, when record_finding runs again with a new balance, then balance/last_checked_at update but first_seen_at is unchanged"
+  - "Given a finding that was archived, when record_finding runs again for the same (coin, address), then status remains archived (a re-scan does not un-archive it)"
+  - "Given list_findings(include_archived=False), when an archived finding exists, then it is excluded; given include_archived=True, it is included"
+  - "Given several zero-balance new findings and one non-zero finding, when archive_all_zero_balance runs, then only the zero-balance ones become archived"
+  - "Given _run_scan_job completes with balance results, when its job finishes, then those results are recorded in the findings store (via a mocked record_finding in the route-level test)"
+
+steps:
+  - id: test-spec
+    description: Write failing tests in tests/test_findings.py (storage layer, tmp_path-based sqlite files) and extend tests/test_web_app.py for the scan-job wiring (mocked record_finding).
+    agent: tester
+  - id: implement
+    description: Implement web/findings.py and wire it into web/app.py's job functions.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm record_finding never overwrites a manually-set archived status, and that balance=None (inconclusive) is never coerced to 0 anywhere in the upsert path.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit, update .gitignore for web/findings.db, README note.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/bound_targets.py
+      purpose: Established local-runtime-state-file pattern this story follows, upgraded to sqlite given findings' relational/growing shape.
+
+files_to_modify:
+  - file: web/findings.py
+    change: new file
+  - file: web/app.py
+    change: wire record_finding() into _run_scan_job, _run_scan_wallet_dat_job, _run_crawl_job, _run_fork_coins_job
+  - file: tests/test_findings.py
+    change: new file
+  - file: tests/conftest.py
+    change: new file -- autouse fixture patching web.app.record_finding for every test in the suite
+  - file: .gitignore
+    change: add web/findings.db
+
+design_decisions:
+  - decision: SQLite instead of another JSON file.
+    rationale: Findings accumulate into the thousands across a real multi-drive crawl and need sorting/filtering/status updates -- the first genuinely relational, growing dataset in this project, unlike the small rarely-touched lists (bound targets, mounts) that JSON files suited fine.
+  - decision: record_finding() never overwrites an existing archived status.
+    rationale: The whole point of archiving is "I've reviewed this, stop showing it to me" -- a routine re-scan silently un-archiving it would defeat that and force re-reviewing the same zero-balance addresses forever.
+
+risks:
+  - severity: low
+    description: balance=None (inconclusive) vs balance=0.0 (confirmed empty) must stay distinguishable through the upsert path.
+    mitigation: SQLite's NULL vs 0.0 are naturally distinct; explicit test coverage locks this in.
+  - severity: medium (real, caught during this story's own implementation)
+    description: >
+      Wiring record_finding() into the job functions immediately leaked test
+      fixture data (address "1abc") into the real, persistent
+      web/findings.db, because the existing test suite mocks the
+      underlying tool functions but not record_finding itself -- so the
+      real function ran against its real default db path during every test
+      run.
+    mitigation: Added tests/conftest.py with an autouse fixture patching
+      web.app.record_finding for the entire test suite -- a blanket safety
+      net covering this and any future job function added to web/app.py,
+      not just the ones this story touches. Verified by running the full
+      suite and confirming web/findings.db is never created as a
+      side effect.
+
+references:
+  - path: .pHive/epics/findings-dashboard/docs/design-discussion.md
+    relevant_excerpt: "preserves status so a manual archive isn't undone by a later re-scan"

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- Email{% endblock %}
+{% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
+<h2>Search Gmail for wallet clues</h2>
+<p>Searches Gmail for old exchange signup/withdrawal emails, wallet mentions,
+and wallet-like attachments (<code>wallet.dat</code>, backups, etc.) -- the
+same <code>tools/scan_gmail.py</code> tool, just started from here. Every
+email's body/attachment content flows straight from Google's API to local
+disk; only public info (sender, subject, date, any bitcoin-style address
+found) ever gets shown back to you here or to any AI assistant helping with
+this project.</p>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+{% if not bound %}
+<div class="card">
+  <h3 style="margin-top:0">Connect Gmail</h3>
+  <p>One-time setup, in your own Google account:</p>
+  <ol>
+    <li>Go to the <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a>, create a project (or use an existing one -- the same one used for Google Drive works fine).</li>
+    <li>Enable the <strong>Gmail API</strong> for that project.</li>
+    <li>Create an <strong>OAuth client ID</strong> credential of type <strong>Desktop app</strong>.</li>
+    <li>Paste its client ID and client secret below.</li>
+  </ol>
+  <p class="subtle">Both are stored in your vault (Portunus), never as a
+  plaintext file -- the same place every saved password in this app lives.
+  The next step opens a real browser window for you to approve read-only
+  Gmail access; nothing is searched until you do.</p>
+  <form method="post" action="{{ url_for('gmail_connect') }}">
+    <label>Client ID</label>
+    <input type="text" name="client_id" placeholder="1234567890-abc.apps.googleusercontent.com" required>
+    <label>Client secret</label>
+    <input type="password" name="client_secret" required>
+    <button type="submit">Connect Gmail</button>
+  </form>
+</div>
+{% else %}
+<div class="banner" style="background:var(--bg-raised);border-color:var(--border);color:var(--text-dim)">
+  Gmail is connected.
+  <form method="post" action="{{ url_for('gmail_disconnect') }}" style="display:inline" onsubmit="return confirm('Disconnect Gmail? You can reconnect any time.');">
+    <button type="submit" class="btn-secondary">Disconnect</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Search</h3>
+  <form method="post" action="{{ url_for('gmail_search') }}">
+    {{ m.path_input("Local output directory (results + any saved attachments land here)", "output_dir", mode="directory", placeholder=default_output_dir) }}
+
+    <label>Search queries (one per line -- real Gmail search syntax; leave as-is for a broad first pass)</label>
+    <textarea name="queries" rows="6">{{ default_queries | join('\n') }}</textarea>
+
+    <button type="submit">Search Gmail</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

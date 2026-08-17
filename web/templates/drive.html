@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- Google Drive{% endblock %}
+{% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
+<h2>Scan Google Drive</h2>
+<p>Slow-crawls your Google Drive for wallet-like files and downloads matches
+directly to a local directory -- the same
+<code>tools/scan_google_drive.py</code> tool and OAuth flow documented in the
+README, just started from here. First use requires the one-time Google Cloud
+OAuth setup described there (a <code>credentials.json</code> in this
+project's root); the first run will open a browser window for consent.</p>
+
+<p class="subtle">Multi-terabyte Drive that can't be downloaded locally?
+See <a href="https://github.com/mdostal/coin-finder#mounting-google-drive-for-multi-terabyte-drives">mounting Google Drive with rclone</a>
+instead -- once mounted, point the regular <a href="{{ url_for('index') }}">scan</a> form at the mount point like any local directory.</p>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="{{ url_for('drive_scan') }}">
+    {{ m.path_input("Local output directory (downloaded files land here)", "output_dir", mode="directory", required=True) }}
+
+    <label>Optional Drive API query (leave blank for everything not trashed)</label>
+    <input type="text" name="query">
+
+    <button type="submit">Scan Drive</button>
+  </form>
+</div>
+{% endblock %}

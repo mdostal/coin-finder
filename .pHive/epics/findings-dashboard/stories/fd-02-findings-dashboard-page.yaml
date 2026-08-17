@@ -1,0 +1,81 @@
+id: fd-02-findings-dashboard-page
+epic: findings-dashboard
+title: /findings dashboard page with sort/filter/archive
+status: shipped
+shipped_at: "2026-08-14T00:00:00Z"
+release_id: "v0.19.0"
+complexity: medium
+methodology: tdd
+depends_on: [fd-01-findings-store]
+
+description: |
+  GET /findings: renders every row from list_findings() (archived hidden
+  by default, a "show archived" toggle via ?include_archived=1) --
+  coin, address, balance (or "inconclusive" for NULL, never shown as
+  "0"), source, first/last-checked timestamps, status.
+
+  POST /findings/archive and POST /findings/unarchive (single row, by
+  coin+address). POST /findings/archive-all-zero (calls
+  archive_all_zero_balance() directly -- the "move and archive all the
+  0s" workflow this epic exists for).
+
+  Nav gains a "Findings" link. Index dashboard gains a summary line
+  (total findings, how many still need review) linking to /findings.
+
+acceptance_criteria:
+  - "Given findings with balance=None, when the page renders, then they display as 'inconclusive', never as if they were 0"
+  - "Given the default page load, when archived findings exist, then they are excluded; given ?include_archived=1, they are included"
+  - "Given POST /findings/archive-all-zero, when it completes, then every zero-balance 'new' finding becomes archived and the page reflects it"
+  - "Given a single finding, when its Archive button is used, then only that finding's status changes"
+
+steps:
+  - id: test-spec
+    description: Write failing tests in tests/test_web_app_findings.py.
+    agent: tester
+  - id: implement
+    description: Implement /findings routes/template.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm inconclusive (NULL) balances are never rendered or sorted as if they were 0.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit, add Findings to nav, README section, CHANGELOG entry for the whole epic, ship.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/findings.py
+      purpose: list_findings()/archive()/archive_all_zero_balance() -- this story is a thin UI over fd-01's storage layer, no new logic.
+
+files_to_modify:
+  - file: web/app.py
+    change: add GET /findings, POST /findings/archive, POST /findings/unarchive, POST /findings/archive-all-zero
+  - file: web/templates/findings.html
+    change: new file
+  - file: web/templates/base.html
+    change: add Findings to nav
+  - file: web/templates/index.html
+    change: findings summary line
+  - file: tests/test_web_app_findings.py
+    change: new file
+  - file: README.md
+    change: Findings dashboard section
+  - file: CHANGELOG.md
+    change: entry covering the whole findings-dashboard epic
+
+design_decisions:
+  - decision: "Archive all zero-balance" is one explicit action, not automatic.
+    rationale: The user reviews and confirms the archive in one deliberate click ("move and archive all the 0s") rather than balances silently disappearing from view without an explicit action -- consistent with this project's "no silent gaps" discipline.
+
+risks:
+  - severity: low
+    description: A large findings table (thousands of rows after a real multi-drive crawl) rendered as one plain HTML table could get slow/unwieldy.
+    mitigation: Accepted for v1 given current scale (the local-web-ui epic's own precedent -- ship the plain version first, revisit pagination if it's actually needed once real crawl data exists).
+
+references:
+  - path: .pHive/epics/findings-dashboard/docs/design-discussion.md
+    relevant_excerpt: "a one-click \"archive all zero-balance\" action -- directly the \"move and archive all the 0s\" workflow requested"

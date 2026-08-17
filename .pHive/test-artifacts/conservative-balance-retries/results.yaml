@@ -1,0 +1,35 @@
+epic: conservative-balance-retries
+substrate: pytest (no Maestro/device swarm applies -- Python CLI, no mobile/web UI)
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 20
+tests_passed: 20
+tests_failed: 0
+
+coverage_by_story:
+  crb-01-retry-and-inconclusive-tracking:
+    acceptance_criteria: 7
+    covered_by_tests: 7
+    gaps: []
+    tests:
+      - tests/test_check_wallet_balances.py::test_immediate_success_does_not_retry
+      - tests/test_check_wallet_balances.py::test_eventual_success_stops_retrying_once_confirmed
+      - tests/test_check_wallet_balances.py::test_exhausted_retries_returns_none_without_sleeping_after_final_attempt
+      - tests/test_check_wallet_balances.py::test_confirmed_zero_balance_is_not_retried
+      - tests/test_check_wallet_balances.py::test_inconclusive_address_after_retries_is_written_to_inconclusive_file
+      - tests/test_check_wallet_balances.py::test_no_inconclusive_file_written_when_nothing_is_inconclusive
+      - tests/test_check_wallet_balances.py::test_inconclusive_output_path_is_overridable
+  crb-02-readme-docs:
+    acceptance_criteria: 2
+    covered_by_tests: 0
+    gaps: []
+    note: "Docs-only story, no automated test surface. Manually reviewed against crb-01's implementation for accuracy."
+
+regression_check:
+  previous_suite: tests/test_build_wallet_graph.py, tests/test_run_pipeline.py (epic wallet-relationship-graph)
+  result: pass
+  note: "wallet_balances.json shape/semantics unchanged by crb-01; epic-1 tests still pass unmodified."
+
+bugs_filed: 0
+verdict: PASS

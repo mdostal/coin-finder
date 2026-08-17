@@ -1,0 +1,106 @@
+id: dcv-01-container-detection-core
+epic: deep-crawl-hidden-volumes
+title: Entropy + magic-byte encrypted-container heuristic (core functions)
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.3.0"
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  New module tools/detect_hidden_volumes.py, core functions only (no walker/CLI
+  yet -- that's dcv-02):
+
+  - `shannon_entropy(data: bytes) -> float`: standard byte-level Shannon entropy,
+    returns bits/byte in [0.0, 8.0]. Empty input returns 0.0.
+  - `KNOWN_SIGNATURES: dict[bytes, str]`: magic-byte header -> format name, for at
+    least PNG, JPEG, GIF, ZIP, GZIP, PDF, ELF, MZ/PE, SQLite.
+  - `has_known_signature(header_bytes: bytes) -> str | None`: returns the matched
+    format name if `header_bytes` starts with any key in KNOWN_SIGNATURES, else
+    None.
+  - `looks_like_encrypted_container(file_path, min_size_bytes=1_000_000,
+    entropy_threshold=7.9, sample_size=65536) -> dict | None`: reads only file
+    size (via os.stat) plus up to 3 samples (head, middle, tail; each capped at
+    sample_size bytes -- never reads a whole large file). Returns a dict
+    `{"path": file_path, "size": size, "entropy": combined_entropy}` only when
+    ALL of: size >= min_size_bytes, size % 512 == 0, has_known_signature(head
+    sample) is None, and the entropy of the concatenated samples >=
+    entropy_threshold. Returns None otherwise.
+
+  This story is pure/stdlib-only, no directory walking, no CLI -- see
+  design-discussion.md Section 3, points 1-1 (the walker/CLI/report are dcv-02).
+
+acceptance_criteria:
+  - "Given all-zero bytes, when shannon_entropy runs, then it returns 0.0"
+  - "Given os.urandom(N) bytes (N >= 1024), when shannon_entropy runs, then it returns a value >= 7.9"
+  - "Given empty bytes, when shannon_entropy runs, then it returns 0.0 without raising"
+  - "Given header bytes starting with a known PNG/ZIP/PDF magic byte sequence, when has_known_signature runs, then it returns the matching format name"
+  - "Given header bytes matching no known signature, when has_known_signature runs, then it returns None"
+  - "Given a file smaller than min_size_bytes, when looks_like_encrypted_container runs, then it returns None even if the content is high-entropy"
+  - "Given a file whose size is not a multiple of 512, when looks_like_encrypted_container runs, then it returns None even if large and high-entropy"
+  - "Given a file that starts with a known magic-byte signature (e.g. PNG header) but is otherwise high-entropy padding, when looks_like_encrypted_container runs, then it returns None"
+  - "Given a file that is large (>= min_size_bytes), a multiple of 512 in size, has no known signature, and is high-entropy throughout, when looks_like_encrypted_container runs, then it returns a dict with path, size, and entropy keys"
+
+steps:
+  - id: research
+    description: Confirm there is no existing entropy/signature/file-detection code anywhere in the repo to reuse or conflict with (research-brief.md already did this at the epic level; re-confirm scoped to this story's exact function names before implementing).
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests in tests/test_detect_hidden_volumes.py against
+      shannon_entropy(), has_known_signature(), and
+      looks_like_encrypted_container() using synthetic byte buffers and small
+      tmp_path-written files (no real drive access, no network).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement tools/detect_hidden_volumes.py's core functions to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that looks_like_encrypted_container never reads more than 3 x sample_size bytes regardless of file size (the whole point is safety against multi-GB files), and that all four heuristic conditions are actually required (not accidentally OR'd).
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/detect_hidden_volumes.py and tests/test_detect_hidden_volumes.py to the feat/deep-crawl-hidden-volumes branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    language: python
+    test_framework: pytest
+  key_files:
+    - path: config/search.py
+      purpose: "MAX_FILE_SIZE = 45MB confirms why this needs its own sampling-based tool rather than reusing search_wallets.py."
+    - path: tools/build_wallet_graph.py
+      purpose: "Style precedent from epic 1 for a new single-purpose stdlib-only module with pure core functions."
+
+files_to_modify:
+  - file: tools/detect_hidden_volumes.py
+    change: new file -- shannon_entropy, KNOWN_SIGNATURES, has_known_signature, looks_like_encrypted_container
+  - file: tests/test_detect_hidden_volumes.py
+    change: new file -- core heuristic tests
+
+design_decisions:
+  - decision: Sample head/middle/tail (capped at sample_size bytes each) instead of reading whole files.
+    rationale: The entire point of this epic is handling multi-GB/multi-TB-scale containers -- design-discussion.md Section 4 risk note on I/O cost.
+  - decision: Require ALL four conditions (size floor, sector-multiple, no known signature, high entropy) rather than any subset.
+    rationale: Minimizes false positives per the stated "worth checking, not a finding" framing (research-brief.md).
+
+risks:
+  - severity: high
+    description: The heuristic can false-positive on legitimately high-entropy files (some compressed/media formats) that happen to lack a recognized signature.
+    mitigation: Documented as a known limitation; dcv-02's report framing and dcv-03's README must state this explicitly, not just this story's code.
+
+references:
+  - path: .pHive/epics/deep-crawl-hidden-volumes/docs/research-brief.md
+    relevant_excerpt: |
+      "The standard heuristic... 1. No recognized file-type signature... 2. High
+      Shannon entropy... 3. Size is a multiple of 512 bytes... 4. Minimum size floor."
+  - path: .pHive/epics/deep-crawl-hidden-volumes/docs/design-discussion.md
+    relevant_excerpt: |
+      Section 3, point 1: exact function signatures and the "reads only size plus
+      head/middle/tail samples" constraint.

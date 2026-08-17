@@ -1,0 +1,105 @@
+id: gda-01-drive-scanner
+epic: google-drive-adapter
+title: OAuth-based Drive scanner, download-to-disk only
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.13.0"
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  New module tools/scan_google_drive.py:
+
+  - is_wallet_like_filename(filename): reuses config/search.py's
+    WALLET_EXTENSIONS/WALLET_KEYWORDS/COIN_NAMES.
+  - get_drive_service(credentials_path, token_path): standard "installed
+    app" OAuth flow (google-auth-oauthlib), read-only Drive scope, caches
+    the token locally after first consent.
+  - list_wallet_like_files(service, query=None, page_delay_seconds=1):
+    paginated, rate-limited metadata listing (name/size filtered), skips
+    native Google Docs/Sheets/Slides.
+  - download_file(service, file_id, destination_path): downloads directly
+    to local disk via the Drive API's media download.
+  - scan_drive_for_wallets(service, output_dir, query=None): lists +
+    downloads, returns a manifest. Does not read/interpret content itself.
+  - CLI: python tools/scan_google_drive.py <output_dir> [--query ...]
+    [--credentials PATH] [--token PATH].
+
+  README documents the real Google Cloud OAuth setup steps required (this
+  project cannot create OAuth credentials on the user's behalf), and the
+  architectural reason this tool exists as a standalone OAuth flow rather
+  than using the session's connected Drive tools for content: any content
+  read through those necessarily passes through the AI model's context
+  first.
+
+acceptance_criteria:
+  - "Given a filename matching a known wallet extension, coin name, or keyword, when is_wallet_like_filename runs, then it returns True; given an unrelated filename, it returns False"
+  - "Given a mocked Drive API listing with a mix of wallet-like, unrelated, oversized, and native-Google-Doc files, when list_wallet_like_files runs, then only the wallet-like, size-bounded, non-native-doc files are returned"
+  - "Given a mocked multi-page Drive API listing, when list_wallet_like_files runs, then it follows the nextPageToken and returns results from every page"
+  - "Given a mocked MediaIoBaseDownload, when download_file runs, then it requests the correct file ID and writes to the given local destination path"
+  - "Given a mocked list of candidate files, when scan_drive_for_wallets runs, then every candidate is downloaded and a manifest with drive_file_id/name/local_path is returned"
+
+steps:
+  - id: research
+    description: (Already completed live during epic research -- a metadata-only search via the session's connected Drive tools found real candidate files/documents; reading one document's content through that path surfaced a real safety issue, corrected in this story's design. Documented in docs/design-discussion.md.)
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests in tests/test_scan_google_drive.py using a mocked Drive API service object -- no real OAuth/network calls, since no test credentials are available in this environment.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement is_wallet_like_filename, get_drive_service, list_wallet_like_files, download_file, scan_drive_for_wallets, and the CLI to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically that no function in this module ever routes file content through anything other than a direct Drive-API-to-local-disk write, and that native Google Docs are explicitly skipped (not silently mis-handled).
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit tools/scan_google_drive.py, tests/test_scan_google_drive.py, requirements.txt, and README.md updates. Add scan_google_drive.py to the existing standalone-invocation regression test list.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: config/search.py
+      purpose: WALLET_EXTENSIONS/WALLET_KEYWORDS/COIN_NAMES/MAX_FILE_SIZE/MIN_FILE_SIZE reused directly for Drive filename/size filtering.
+    - path: .pHive/epics/google-drive-adapter/docs/design-discussion.md
+      purpose: Documents the real safety correction (content through connected tools vs. standalone OAuth + direct-to-disk) this story's architecture is built around.
+
+files_to_modify:
+  - file: tools/scan_google_drive.py
+    change: new file
+  - file: tests/test_scan_google_drive.py
+    change: new file
+  - file: tests/test_cli_standalone_invocation.py
+    change: add scan_google_drive.py to the regression list
+  - file: requirements.txt
+    change: add google-api-python-client, google-auth-httplib2, google-auth-oauthlib
+  - file: README.md
+    change: add File Structure entry and a new Tools subsection with OAuth setup instructions
+
+design_decisions:
+  - decision: Content (file downloads, document text) never flows through the session's connected Drive tools -- only a standalone OAuth flow with direct Drive-API-to-local-disk writes.
+    rationale: A real, live secret (a seed phrase in a Google Doc) was pulled into this session's own context via the connected-tool path during research. Corrected before any code was written, not after.
+  - decision: Native Google Docs/Sheets/Slides are skipped entirely by this tool.
+    rationale: Not downloadable "files" in the same sense as regular files; a doc containing wallet notes should be reviewed directly by the user in Drive, not auto-downloaded and blindly parsed. Stated as a real gap, not silently absent.
+
+risks:
+  - severity: critical
+    description: Routing secret content through an AI model's context (the mistake already made once during research).
+    mitigation: Architectural fix documented and applied -- this tool's every content-bearing operation is a direct API-to-disk write, verified structurally in review, not just by convention.
+  - severity: medium
+    description: Real OAuth setup requires the user to create a Google Cloud project and enable the Drive API themselves.
+    mitigation: Documented step by step in README; not something this tool can automate.
+
+references:
+  - path: .pHive/epics/google-drive-adapter/docs/design-discussion.md
+    relevant_excerpt: |
+      "Reading the 'Circles wallet' doc's content via the connected tool
+      pulled a real, live 24-word phrase into this session's own
+      context/transcript... Correction applied: metadata search... stays
+      fine... Anything that might contain secrets... now goes through this
+      epic's own standalone tool instead."

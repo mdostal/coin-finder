@@ -1,0 +1,32 @@
+name: editable-vault-entries
+title: Editable Vault Entries
+description: >
+  Add an edit-description action to the vault (Portunus-backed password
+  store), previously add/revoke only. Uses portunus's own `retag` command
+  -- the secret value itself is never touched.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, flask-ui, portunus-integration]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Python/Flask, same as every prior epic."
+    portunus-integration: "web/vault.py already shells to portunus for add/revoke -- this adds one more command (retag)."
+  confidence: high
+  gate_decisions:
+    note: >
+      No live multi-agent dispatch -- same adaptation as every prior epic
+      this session. Small scope, single story.
+
+stories:
+  - id: eve-01-edit-vault-entry
+    title: edit_vault_entry() + route + inline edit form
+    complexity: low
+    depends_on: []

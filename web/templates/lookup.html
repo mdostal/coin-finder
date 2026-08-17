@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- quick lookup{% endblock %}
+{% block content %}
+<h2>Quick lookup</h2>
+<p>Already know an address and just want the balance? Skip the file-scan
+pipeline entirely -- pick the coin, paste the address, get the balance
+directly.</p>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="{{ url_for('lookup_submit') }}">
+    <label>Coin</label>
+    <select name="coin">
+      {% for coin in coins %}
+      <option value="{{ coin }}" {{ "selected" if coin == "Bitcoin" }}>{{ coin }}</option>
+      {% endfor %}
+    </select>
+    <label>Address</label>
+    <input type="text" name="address" placeholder="1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2" required>
+    <button type="submit">Check balance</button>
+  </form>
+</div>
+{% endblock %}

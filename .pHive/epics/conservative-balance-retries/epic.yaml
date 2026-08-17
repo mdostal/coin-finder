@@ -1,0 +1,40 @@
+name: conservative-balance-retries
+title: Conservative Balance-Check Failures
+description: >
+  Retry balance checks before giving up, and surface addresses that are still
+  inconclusive after retries in a dedicated file instead of letting them vanish
+  silently. Directly addresses north_star.avoid: "avoid negating something
+  completely because an API couldn't get called enough or timed out."
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor # reusing the epic-1 precedent (new backward-compatible feature); not re-asking per-epic per user's "keep going" directive
+sidecar_retention: committed # reusing epic-1 precedent, also the shipped default
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, reliability]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase (project-profile.yaml -> tech_stack)."
+    cli-tool: "project_type: framework, has_ui: false -- no UI persona needed."
+    reliability: "North-star avoid item about flaky-API false negatives drives this epic's scope."
+  confidence: medium
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as epic wallet-relationship-graph --
+      researcher/technical-writer/tpm roles performed directly by the
+      orchestrating agent. Grill and collaborative review condensed into a
+      single self-review pass.
+
+stories:
+  - id: crb-01-retry-and-inconclusive-tracking
+    title: Retry balance checks and track inconclusive results
+    complexity: medium
+    depends_on: []
+  - id: crb-02-readme-docs
+    title: Document retry behavior and the inconclusive-results file
+    complexity: low
+    depends_on: [crb-01-retry-and-inconclusive-tracking]

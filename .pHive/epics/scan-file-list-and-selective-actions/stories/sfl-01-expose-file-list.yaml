@@ -1,0 +1,64 @@
+id: sfl-01-expose-file-list
+epic: scan-file-list-and-selective-actions
+title: Expose per-file breakdown in find()'s summary + render on scan.html
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  run_pipeline.find() already loads wallet_analysis.json's full per-file
+  {file_path: {coin: [addresses]}} breakdown just to sum it into aggregate
+  coin_counts, then discards it. Add a "files" key to the returned
+  summary: [{"path", "coins": {coin: count}}, ...], sorted by total
+  matched address count descending. Render it as a real table on
+  scan.html, checkboxes included (unwired until sfl-02).
+
+acceptance_criteria:
+  - "Given find() runs against a directory with N matched files, then its summary includes files=[{path, coins}, ...] with one entry per file, sorted by total address count descending"
+  - "Given a file matched zero coins (shouldn't happen given analyze_wallets only includes files with results, but defensively), then it is never included in files[]"
+  - "Given the Find results page, then it renders a table of file path + per-coin counts for every entry in job.result.files, with a checkbox per row (unwired -- sfl-02 wires the bulk actions)"
+  - "Given zero files matched, then the page shows the existing empty state, not a broken/empty table"
+
+steps:
+  - id: research
+    description: Confirm the exact shape of the `analysis` dict already loaded in run_pipeline.find() (~line 51) before adding the new summary key.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for find()'s new files[] key (sort order, shape) and the template's new table rendering, modeled on tests/test_run_pipeline.py and tests/test_web_app.py's existing find-job tests.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Add the files[] key to run_pipeline.find(); render the table in scan.html.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm zero new I/O (the analysis dict is already loaded) and that the existing coin_counts table/behavior is unchanged.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit on feat/scan-file-list-and-selective-actions.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: run_pipeline.py
+      purpose: "find() (~line 25-63) already loads the full per-file analysis dict (~line 51) to build coin_counts -- the new files[] key is built from that same in-memory dict, no new I/O."
+    - path: web/templates/scan.html
+      purpose: "The existing coin_counts table (~line 20) is the pattern to extend with a new per-file table."
+
+files_to_modify:
+  - file: run_pipeline.py
+    change: "Add files[] to find()'s returned summary."
+  - file: web/templates/scan.html
+    change: "Render the per-file table with (unwired) checkboxes."
+  - file: tests/test_run_pipeline.py
+    change: "Extend with files[] shape/sort-order tests."
+
+design_decisions:
+  - decision: "files[] built from the analysis dict already in memory, not a new file read."
+    rationale: "run_pipeline.find() already loads wallet_analysis.json in full to compute coin_counts -- reusing that same dict costs nothing extra."
+  - decision: "Sorted by total address count descending."
+    rationale: "Surfaces the most address-dense (most likely worth checking) files first, same rationale as the existing coin_counts table's own implicit priority."

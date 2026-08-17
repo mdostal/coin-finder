@@ -1,0 +1,33 @@
+name: dormancy-check-and-path-fix
+title: Dormancy Check + Standalone-Invocation Fix
+description: >
+  Fixes a pre-existing bug where tools/*.py scripts that import config/services
+  fail when run standalone (python tools/foo.py) due to sys.path not including
+  the repo root. Adds dormancy/last-activity reporting to the transaction-graph
+  crawler so users can verify their own assumptions about a wallet's activity
+  history against the real blockchain record.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, bugfix]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    bugfix: "Standalone-invocation issue discovered during transaction-graph-crawler's own manual smoke test."
+  confidence: high
+  gate_decisions:
+    note: Same no-live-teammates adaptation as prior epics. Small, bounded follow-up.
+
+stories:
+  - id: dcpf-01-path-fix-and-dormancy
+    title: Fix standalone invocation + add dormancy/last-activity reporting
+    complexity: low
+    depends_on: []

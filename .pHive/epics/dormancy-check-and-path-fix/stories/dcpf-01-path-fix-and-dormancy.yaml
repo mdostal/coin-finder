@@ -1,0 +1,80 @@
+id: dcpf-01-path-fix-and-dormancy
+epic: dormancy-check-and-path-fix
+title: Fix standalone invocation + add dormancy/last-activity reporting
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.5.0"
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  Two changes, developed and tested together:
+
+  1. Add a repo-root sys.path bootstrap to every tools/*.py that imports
+     config/services (search_wallets.py, analyze_wallets.py,
+     check_wallet_balances.py, build_wallet_graph.py,
+     crawl_transaction_graph.py), fixing standalone invocation
+     (`python tools/foo.py ...`) per the README's documented usage.
+  2. crawl_transaction_graph.py: compute_last_activity_timestamp(),
+     dormancy_years(), and integration into crawl_wallet_cluster() +
+     render_cluster_report(), surfacing real last-activity data so users can
+     verify their own assumptions about a wallet's history.
+
+acceptance_criteria:
+  - "Given each of the 5 affected tools, when invoked as `python tools/X.py --help` with PYTHONPATH unset, then it exits 0 with no ModuleNotFoundError"
+  - "Given a set of transactions with varying confirmed block_times, when compute_last_activity_timestamp runs, then it returns the maximum confirmed block_time, ignoring unconfirmed transactions"
+  - "Given no confirmed transactions, when compute_last_activity_timestamp runs, then it returns None"
+  - "Given a last_activity_timestamp and a fixed now, when dormancy_years runs, then it returns the correct elapsed years"
+  - "Given last_activity_timestamp is None, when dormancy_years runs, then it returns None"
+  - "Given a crawl result, when render_cluster_report runs, then every address shows its last-activity age, and addresses dormant 5+ years get an explicit verification call-out"
+
+steps:
+  - id: test-spec
+    description: Write failing tests in tests/test_cli_standalone_invocation.py (new file) and tests/test_crawl_transaction_graph.py (extended) covering every acceptance criterion above.
+    agent: tester
+  - id: implement
+    description: Apply the sys.path bootstrap to the 5 affected tools and implement compute_last_activity_timestamp/dormancy_years/report integration.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that the path fix doesn't change any existing pipeline behavior (run_pipeline.py already worked), and that dormancy call-outs are phrased as verification prompts, not assertions.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit all changes. Manually re-ran the crawler CLI against the real found address to confirm sensible dormancy output.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/crawl_transaction_graph.py
+      purpose: Already fetches transaction data with block_time; dormancy computation reuses that data via a new tx_cache rather than re-fetching.
+
+files_to_modify:
+  - file: tools/search_wallets.py
+    change: add sys.path bootstrap
+  - file: tools/analyze_wallets.py
+    change: add sys.path bootstrap
+  - file: tools/check_wallet_balances.py
+    change: add sys.path bootstrap
+  - file: tools/build_wallet_graph.py
+    change: add sys.path bootstrap
+  - file: tools/crawl_transaction_graph.py
+    change: add sys.path bootstrap + dormancy computation/reporting
+  - file: tests/test_cli_standalone_invocation.py
+    change: new file -- standalone invocation regression test
+  - file: README.md
+    change: document dormancy field in the transaction-graph-crawler section
+
+cross_cutting:
+  - concern: documentation
+    action: "Update README's transaction-graph-crawler section to mention dormancy/last-activity output."
+
+references:
+  - path: .pHive/epics/dormancy-check-and-path-fix/docs/design-discussion.md
+    relevant_excerpt: |
+      "compute and surface each address's real last-activity timestamp... so
+      the user can verify their own assumptions... rather than the tool
+      guessing at an unspecified 'claimed' date."

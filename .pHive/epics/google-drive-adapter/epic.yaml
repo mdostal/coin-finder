@@ -1,0 +1,43 @@
+name: google-drive-adapter
+title: Google Drive Adapter
+description: >
+  Slow-crawls Google Drive for wallet-like files (name/size heuristic,
+  reusing config/search.py's existing rules) and downloads matches directly
+  to local disk via the user's own OAuth credentials, so the existing local
+  tools can scan them exactly like any local drive. Built after a real,
+  mid-session safety correction: content read through the session's
+  connected Drive tools passes through the AI model's context first, which
+  is unsafe for anything that might be a secret -- this tool uses a
+  standalone OAuth flow instead, so content flows Drive-server to local disk
+  directly.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, security-critical, new-dependency]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    security-critical: "A real secret (a live seed phrase) was pulled into this session's own context via the wrong tool path during research -- the epic's design directly encodes the correction."
+    new-dependency: "Google's own official API client libraries (google-api-python-client, google-auth-oauthlib, google-auth-httplib2)."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as prior epics. Research included a
+      live metadata search that found real candidate files/documents, and a
+      real safety correction after content from one of them (a seed phrase
+      in a Google Doc) was read through the wrong path -- documented in
+      docs/design-discussion.md Section 2, not glossed over.
+
+stories:
+  - id: gda-01-drive-scanner
+    title: OAuth-based Drive scanner, download-to-disk only
+    complexity: medium
+    depends_on: []

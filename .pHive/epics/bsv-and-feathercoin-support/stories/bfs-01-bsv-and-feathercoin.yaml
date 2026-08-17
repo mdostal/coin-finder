@@ -1,0 +1,89 @@
+id: bfs-01-bsv-and-feathercoin
+epic: bsv-and-feathercoin-support
+title: Bitcoin SV fork coin + Feathercoin balance/search support
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.16.0"
+complexity: small
+methodology: tdd
+depends_on: []
+
+description: |
+  services/bitcoin_sv.py: BitcoinSvService, identical pattern to
+  BitcoinCashService/BitcoinGoldService (Blockchair's bitcoin-sv chain
+  slug). Wired into tools/check_fork_coins.py's FORK_COINS list, which was
+  previously ["Bitcoin Cash", "Bitcoin Gold"] with Bitcoin SV explicitly
+  documented as a stated gap -- now closed.
+
+  services/feathercoin.py: FeathercoinService, using Trezor's Blockbook
+  explorer (explorer.feathercoin.com/api/v2/address/<address>) -- verified
+  live against a real known-balance address before writing the service.
+  Chainz Cryptoid (bitcoin_cash.py/bitcoin_gold.py/bitcoin_sv.py's API
+  host) does not support Feathercoin at all -- a real, encountered dead
+  end, not silently worked around. Wired into config/wallet.py
+  (WALLET_SERVICES) and config/search.py (COIN_NAMES: "feathercoin", "ftc";
+  also added the previously-missing "bitcoin_sv" keyword alongside it).
+
+acceptance_criteria:
+  - "Given a mocked Blockchair response, when BitcoinSvService.check_balance runs, then it calls the bitcoin-sv chain slug and returns the balance in whole BSV"
+  - "Given a mocked Blockbook response, when FeathercoinService.check_balance runs, then it calls explorer.feathercoin.com's v2 address API and returns the balance in whole FTC"
+  - "Given FORK_COINS, when check_fork_coins_for_addresses runs, then it checks Bitcoin Cash, Bitcoin Gold, AND Bitcoin SV for every address"
+  - "Given search_wallets.py's COIN_NAMES, when a filename contains 'feathercoin' or 'ftc', then it is flagged as a candidate"
+
+steps:
+  - id: research
+    description: (Already completed live -- verified Feathercoin's Blockbook API with a real address query before writing any code; confirmed Chainz Cryptoid does not support Feathercoin.)
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests in tests/test_services_bitcoin_sv.py and tests/test_services_feathercoin.py, mocking requests.get.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement both services and wire them into config/wallet.py, config/search.py, and tools/check_fork_coins.py's FORK_COINS list.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Confirm no other Chainz-hosted coin services silently swallow a "chain not supported" response as a false "zero balance" -- both new services return None (inconclusive), not 0, on any non-200/error response, consistent with every existing service in this project.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit both services, both test files, and the config/tools wiring.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: services/bitcoin_cash.py
+      purpose: Exact pattern BitcoinSvService follows (Blockchair, same dashboards/address API shape).
+    - path: tools/check_fork_coins.py
+      purpose: FORK_COINS list -- Bitcoin SV was explicitly documented here as a stated gap before this story.
+
+files_to_modify:
+  - file: services/bitcoin_sv.py
+    change: new file
+  - file: services/feathercoin.py
+    change: new file
+  - file: tests/test_services_bitcoin_sv.py
+    change: new file
+  - file: tests/test_services_feathercoin.py
+    change: new file
+  - file: config/wallet.py
+    change: add Bitcoin SV, Feathercoin to WALLET_SERVICES
+  - file: config/search.py
+    change: add bitcoin_sv, feathercoin, ftc to COIN_NAMES
+  - file: tools/check_fork_coins.py
+    change: add Bitcoin SV to FORK_COINS
+
+design_decisions:
+  - decision: Feathercoin uses Trezor's Blockbook explorer, not Chainz Cryptoid (this project's usual multi-coin API host for BCH/BTG/BSV).
+    rationale: Verified live that Chainz does not support Feathercoin at all ("unknown or hosting expired") -- Blockbook is a real, working, standard alternative, confirmed with a live query against a real address before being trusted.
+
+risks:
+  - severity: low
+    description: Blockbook's balance field is a string of satoshi-equivalent units, not a nested dict like Chainz/Blockchair's shape -- a different parsing path than every other service in this project.
+    mitigation: Covered by its own test asserting the exact numeric conversion (173481812749 -> 1734.81812749), verified against the real explorer's own displayed value for that address.
+
+references:
+  - path: docs/wallet_recovery_reference.md
+    relevant_excerpt: "Reliably detecting... isn't something this project can do confidently"

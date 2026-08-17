@@ -1,6 +1,6 @@
 import requests
 import os
-from . import WalletService
+from . import REQUEST_TIMEOUT_SECONDS, WalletService
 
 class ShibaInuService(WalletService):
     def __init__(self):
@@ -13,7 +13,7 @@ class ShibaInuService(WalletService):
         try:
             # Shiba Inu is an ERC-20 token on Ethereum
             url = f"https://api.etherscan.io/api?module=account&action=tokenbalance&contractaddress=0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE&address={address}&tag=latest&apikey={self.api_key}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
             data = response.json()

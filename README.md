@@ -1,6 +1,13 @@
 
 # Cryptocurrency Wallet Pipeline
 
+<!-- shared:tagline -->
+> Scan a machine for crypto wallet files and check balances. CLI. Free & open source.
+<!-- /shared:tagline -->
+<!-- shared:byline -->
+Built by [Mathew Dostal](https://mdostal.com) — fractional CTO, Dostal Technology.
+<!-- /shared:byline -->
+
 ---
 
 ## Overview
@@ -17,14 +24,7 @@ The wallet tools I found out there just didn't match up to what I needed them to
 
 So, here's a thing!
 
-If you like it and want to support me making community tools, here are some options:
-
-- Star the repo
-- Tweet about it
-
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/mdostal)
-
-Feel free to reach out if you have any questions or suggestions! (Or if you'd like to see this as a single downloadable executable)
+---
 
 ## File Structure
 
@@ -44,6 +44,28 @@ project/
 │   ├── search_wallets.py     # Finds potential wallet files
 │   ├── analyze_wallets.py    # Analyzes files for wallet addresses
 │   ├── check_wallet_balances.py  # Checks balances for wallet addresses
+│   ├── filter_wallets.py     # Filters out zero-balance wallets
+│   ├── build_wallet_graph.py # Correlates wallets/coins across files into a relationship report
+│   ├── detect_hidden_volumes.py # Standalone: flags likely encrypted-container files (detect/flag only)
+│   ├── crawl_transaction_graph.py # Standalone: discovers likely same-owner Bitcoin addresses via public tx graph
+│   ├── find_seed_phrases.py  # Standalone: scans text files for checksum-valid BIP39 seed phrases
+│   ├── match_seed_phrases.py # Standalone: derives addresses from seed phrases (bounded schemes) and checks balances
+│   ├── unlock_wallet.py      # Standalone: offline-gated wrapper around BTCRecover for wallet password testing
+│   ├── scan_wallet_dat.py    # Standalone: enumerates every address in a wallet.dat (not just text-matchable ones)
+│   ├── check_fork_coins.py   # Standalone: checks found Bitcoin addresses on fork coins (Bitcoin Cash, Bitcoin Gold)
+│   ├── unlock_exodus_wallet.py # Standalone: offline-gated wrapper around hashcat for Exodus wallet password testing
+│   ├── scan_google_drive.py  # Standalone: slow-crawls Google Drive for wallet-like files, downloads to local disk
+│   ├── scan_gmail.py         # Standalone: searches Gmail for wallet/exchange clues, vault-bound OAuth, downloads to local disk
+│   ├── extract_private_key.py # Standalone: offline-gated WIF extraction from an unencrypted wallet.dat, self-verifying
+│   ├── generate_wallet_report.py # Standalone: recoverability report (software ID, encryption, on-chain dormancy)
+├── web/                       # Local web UI (Flask) tying every tool above into one app
+│   ├── app.py                 # Routes, host-binding guard, scan job wiring
+│   ├── jobs.py                 # In-memory background job registry
+│   ├── templates/              # Jinja2 templates (no frontend build step)
+│   ├── static/                 # poll.js -- polls job status, no framework
+├── scripts/
+│   ├── install_btcrecover.sh # Clones/updates BTCRecover into vendor/btcrecover/ (not committed)
+│   ├── install_exodus_tools.sh # Installs hashcat + fetches exodus2hashcat.py into vendor/hashcat-tools/ (not committed)
 ├── .env.sample               # Sample env file for API keys (not committed with real values)
 ├── requirements.txt          # Python dependencies
 ├── run_pipeline.py           # Orchestrates the entire pipeline
@@ -94,6 +116,7 @@ project/
 - Dynamically loads services for each cryptocurrency based on `config/wallet_config.py`.
 - Fetches balances using APIs or node integrations for each coin.
 - Supports filtering coins via the `--coins` argument.
+- Retries a failed/inconclusive check (API error, timeout, rate limit) up to 3 times with a 2-second backoff before giving up on an address -- a confirmed balance, including `0.0`, is never retried. Addresses still inconclusive after all retries are written to `inconclusive_balances.json` instead of silently being treated as empty (see Failsafes below).
 - **Usage**:
 
 ```bash
@@ -105,7 +128,758 @@ python tool/check_wallet_balances.py <input_file> <output_file> [--coins <coin1>
 python tool/analyze_wallets.py ./output/wallet_search_output.txt ./output/wallet_analysis.json
 ```
 
+### 4. Relationship Graph Tool (`build_wallet_graph.py`)
+
+- **Purpose**: Correlates wallet data across files and coins to surface relationships the other stages can't see on their own.
+- **How it works**:
+  - Reads `wallet_balances.json` (or `wallet_analysis.json`) and builds a graph of files, addresses, and coins.
+  - Flags **duplicate addresses** (the same address found in 2+ files — strong evidence it's a real wallet).
+  - Flags **multi-coin files** (a file with addresses for 2+ different coins — looks like a real wallet app backup).
+  - Flags **coverage gaps** (supported coins not found in a file that already matched at least one coin) — phrased as a nudge to double-check, not a claim the wallet holds those coins.
+- **Usage**:
+  ```bash
+  python tools/build_wallet_graph.py <input_file> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/build_wallet_graph.py ./output/checks/wallet_balances.json ./output/checks/wallet_relationships.json
+  ```
+
+---
+
+### 5. Hidden/Encrypted Volume Detector (`detect_hidden_volumes.py`)
+
+**Standalone tool -- not part of the default pipeline run** (`run_pipeline.py`
+does not call it). Run it deliberately against a mounted drive/directory you
+suspect may contain an old encrypted container (e.g. VeraCrypt/TrueCrypt).
+
+- **Purpose**: Flags files that look like encrypted-container volumes, so you can
+  check drives/backups for hidden wallets you might otherwise miss.
+- **How it works**: Encrypted containers are designed to look like random data --
+  no recognizable file header, and byte content indistinguishable from noise. This
+  tool flags a file only when it matches **all** of:
+  - larger than a configurable size floor (default 1 MB) -- cheap, read-free check;
+  - file size is an exact multiple of 512 bytes (the disk-sector size VeraCrypt/TrueCrypt containers are sized in);
+  - no recognized file-type signature (PNG, ZIP, PDF, etc.) in its header;
+  - high Shannon entropy (near-random byte distribution) sampled from the file's head, middle, and tail -- **never the whole file**, so this stays fast even against multi-GB/multi-TB files.
+
+  **This is a heuristic, not a certainty.** Some legitimately compressed or
+  already-encrypted files can also read as high-entropy and get flagged. Treat
+  every result as "worth a manual look," not a confirmed finding.
+
+  **Scope boundary:** this tool only detects and flags candidates, and prints
+  guidance for attempting a manual mount. **It never attempts to guess,
+  brute-force, or crack a password itself.** If you believe a flagged file is a
+  real VeraCrypt/TrueCrypt volume, you attempt the mount yourself with your own
+  remembered password.
+- **Usage**:
+  ```bash
+  python tools/detect_hidden_volumes.py <start_path> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/detect_hidden_volumes.py /Volumes/OldDrive ./output/hidden_volumes.json
+  ```
+
+---
+
+### 6. Transaction Graph Crawler (`crawl_transaction_graph.py`)
+
+**Standalone tool, Bitcoin-only in v1 -- not part of the default pipeline run.**
+Given one known Bitcoin address, discovers other addresses likely owned by the
+same person using **public blockchain data only** (no private keys involved).
+
+- **Purpose**: Starting from a wallet you've already found, trace outward to find
+  other "sitting" wallets -- e.g. addresses you mined to and later transferred
+  from, that may still hold a balance.
+- **How it works**: Two signals, clearly distinguished in the output:
+  - **Co-spend (high confidence)**: if your address was used as one of several
+    inputs on the same transaction, the other input addresses were *necessarily*
+    signed by the same wallet -- you need every input's private key to build a
+    transaction. This is the standard technique for clustering addresses without
+    needing any keys.
+  - **Output-following (lower confidence)**: addresses that received funds *from*
+    your address are also followed, but only when that transaction has a small
+    number of outputs. Transactions with a large number of outputs (mining-pool
+    payouts, exchange batch withdrawals) are skipped entirely -- following those
+    would sweep in hundreds of unrelated people's addresses, not yours.
+  - The crawl is bounded (`--generations`, default 2; `--max-addresses`, default
+    200) so it can't run away on a busy address.
+  - Every address's report line also shows its **last activity** (years since its
+    most recent confirmed transaction), with an explicit call-out on anything
+    dormant 5+ years -- not a claim about what happened, just the real blockchain
+    record so you can check it against what you remember.
+- **Usage**:
+  ```bash
+  python tools/crawl_transaction_graph.py <seed_address> <output_file> [--generations N] [--max-addresses N] [--threshold BTC]
+  ```
+**Example**:
+  ```bash
+  python tools/crawl_transaction_graph.py 1YourFoundAddressHere ./output/cluster.json --generations 2 --threshold 1.0
+  ```
+
+---
+
+### 7. Seed-Phrase Finder (`find_seed_phrases.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Scans text files
+for candidate BIP39 seed phrases (the 12/15/18/21/24-word backup phrases used
+by nearly all modern wallets -- Electrum, Exodus, hardware wallets, and more).
+
+- **Purpose**: Help find backup seed phrases you wrote down somewhere on an old
+  drive, so they can be tried against known wallets.
+- **How it works**: Every BIP39 phrase's last word encodes a **checksum** of the
+  preceding words. This tool doesn't just look for runs of words that happen to
+  be in the BIP39 wordlist (which would false-positive constantly on ordinary
+  text) -- it validates the actual checksum via the `mnemonic` library (the
+  standard, audited Python BIP39 implementation), so only sequences that are
+  cryptographically valid mnemonics are flagged. Still a heuristic worth a
+  manual look, not an absolute certainty.
+- **Security note**: a valid seed phrase IS the private key material for a
+  wallet. This tool **never prints found phrase text to the console** -- only a
+  count per file. The actual phrase text is written only to your local output
+  JSON file, which is the real deliverable; keep that file private.
+- **Scope (v1)**: plain text files only. Images (e.g. photographed handwritten
+  backups) aren't scanned -- that would need OCR, which is a separate,
+  not-yet-built capability.
+- **Skips binary files before the expensive part.** A cheap check (a null
+  byte in the first 8KB -- the same signal `git`/`grep -I` use) skips files
+  that can't meaningfully contain a real seed phrase before the much more
+  expensive per-word-window BIP39 checksum pass runs on them. This matters
+  a lot at real drive scale: most bytes on an old drive belong to files
+  (photos, video, compiled binaries, archives) that could never contain a
+  plaintext phrase.
+- **Usage**:
+  ```bash
+  python tools/find_seed_phrases.py <start_path> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/find_seed_phrases.py /Volumes/OldDrive ./output/seed_phrases.json
+  ```
+
+---
+
+### 8. Seed-Phrase Matcher (`match_seed_phrases.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Takes candidate
+seed phrases (e.g. from `find_seed_phrases.py`'s output) and tries them
+against real accounts.
+
+- **Purpose**: Turn a candidate backup phrase into an answer -- does it
+  actually produce a wallet with money in it?
+- **How it works**: Derives addresses using the standard HD-wallet derivation
+  schemes (`bip_utils` -- an audited BIP32/39/44/49/84 library, not hand-rolled
+  crypto math): BIP44/BIP49/BIP84 for Bitcoin, BIP44 for Ethereum and
+  Litecoin. Checks the first several addresses (default 5) on each scheme for
+  a balance, reusing this project's existing balance-check services and
+  retry logic.
+  - **v1 scope**: this bounded scheme set won't catch every possible old
+    wallet -- some very old software (pre-BIP32 Bitcoin Core, old Electrum
+    versions) used nonstandard schemes. A more exhaustive "deep dive" mode is
+    planned as a future, separately-run tool for exactly this situation.
+  - **Never computes or outputs a private key.** Only public addresses and
+    their balances. If a match is found, you re-derive the actual spending
+    key yourself in trusted wallet software (Electrum, a hardware wallet,
+    etc.), now knowing which phrase/scheme/index to use.
+- **Security note**: pass phrases only via a file -- **never** as a
+  command-line argument (visible in shell history and `ps aux`). Found phrase
+  text is never printed to the console; it's written to your local output
+  file only, and only for phrases that actually produced a balance (phrases
+  with nothing found are reported by index, not repeated in the output).
+- **Usage**:
+  ```bash
+  python tools/match_seed_phrases.py <phrases_file> <output_file> [--num-addresses N]
+  ```
+**Example**:
+  ```bash
+  python tools/match_seed_phrases.py ./output/seed_phrases.json ./output/matches.json
+  ```
+
+---
+
+### 9. Wallet Unlock via BTCRecover (`unlock_wallet.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Wraps
+[BTCRecover](https://github.com/3rdIteration/btcrecover) (the actively
+maintained Python 3 fork -- the original `gurnec/btcrecover` is Python 2-only
+and does not run today) to test candidate passwords against a real wallet
+file (Bitcoin Core, Armory, Electrum, and many others -- see BTCRecover's own
+README for the full supported list).
+
+- **Install**: `bash scripts/install_btcrecover.sh` -- clones/updates
+  BTCRecover into `vendor/btcrecover/` (not committed to this repo; it's a
+  separate GPLv2 project) and installs its dependencies.
+- **⚠️ Critical: the real recovery run must happen offline.** BTCRecover ships
+  its own `SKILL.md` (`vendor/btcrecover/SKILL.md`) written specifically for
+  AI coding agents, which documents the *separation principle*: a single
+  online machine/session must never hold both the wallet file and the
+  password candidates in a way that could unlock funds while still connected
+  to the network. `unlock_wallet.py` enforces this with a hard safety gate --
+  it checks network connectivity and **refuses to run** unless the machine is
+  verified offline, or you explicitly pass `--allow-online` (only appropriate
+  for known-safe test/example data, never a real wallet). **Read
+  `vendor/btcrecover/SKILL.md` before running this against a real wallet.**
+- **Usage** (candidates come from a file only -- never pass a password as a
+  command-line argument):
+  ```bash
+  # 1. Install (online is fine)
+  bash scripts/install_btcrecover.sh
+
+  # 2. Disconnect network (Wi-Fi off, Ethernet unplugged, no hotspot)
+
+  # 3. Run the real recovery (offline)
+  python tools/unlock_wallet.py <wallet_path> <candidates_file>
+  ```
+- On success, BTCRecover's complete output is shown to you as-is (including
+  its donation/tip-address block) -- this tool never intercepts, condenses,
+  or paraphrases it.
+
+---
+
+### 10. Full wallet.dat Scanner (`scan_wallet_dat.py`)
+
+**Standalone tool -- not part of the default pipeline run.** `analyze_wallets.py`
+finds addresses by regex-matching *text* in a file -- which only catches
+addresses that happen to be stored as readable label text. A Bitcoin Core
+`wallet.dat` typically stores hundreds or thousands of addresses as raw
+binary key records instead, which a text regex will never find. This tool
+properly parses the wallet's actual Berkeley DB structure to enumerate
+**every** address in it.
+
+- **Purpose**: Check every address a wallet file actually contains, not just
+  the handful that happen to be regex-matchable.
+- **How it works**: Walks the wallet's Berkeley DB btree structure directly
+  and decodes Bitcoin Core's own record format. **Safety property, enforced
+  structurally, not just by convention:** every address this tool needs
+  (from both "key" records and "name"/label records) lives in the database
+  *key* half of each record -- the *value* half, where private keys are
+  stored, is skipped via position arithmetic and is **never read from disk**
+  during a scan. This isn't a "don't print it" rule like the seed-phrase
+  tools -- the private key bytes never enter memory in the first place.
+- If the wallet has `ckey` (encrypted) records, this tool still finds those
+  addresses (safe -- public keys only) but reports that a password is needed
+  to actually spend from them (see `unlock_wallet.py`).
+- **Usage** (checking potentially hundreds of addresses live can take a
+  while and press against API rate limits -- use `--limit` for a bounded
+  first pass):
+  ```bash
+  python tools/scan_wallet_dat.py <wallet_path> <output_file> [--limit N]
+  ```
+**Example**:
+  ```bash
+  python tools/scan_wallet_dat.py ~/wallets/Bitcoin/wallets/mywallet/wallet.dat ./output/wallet_scan.json --limit 50
+  ```
+
+---
+
+## Is It Actually Recoverable?
+
+Not every found wallet is a self-custody wallet you hold the keys to -- some
+may turn out to be old exchange or custodial-service balances, which this
+project's tools can't recover directly (no password/seed helps if you never
+held the keys). See
+[`docs/wallet_recovery_reference.md`](docs/wallet_recovery_reference.md) for
+a reference on which wallet software this project supports recovering
+(Bitcoin Core, Electrum, Armory, and more via BTCRecover), well-known defunct
+exchanges/services to cross-check against your own memory, and how to use
+this project's dormancy/clustering output to help tell the two apart.
+
+---
+
+### 11. Fork Coin Checker (`check_fork_coins.py`)
+
+**Standalone tool -- not part of the default pipeline run.** A hard fork
+copies the entire ledger, so any address that held BTC at a fork's snapshot
+controls the identical balance on the forked chain too, under the same
+private key. This tool checks addresses you've already found against those
+fork coins -- free money to check for, no new derivation needed.
+
+- **Checks**: Bitcoin Cash, Bitcoin Gold, Bitcoin SV. This matters even for
+  an address whose *current* BTC balance is zero: if the BTC was spent
+  *after* a fork's snapshot block, the fork-coin balance at snapshot time
+  is untouched on that fork's own chain unless separately moved there.
+  Other, smaller/less liquid forks (Bitcoin Diamond, Bitcoin Private, Super
+  Bitcoin, etc.) remain a stated gap, generally for lack of a stable public
+  balance-check API.
+- **Input**: accepts `scan_wallet_dat.py`'s output, `crawl_transaction_graph.py`'s
+  output, or a plain newline-separated address list -- composes directly with
+  this project's other tools.
+- **Usage**:
+  ```bash
+  python tools/check_fork_coins.py <addresses_file> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/check_fork_coins.py ./output/wallet_scan.json ./output/fork_coins.json
+  ```
+
+---
+
+### 12. Exodus Wallet Unlock via hashcat (`unlock_exodus_wallet.py`)
+
+**Standalone tool -- not part of the default pipeline run.** BTCRecover does
+not support Exodus desktop wallets. This tool wraps
+[hashcat](https://hashcat.net/hashcat/) instead -- hashcat has first-class,
+natively supported mode `28200` ("Exodus Desktop Wallet (scrypt)") -- plus
+hashcat's own official `exodus2hashcat.py` extraction script, to test
+candidate passwords against an Exodus wallet's `seed.seco` file.
+
+- **Install**: `bash scripts/install_exodus_tools.sh` -- installs hashcat
+  (via Homebrew on macOS) and fetches `exodus2hashcat.py` from hashcat's own
+  repo into `vendor/hashcat-tools/` (not committed).
+- **⚠️ Critical: same offline requirement as `unlock_wallet.py`.** Testing
+  real passwords against a real wallet must happen with network disabled.
+  `unlock_exodus_wallet.py` reuses the exact same safety gate as
+  `unlock_wallet.py` -- it refuses to run unless the machine is verified
+  offline, or you explicitly pass `--allow-online` (only for known-safe test
+  data, never a real wallet).
+- **Usage** (candidates come from a file only -- never pass a password as a
+  command-line argument):
+  ```bash
+  # 1. Install (online is fine)
+  bash scripts/install_exodus_tools.sh
+
+  # 2. Disconnect network
+
+  # 3. Run the real recovery (offline)
+  python tools/unlock_exodus_wallet.py <path-to-seed.seco> <candidates_file>
+  ```
+- On success, hashcat's own output is shown as-is, same "never condense or
+  paraphrase" principle as `unlock_wallet.py`.
+
+---
+
+### 13. Google Drive Adapter (`scan_google_drive.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Slow-crawls
+your Google Drive for wallet-like files (same name/size heuristic as
+`search_wallets.py`) and downloads matches directly to local disk, so every
+other tool in this project can scan them exactly like a local drive.
+
+- **Why a separate OAuth setup, not just "search Drive":** file content
+  needs to flow directly from Google's servers to your local disk, the same
+  way every other tool in this project handles data -- never through an AI
+  assistant's own context along the way, which is exactly the kind of
+  online-secret-exposure this project's other tools are careful to avoid
+  (see `unlock_wallet.py` and `unlock_exodus_wallet.py`'s offline
+  requirements). A metadata-only search (filenames/sizes) is fine either
+  way; actual file *content* is not.
+- **Setup** (one-time, in your own Google account):
+  1. Go to the [Google Cloud Console](https://console.cloud.google.com/),
+     create a project (or use an existing one).
+  2. Enable the **Google Drive API** for that project.
+  3. Create an **OAuth client ID** credential of type **Desktop app**.
+  4. Download the credential JSON and save it as `credentials.json` in this
+     project's root (gitignored -- never commit it).
+  5. First run opens a browser for one-time consent; a `token.json` is
+     cached afterward (also gitignored) so you don't need to re-consent
+     every run.
+- **What it does NOT do**: read the content of native Google Docs/Sheets/
+  Slides (e.g. a note titled "wallet" with a seed phrase typed into it) --
+  those aren't downloadable files in the same sense. Review documents like
+  that directly in Drive yourself; this is a stated gap, not a silent one.
+- **Usage**:
+  ```bash
+  python tools/scan_google_drive.py <output_dir> [--query "..."]
+  ```
+**Example**:
+  ```bash
+  python tools/scan_google_drive.py ./output/drive_downloads
+  # then run the other tools against what it found, e.g.:
+  python tools/find_seed_phrases.py ./output/drive_downloads ./output/drive_seed_phrases.json
+  ```
+
+---
+
+### 14. Gmail Adapter (`scan_gmail.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Searches Gmail
+for old exchange signup/withdrawal emails, wallet mentions, and wallet-like
+attachments (`wallet.dat`, backups, etc.) -- for each matching message,
+extracts sender/subject/date, regex-matches known cryptocurrency address
+patterns in the body, and downloads any wallet-like attachment directly to
+local disk.
+
+- **Vault-bound OAuth, not a plaintext credential file:** unlike the Google
+  Drive adapter above, this tool's OAuth client id/secret and the resulting
+  refresh token are all stored in your vault (Portunus) -- never a
+  `credentials.json`/`token.json` on disk. Same reason as everywhere else in
+  this project: an email's body can contain exactly the kind of secret (a
+  seed phrase, a private key someone emailed themselves years ago) that
+  must never flow through an AI assistant's own context -- it flows
+  straight from Gmail's API to local disk instead. Set it up from the
+  **Email** page in the [local web UI](#local-web-ui-webapppy) (`/gmail`):
+  1. Go to the [Google Cloud Console](https://console.cloud.google.com/),
+     create a project (or reuse the one from the Drive adapter above).
+  2. Enable the **Gmail API** for that project.
+  3. Create an **OAuth client ID** credential of type **Desktop app**.
+  4. Paste its client ID and client secret into the Email page -- both go
+     straight into the vault. The next step opens a real browser window for
+     one-time consent; nothing is searched until you approve it.
+- **What gets shown to you (and to any AI assistant helping with this
+  project):** sender, subject, date, and any matched address -- all public
+  identifiers, safe the same way a filename is safe. The email body itself,
+  and any attachment's raw content, never leave this tool -- they're either
+  regex-matched (addresses only) or written straight to disk (attachments).
+- **Usage**:
+  ```bash
+  python tools/scan_gmail.py <output_dir> [--query "..." ...] [--max-results 200]
+  ```
+  Defaults to a built-in set of queries covering known exchanges, wallet
+  mentions, and wallet-like attachments if `--query` isn't given.
+
+---
+
+### 15. Private Key Extraction (`extract_private_key.py`)
+
+**Standalone tool -- not part of the default pipeline run, and the highest-stakes
+tool in this project.** For an **unencrypted** Bitcoin Core `wallet.dat` (no
+password), the private key for a given address is sitting in the file right
+now -- this tool extracts it as a WIF string, for import into a real wallet
+so you can actually spend/sweep the funds. Encrypted (`ckey`) records are
+refused with a clear error -- recover the password with `unlock_wallet.py`
+first.
+
+- **Same hard offline gate as `unlock_wallet.py`**: refuses to touch any key
+  material unless the machine is verified offline. A real private key must
+  never be extracted on a network-connected machine.
+- **Never prints the key** -- written to a local output file only, same
+  discipline as every other secret-handling tool in this project.
+- **Self-verifying**: before returning anything, it re-derives the address
+  from the WIF it's about to hand back and refuses if it doesn't match
+  exactly. This caught real bugs during development (see below) and is a
+  permanent runtime safety net, not just a test.
+- **This tool deliberately stops at the WIF file.** It does not build, sign,
+  or broadcast a transaction -- that logic is left to well-audited, widely
+  used software instead of new custom code in this project. Recommended
+  next step: import the WIF into [Electrum](https://electrum.org/)
+  ("Wallet" -> "Private keys" -> "Import"), then use Electrum's own
+  **sweep** function to move the *entire* balance to a fresh address in a
+  wallet you control long-term. Once a key has been extracted from an old
+  wallet.dat, treat it as permanently compromised -- don't just spend part
+  of it and leave the rest on the old key.
+- **Usage**:
+  ```bash
+  python tools/extract_private_key.py <wallet_path> <address> <output_file>
+  ```
+  Refuses with an error (no file written) unless the machine reads OFFLINE.
+- **Also available in the [local web UI](#local-web-ui-webapppy)** at
+  `/item/extract-key` -- same offline gate (enforced server-side on every
+  submission), and the extracted key is shown to you exactly once on a
+  dedicated result page, then permanently deleted from server memory --
+  same once-only delivery discipline as the web unlock flow.
+
+**Real bugs this tool's own development caught** (documented because they're
+the actual evidence this code is trustworthy, not just that its tests
+pass): a BDB value/key pairing off-by-3 bytes, a wrong assumption about a
+fixed trailer length after the key's DER blob (the real format is
+`compact_size(length) + DER + more metadata`), and `cryptography`'s DER
+parser flatly refusing Bitcoin Core's own key encoding (it uses *explicit*
+secp256k1 curve parameters, which general-purpose DER libraries
+deliberately reject as an anti-footgun policy). Each was found by testing
+against **real wallet data** (16 real, zero-balance addresses, 16/16
+round-tripped correctly) before this tool was ever pointed at anything with
+an actual balance -- see
+`.pHive/epics/wif-key-extraction-and-recovery-report/` for the full story.
+
+---
+
+### 16. Wallet Recoverability Report (`generate_wallet_report.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Produces a
+Markdown report for one `wallet.dat`: file metadata, deterministically
+identified software (from the file's own structure -- e.g. "Bitcoin Core"),
+encryption status, and -- only for addresses you explicitly ask about, to
+avoid an accidental full-wallet on-chain crawl -- public on-chain dormancy
+via `crawl_transaction_graph.py`'s existing functions. Points back to
+[`docs/wallet_recovery_reference.md`](docs/wallet_recovery_reference.md)
+for the self-custody-vs-custodial judgment call this project's tools can't
+automate (that needs your own memory, not a classifier).
+
+- **Usage**:
+  ```bash
+  python tools/generate_wallet_report.py <wallet_path> <output_file> [--address ADDR ...]
+  ```
+
+---
+
+## Local Web UI (`web/app.py`)
+
+A local Flask app that ties the tools above into one browser-based flow,
+instead of running each CLI tool by hand in the right order. This is the
+recommended way to use the project day to day; every tool documented above
+still works standalone for scripting/automation.
+
+- **Run it:**
+  ```bash
+  python web/app.py
+  # open http://127.0.0.1:5050
+  # (--port to use something else -- 5000 isn't the default because macOS's
+  # AirPlay Receiver occupies it by default on most Macs)
+  ```
+- **Connectivity status, everywhere.** A small indicator in the top nav
+  (polling `GET /api/status` every ~10s) shows OFFLINE/ONLINE/UNKNOWN on
+  every page, not just the unlock page -- hover it for what each mode means
+  for scan/unlock/Drive features specifically. Reuses the exact same
+  `check_network_status()` the offline gate itself uses, so the indicator
+  can never drift from what the gate actually enforces.
+- **Real progress on long scans.** Balance-check-heavy jobs (the default
+  scan, a full `wallet.dat` sweep) report live progress
+  (`checked N / M addresses`) instead of just "running" -- useful context
+  for a multi-hour or multi-day crawl against a large drive.
+- **Binds to `127.0.0.1` only, always.** `create_app()` refuses to construct
+  an app bound to anything else -- this app handles local wallet files and
+  (in a later story) real unlock candidates, and must never be reachable
+  beyond this machine.
+- **Every path field has a "Browse…" button** that opens the real OS file
+  picker (Finder on macOS, `zenity` on Linux) and fills the field for you --
+  typing a path by hand still works everywhere too. Backed by
+  `web/native_dialogs.py` + `/api/pick-path`.
+- **What's here so far:** pick a directory on the form at `/`, submit it, and
+  it runs the same default pipeline as `run_pipeline.py` (search -> analyze
+  -> check balances -> filter -> relationship graph) plus
+  `detect_hidden_volumes.py`, as one background job. The results page polls
+  job status and renders balances (including anything still inconclusive
+  after retries), the filtered non-zero wallets, per-file analysis, the
+  relationship graph report, and hidden-volume flags -- all in one page.
+- **On-demand actions** (a "More actions" section at the bottom of the
+  results page): run the standalone tools that intentionally sit outside the
+  default pipeline against anything found -- a full `scan_wallet_dat.py`
+  enumeration for a `.dat` file, a `crawl_transaction_graph.py` co-spend
+  cluster for one or more addresses, a `check_fork_coins.py` check, or
+  `find_seed_phrases.py`/`match_seed_phrases.py` against a directory/file.
+  Same secrecy rules as the CLI tools apply here too: seed-phrase text is
+  never included in a job result unless that specific phrase actually
+  produced a balance (`match_seed_phrases.py`'s existing rule) -- and
+  `find_seed_phrases.py`'s web results go further than the CLI, never
+  including phrase text at all, only counts and file locations, since a web
+  job result lives in server memory rendered into a browser tab rather than
+  a local output file only you can read.
+- **Unlock a wallet** (`/item/unlock`) -- web-safe version of
+  `unlock_wallet.py`/`unlock_exodus_wallet.py`. Shows the machine's current
+  network status live; the offline gate is re-checked server-side on every
+  submission (not just at page load, and not just a disabled button).
+  **OFFLINE is the recommended, default path, not a hard requirement** --
+  if the machine is online, submitting refuses by default (HTTP 409, no
+  subprocess invoked), but a checkbox lets you explicitly choose to proceed
+  online anyway if you understand and accept that risk. This is a
+  deliberate choice, not a silent bypass: the default protects you, an
+  informed opt-in respects that it's your call to make. The same applies
+  to `/item/extract-key`. Candidate passwords/phrases are written to a
+  local temp file server-side before the tool runs (never placed in a
+  URL/query string), and that file is deleted the moment the job finishes,
+  success or not.
+
+  **The result (whether a password was found, and what it was) is shown
+  exactly once**, on a dedicated result page, and is then permanently
+  deleted from the server's memory -- reloading or revisiting that page
+  returns 404, not the secret again. The job-status polling path used
+  everywhere else in this app deliberately never carries this result, so a
+  found password can't leak through a background poll before you've
+  actually looked at the page.
+- **Password vault** (`/vault`) -- save known/guessed passwords once under a
+  label, then pick them from a checklist on `/item/unlock` instead of
+  retyping them every run. Backed by
+  [Portunus](https://github.com/mdostal/portunus): the vault page only ever
+  shows metadata (label, description, state), never a value. Selected
+  entries are resolved to their real values only in local memory/temp files
+  at unlock time, and the once-only unlock result page names which saved
+  label matched (if any) without persisting that match anywhere. Portunus is
+  optional and not installed by the base `requirements.txt` (it isn't the
+  same package as the unrelated `portunus` on PyPI -- it's
+  [github.com/mdostal/portunus](https://github.com/mdostal/portunus)). Want
+  it? `pip install -r requirements-vault.txt`. If it isn't installed, a
+  local `.env`-based fallback store is used automatically
+  so the feature still works without it.
+- **Stage a file** -- copies (never moves) a found file into a local staging
+  directory (`ui_output/staged/` by default) so you can gather recovery
+  candidates in one place without touching the original drive. Refuses to
+  silently overwrite an existing same-named staged file.
+- **Scan Google Drive** (`/drive`) -- entry point for
+  `tools/scan_google_drive.py`'s OAuth crawl, using the exact same
+  `get_drive_service`/`scan_drive_for_wallets` functions as the CLI tool (no
+  reimplementation). First use needs the one-time Google Cloud OAuth setup
+  documented under "Google Drive Adapter" above. Downloaded files land in a
+  local directory you choose, then show up in a normal scan of that
+  directory just like any other local drive.
+
+This closed out the `local-web-ui` epic's planned scope: every one of the 13
+standalone tools plus the default pipeline is reachable from this one app,
+with every safety property built up over the course of this project (offline
+gating, file-only secrets, never-persisted unlock results, localhost-only
+binding) carried through the HTTP layer intact. An Electron wrapper around
+this app is a separate, later effort outside this project's own scope.
+
+- **Saved scan targets** (`/targets`) -- bind a drive/directory once (a
+  label + path), reuse it with one click instead of retyping a path every
+  time. Also detects already-mounted volumes (macOS `/Volumes`, boot volume
+  excluded) so a physical drive you just plugged in shows up ready to scan.
+  Removing a bound target only ever forgets the saved reference -- it never
+  touches the underlying files.
+- **Mounting Google Drive for Multi-Terabyte Drives** (`/mounts`) -- for a
+  Drive (or a GCS bucket) too large to fully download first,
+  [rclone](https://rclone.org/) can mount it as a local-looking directory
+  instead; the existing scan tools then just work against it like any other
+  drive, no separate cloud-aware scanning code needed. Setup, entirely
+  click-to-run in the app -- no terminal needed:
+  1. On `/mounts` or in the setup wizard, click **Install now**. This
+     installs rclone plus macFUSE (required for `rclone mount` on macOS)
+     directly, with real progress shown in the app.
+     (`scripts/install_rclone.sh` does the same two commands and remains
+     available for anyone working from a git clone rather than the
+     packaged app -- not the primary path.) **macFUSE requires manual
+     approval in System Settings -> Privacy & Security** (and often a
+     restart) -- that one step cannot be automated by anything, in-app
+     button or script; the result page tells you exactly what to do.
+  2. `rclone config` -- sets up a remote (interactive: opens a browser for
+     Google Drive OAuth, or asks for a GCS service-account key).
+  3. On the `/mounts` page, pick the configured remote and a local mount
+     point, click Mount. Mounts are **always read-only** -- this app only
+     ever scans, never writes to your Drive/GCS.
+  4. Once mounted, "Add to targets" binds it into `/targets` for one-click
+     scanning -- refuses (409) if the mount isn't actually healthy, since a
+     crashed FUSE mount can leave a path that looks fine but silently reads
+     as empty (a known FUSE failure mode, not this project's own bug) --
+     checked via a real process/mount-point health check, not just "does
+     the path exist."
+  5. **For a genuinely multi-day crawl**, periodically check `/mounts` --
+     if a mount dies partway through, a scan running against it can't tell
+     the difference between "drive is empty" and "drive stopped responding
+     partway through." This is a real, known limitation, not a false
+     guarantee of resilience.
+- **Setup wizard** (`/wizard`) -- "what do you want to scan?" and it routes
+  you the rest of the way: a local folder hands straight to the regular
+  scan form, a plugged-in physical drive shows you what's detected, Google
+  Drive/GCS walks through the mounting steps above in plain language. The
+  wizard never reimplements scanning/mounting/binding itself -- it only
+  explains and sequences the pages above, and it never claims a step
+  succeeded (e.g. "Drive mounted!") without that page's own real health
+  check confirming it.
+- **The home page is now a small dashboard** -- your saved targets with
+  one-click scan, a nudge if a plugged-in drive isn't saved yet, and quick
+  links to the wizard, unlock, Drive, and mounts pages.
+- **Findings dashboard** (`/findings`) -- every wallet/address/balance ever
+  found across every scan, in one persistent (SQLite-backed,
+  `web/findings.db`) place. Unlike a single scan's results, this
+  accumulates across every scan you run, including across restarts and
+  separate sessions -- built for the upcoming multi-day, multi-session
+  Google Drive and physical-drive crawls, where seeing everything found so
+  far in one place (and being able to "archive all zero-balance findings"
+  in one click, to focus on what still needs attention) matters a lot more
+  than any single scan's transient result page. Inconclusive balances are
+  always shown as "inconclusive," never silently as if they were zero.
+
+---
+
+## Desktop App (macOS)
+
+A real double-clickable app ("Coin Finder.app" / a `.dmg`), not just
+`git clone` + a script -- a [Tauri](https://tauri.app/) shell wraps the
+same Flask app above (frozen to a standalone binary with
+[PyInstaller](https://pyinstaller.org/), no Python install required on the
+end user's machine) as a background process and shows it in a native
+window.
+
+**Build it yourself:**
+```bash
+pip install pyinstaller
+pyinstaller packaging/pyinstaller/coin_finder_ui.spec --distpath packaging/dist --workpath packaging/build
+rm -rf src-tauri/resources/coin-finder-onedir
+mkdir -p src-tauri/resources/coin-finder-onedir
+cp -R packaging/dist/coin-finder-onedir/. src-tauri/resources/coin-finder-onedir/
+npm install
+npm run tauri:build
+```
+The `.app`/`.dmg` land under `src-tauri/target/release/bundle/`.
+`npm run tauri:build` also ad-hoc-codesigns the result
+(`packaging/tauri/post-build.sh`) -- see the warning below before that
+matters to you.
+
+> ⚠ **This build is unsigned.** A downloaded/AirDropped/copied `.app` or
+> `.dmg` will show *"'Coin Finder' is damaged and can't be opened. You
+> should move it to the Trash"* -- there is no right-click → Open bypass.
+> Ad-hoc codesigning produces a technically valid signature but does
+> **not** clear that dialog for a quarantined copy; only removing the
+> quarantine flag does:
+> ```bash
+> xattr -d com.apple.quarantine "Coin Finder.app"   # or the .dmg you downloaded
+> ```
+> Run this **before the first time you open it** -- it must be the first
+> launch attempt. If you already hit the "damaged" dialog once on a given
+> copy, removing the attribute afterward doesn't reliably un-stick it;
+> get/copy a fresh one and run `xattr -d` on that copy before opening it.
+> Windows/Linux desktop builds aren't packaged yet -- macOS only for now.
+
+**How it works, if you're curious:** `packaging/pyinstaller/` freezes
+`web/app.py` into a `--onedir` build (a directory, not a single file) --
+deliberately, not `--onefile`: a onedir build's reported process ID *is*
+the real Flask/Werkzeug process, so the desktop shell's kill-on-quit
+reliably frees port 5050 every time. `src-tauri/` spawns that as a
+sidecar, polls its `/healthz` route (`frontend/loading.html`) until it
+responds, then hands the window to the real UI. Verified for real before
+shipping: built, launched, confirmed (via `lsof`) that the process bound
+to the port is the actual Flask process and not a bootloader wrapping it,
+and confirmed a normal quit frees the port immediately.
+
+---
+
 ## Pipeline Overview
+
+```mermaid
+flowchart TD
+    accTitle: coin-finder tool pipeline
+    accDescr: Default pipeline stages plus standalone tools that feed into or branch off it
+
+    A[search_wallets.py] --> B[analyze_wallets.py]
+    B --> C[check_wallet_balances.py]
+    C --> D[filter_wallets.py]
+    C --> E[build_wallet_graph.py]
+    D --> F[filtered_wallets.json]
+    E --> G[wallet_relationships.json/.md]
+
+    subgraph Default pipeline [run_pipeline.py]
+        A
+        B
+        C
+        D
+        E
+    end
+
+    subgraph Standalone tools
+        H[detect_hidden_volumes.py]
+        I[crawl_transaction_graph.py]
+        J[find_seed_phrases.py]
+        K[match_seed_phrases.py]
+        L[unlock_wallet.py]
+        M[scan_wallet_dat.py]
+        N[check_fork_coins.py]
+        O[unlock_exodus_wallet.py]
+        P[scan_google_drive.py]
+    end
+
+    Q[web/app.py -- Local Web UI]
+
+    C -.public addresses found.-> I
+    J -->|candidate seed phrases| K
+    K -.no match.-> L
+    M -.every address in a wallet.dat.-> C
+    M -.ckey records found, need password.-> L
+    P -->|downloaded files| A
+    P -->|downloaded files| J
+    D -.found wallet file, need password.-> L
+    M -->|found addresses| N
+    I -->|found addresses| N
+    Q -.calls every stage above directly, in-process.-> A
+    Q -.calls every stage above directly, in-process.-> P
+```
+
+The default pipeline (`run_pipeline.py`) runs stages A-E automatically.
+Everything under "Standalone tools" is invoked deliberately, on its own,
+against whatever the earlier stages (or your own manual digging) turned up --
+they are not run automatically. `web/app.py` (see "Local Web UI" above) is a
+UI consumer of every stage and tool shown here -- it calls the same
+importable functions in-process, not a reimplementation of any of them.
 
 ### Search
 Identifies potential wallet files in a specified directory.
@@ -115,6 +889,12 @@ Extracts wallet addresses from the identified files.
 
 ### Check Balances
 Fetches the balances for the extracted wallet addresses.
+
+### Relationship Graph
+Correlates wallets and coins across all discovered files, producing
+`wallet_relationships.json` (the graph) and `wallet_relationships.md` (a
+human-readable report) — highlighting duplicate addresses, multi-coin files, and
+coverage gaps worth a second look.
 
 ### Output
 Generates JSON files at each stage for traceability and easy debugging.
@@ -143,7 +923,9 @@ Generates JSON files at each stage for traceability and easy debugging.
 | **Zcash (ZEC)**       | `t[1-9A-HJ-NP-Za-km-z]{34}`                                                                            | Zcash Explorer                        |
 | **OKCash (OK)**       | `[0-9A-Za-z]{34}`                                                                                      | OKCash Blockchain Explorer            |
 | **Binance Coin (BNB)**| `bnb[a-z0-9]{38}`                                                                                      | Binance Explorer                      |
-| **Monero (XMR)**      | `[48]{1}[0-9AB][1-9A-HJ-NP-Za-km-z]{93}`        
+| **Monero (XMR)**      | `[48]{1}[0-9AB][1-9A-HJ-NP-Za-km-z]{93}`        |                                        |
+| **Bitcoin SV (BSV)**  | `1[a-km-zA-HJ-NP-Z1-9]{25,34}` (fork-shares BTC's format)                                                | Blockchair                            |
+| **Feathercoin (FTC)** | `[67][a-km-zA-HJ-NP-Z1-9]{26,33}`                                                                        | Trezor Blockbook (explorer.feathercoin.com) |
 
 ---
 
@@ -205,7 +987,7 @@ BLOCKFROST_API_KEY=your_blockfrost_api_key
    - If unsupported coins are passed via `--coins`, the tool reports them and exits gracefully.
 
 2. **API Errors**:
-   - If an API call fails (e.g., rate limits, connectivity), the script logs the error and skips that address.
+   - If an API call fails (e.g., rate limits, connectivity), the script retries up to 3 times before giving up on that address -- a single flaky call is never enough to write a wallet off. Addresses still inconclusive after retries are recorded in `inconclusive_balances.json` (alongside `wallet_balances.json`) so they stay visible as "needs a recheck" instead of silently disappearing.
 
 3. **File Processing Errors**:
    - If a file cannot be read (e.g., permission issues), the error is logged, and processing continues.
@@ -267,3 +1049,18 @@ CRYPTO_PATTERNS = {
     "Bitcoin Cash": r"bitcoincash:[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{42}",
 }
 ```
+
+<!-- shared:support -->
+## Support this project
+
+Free and open source, always. A few ways to help — or just say hi:
+
+- **Use it, star it, file an issue.** Honestly the best support an open-source project can get. → [this project](https://github.com/mdostal/coin-finder)
+- **Hire me.** I do fractional-CTO and consulting work — fixing and scaling tech stacks. → [mdostal.com/contact](https://mdostal.com/contact)
+- **[Buy me a coffee](https://www.buymeacoffee.com/mdostal)** if it saved you time.
+- **More tools like this** → [tools.mdostal.com](https://tools.mdostal.com)
+- **Life outside the terminal** → [life.mdostal.com](https://life.mdostal.com)
+- **What we're building at Firefly Events** — event discovery, 8,000+ events/day from 7+ sources → [ff.events](https://ff.events)
+
+Always up for a conversation if any of it's useful to you.
+<!-- /shared:support -->

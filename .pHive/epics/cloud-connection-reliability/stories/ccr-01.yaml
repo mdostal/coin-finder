@@ -1,0 +1,101 @@
+id: ccr-01
+epic: cloud-connection-reliability
+title: Verify OAuth actually completed; clean up on failure; validate custom credentials upfront
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+description: >
+  create_remote() only checks rclone's exit code today, but a failed or
+  abandoned OAuth flow can still leave a tokenless, non-functional remote
+  written to rclone.conf with exit code 0. Confirmed live: two such
+  broken entries existed, invisible to the app, with no cleanup. Adds a
+  real post-creation verification (a cheap real read against the new
+  remote), deletes the partial config on any failure so nothing broken
+  is ever left behind, and validates a custom client_id looks like a
+  real Google OAuth client BEFORE attempting OAuth at all -- catching
+  the exact "typed something that isn't a real client ID" mistake that
+  produced one of the two broken entries, immediately instead of five
+  minutes later as a confusing Google error page.
+acceptance_criteria:
+  - A custom client_id that doesn't end in ".apps.googleusercontent.com"
+    is rejected immediately, before any subprocess call, with a specific,
+    plain-English error explaining what a real Google OAuth client ID
+    looks like and that leaving the field blank uses the built-in
+    default instead.
+  - After `rclone config create` succeeds (exit 0), create_remote() runs
+    a real verification read (rclone lsd <name>: --max-depth 1, short
+    timeout) before reporting success.
+  - If verification fails (nonzero exit) -- whether from a bad exit code
+    on the create step OR a failed verification read -- the partial
+    remote is deleted (rclone config delete <name>) before returning, so
+    a failed attempt never leaves a broken entry behind.
+  - The failure report is specific about what didn't work (create failed
+    vs. sign-in didn't complete), not a generic error.
+  - Existing behavior for a fully successful connection (real exit 0
+    create + real exit 0 verify) is unchanged in spirit -- still reports
+    ok: True with a clear success message.
+  - progress_callback is invoked through every step including the new
+    verification step (renumbered total steps to account for it),
+    exactly as before for every other step's semantics.
+steps:
+  - phase: research
+    notes: >
+      web/rclone_wizard.py:25 create_remote() -- confirmed via direct
+      rclone.conf inspection this session that a tokenless stanza is
+      exactly what a failed/abandoned OAuth attempt leaves behind, and
+      that rclone's real default shared client
+      (202264815644-....apps.googleusercontent.com, confirmed present in
+      the installed rclone v1.75.0 binary) is NOT the broken piece here
+      -- the bug is entirely this app's own success/failure handling.
+      tests/test_rclone_wizard.py's existing tests share one mock_run
+      object across every subprocess.run call in a test -- adding a
+      second (verify) subprocess.run call means tests asserting on
+      mock_run.call_args (the LAST call) for the CREATE command's args
+      need updating to mock_run.call_args_list[0] instead.
+  - phase: test-spec
+    notes: >
+      tests/test_rclone_wizard.py: new tests for client_id format
+      validation (rejects a bad one before any subprocess call, accepts
+      a real .apps.googleusercontent.com-shaped one, blank is fine);
+      verification-after-create (success path calls lsd and reports ok;
+      verify failure deletes the remote and reports a specific,
+      distinguishable error from a create failure); update existing
+      tests whose call_args assertions now need call_args_list indexing
+      because of the new verify call; update
+      test_create_remote_reports_progress's expected step count.
+  - phase: implement
+    notes: >
+      web/rclone_wizard.py: new _looks_like_google_client_id(client_id)
+      helper; create_remote() checks it first (before the
+      already-exists check even, since it's the cheapest possible
+      rejection); after a successful create, runs the verification
+      subprocess.run(["rclone", "lsd", f"{remote_name}:", "--max-depth",
+      "1"], capture_output=True, text=True, timeout=30); on ANY failure
+      path from this point, runs subprocess.run(["rclone", "config",
+      "delete", remote_name], capture_output=True, text=True) before
+      returning ok: False.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/rclone_wizard.py
+    - tests/test_rclone_wizard.py
+design_decisions:
+  - Verification via a real read call (rclone lsd), not a config-file
+    text check for a "token" field -- proves the credential actually
+    works against the real Google API right now, not just that rclone
+    wrote something that looks like a token (a stale/revoked token would
+    still pass a text check but fail a real read).
+  - Client-ID format validation happens before the already-exists check
+    -- cheapest possible early-out, and directly prevents the exact
+    mistake that produced the first broken entry, independent of
+    duplicate-name handling.
+risks:
+  - The verification read is a second real network call on top of the
+    OAuth flow itself -- kept minimal (--max-depth 1, 30s timeout) so it
+    adds negligible time to a flow that already involves a real browser
+    round-trip.
+references:
+  - web/rclone_wizard.py
+  - tests/test_rclone_wizard.py

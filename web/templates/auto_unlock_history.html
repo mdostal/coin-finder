@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- auto-unlock history{% endblock %}
+{% block content %}
+{{ m.group_tabs('unlock') }}
+<h2>Auto-unlock history</h2>
+<p class="subtle">Every past auto-unlock run, saved to disk -- survives an app restart, unlike the
+<a href="{{ url_for('auto_unlock_form') }}">live auto-unlock</a> flow's once-only in-memory result.
+Metadata only: which wallet, which saved vault label matched (if any), when -- the real password
+value is never stored here. Click Reveal on a matched label to resolve it back to its real value,
+on demand, one time.</p>
+
+<div class="card">
+  <form method="post" action="{{ url_for('auto_unlock_history_clear') }}" style="display:inline" onsubmit="return confirm('Clear auto-unlock history? This only removes this list -- your vault and wallet files are untouched.');">
+    <button type="submit" class="btn-secondary">Clear history</button>
+  </form>
+</div>
+
+{% if runs %}
+{% for run in runs %}
+<div class="card">
+  <h3 style="margin-top:0">{{ run.run_at | timestamp_to_local }}</h3>
+  <table>
+    <thead><tr><th>Wallet</th><th>Matched vault label</th><th></th></tr></thead>
+    <tbody>
+      {% for w in run.wallets %}
+      <tr>
+        <td><code>{{ w.wallet_path }}</code></td>
+        <td>
+          {% if w.matched %}
+          <strong>{{ w.vault_label }}</strong>
+          {% else %}
+          <span class="subtle">no match</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if w.matched %}
+          <form method="post" action="{{ url_for('vault_reveal') }}" style="display:inline">
+            <input type="hidden" name="name" value="{{ w.vault_label }}">
+            <button type="submit" class="btn-secondary">Reveal</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% else %}
+<p class="empty">No auto-unlock runs recorded yet -- run <a href="{{ url_for('auto_unlock_form') }}">auto-unlock</a> first.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- unlock{% endblock %}
+{% block content %}
+{{ m.group_tabs('unlock') }}
+<h2>Unlock a wallet</h2>
+
+<div class="banner {{ 'warning' if network_status != 'OFFLINE' else '' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
+  Network status right now: <strong style="color:inherit">{{ network_status }}</strong>.
+  {% if network_status != "OFFLINE" %}
+  Nothing in this app ever sends a password, key, or seed phrase over the
+  network -- the reason offline is recommended here is local, not remote:
+  if this machine were ever compromised, being online during an unlock
+  attempt means a candidate list and the real wallet file sit together on
+  a machine that can reach the outside world. Offline removes that risk
+  category. Full details on exactly what this app does and doesn't send
+  anywhere: <a href="{{ url_for('network_page') }}">what actually touches
+  the network</a>. Your call either way -- see the checkbox below.
+  {% else %}
+  Safe to test candidates against a real wallet.
+  {% endif %}
+</div>
+
+<div class="banner warning">
+  The result of a run (whether a password/phrase was found, and what it was)
+  is shown to you exactly once, immediately after the job finishes, and is
+  never written to disk or logged. Leave that page and it is gone for good --
+  if you need it again, run this again.
+</div>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="{{ url_for('item_unlock') }}">
+    {{ m.path_input("File to unlock (wallet file, or an Exodus seed.seco)", "target_path", mode="file", required=True) }}
+
+    <label>Kind</label>
+    <select name="kind">
+      <option value="btcrecover">Wallet file (BTCRecover)</option>
+      <option value="exodus">Exodus seed.seco (hashcat)</option>
+    </select>
+
+    <label>Candidate passwords/phrases (one per line)</label>
+    <textarea name="candidates" rows="6"></textarea>
+
+    {% if vault_entries %}
+    <label>Saved vault entries to try</label>
+    <div class="card" style="margin-bottom:1rem">
+      {% for entry in vault_entries %}
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:normal">
+        <input type="checkbox" name="vault_entries" value="{{ entry.name }}" style="width:auto;margin-top:0.2rem">
+        <span><strong>{{ entry.name }}</strong>{% if entry.description %} -- {{ entry.description }}{% endif %}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <p class="subtle">Manage saved passwords in the <a href="{{ url_for('vault_page') }}">vault</a>.</p>
+
+    {% if network_status != "OFFLINE" %}
+    <label style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:1rem">
+      <input type="checkbox" name="allow_online" value="1" style="width:auto;margin-top:0.2rem">
+      <span>I understand the risk and want to run this <strong>while online</strong> anyway.
+      Recommended path is still OFFLINE (see above) -- this is your choice to make, not a hard requirement.</span>
+    </label>
+    {% endif %}
+
+    <button type="submit">Run</button>
+  </form>
+</div>
+
+<p class="subtle">Wallet already unencrypted (no password needed)?
+Use <a href="{{ url_for('item_extract_key_form') }}">Extract a private key</a> instead.
+Have several wallets and want to try every saved password against all of
+them at once? See <a href="{{ url_for('auto_unlock_form') }}">Auto-unlock</a>.</p>
+{% endblock %}

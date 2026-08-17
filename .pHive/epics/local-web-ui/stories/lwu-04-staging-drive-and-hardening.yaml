@@ -1,0 +1,102 @@
+id: lwu-04-staging-drive-and-hardening
+epic: local-web-ui
+title: Staging/copy area, Google Drive entry point, localhost-only hardening
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.14.0"
+complexity: medium
+methodology: tdd
+depends_on: [lwu-01-scan-and-results]
+
+description: |
+  Closes out the epic: the two remaining user-facing flows (staging/backup
+  copy, Google Drive scan) plus a dedicated hardening pass across everything
+  built in lwu-01 through lwu-03.
+
+  - POST /item/stage -- body: a file path from any results view. Copies it
+    (shutil.copy2, copy only, never move) into
+    ./ui_output/<session>/staged/<original filename>, refusing (with a clear
+    error, not a silent overwrite) if a same-named file already exists in
+    the destination.
+  - GET /drive and POST /drive/scan -- entry point for
+    tools.scan_google_drive.py's OAuth flow. Because get_drive_service()
+    opens a real local browser window for first-time OAuth consent
+    (InstalledAppFlow.run_local_server), this route documents (in both the
+    template and README) that first use requires the one-time OAuth setup
+    already documented for the CLI tool -- the web route calls the exact
+    same get_drive_service/scan_drive_for_wallets functions, no
+    reimplementation of the OAuth flow. Once files land in the chosen local
+    output directory, they appear in a normal /scan/<job_id> results view
+    (same code path as any other local directory).
+  - Hardening pass across the whole epic: confirm (via test, not just
+    inspection) that every route reads secrets/paths from POST body or a
+    server-written temp file, never a GET query string, for anything
+    security-sensitive introduced in lwu-01/02/03; confirm the /api/browse
+    endpoint (lwu-01) cannot be pointed via `..`-relative traversal outside
+    of what os.path.realpath resolves to (it can browse anywhere the OS
+    user can already read -- the check here is "does the app crash or
+    misbehave on `..`/symlink input", not restricting reachable paths,
+    consistent with docs/design-discussion.md's stated scope for that
+    endpoint).
+
+acceptance_criteria:
+  - "Given a file path, when POST /item/stage is submitted, then the file is copied (not moved -- original still exists) to ui_output/<session>/staged/"
+  - "Given a destination file already exists, when POST /item/stage is submitted for a same-named source, then it returns an error and does not silently overwrite"
+  - "Given a mocked Drive service, when POST /drive/scan is submitted, then it calls scan_drive_for_wallets and the resulting local files are reachable via the normal /scan/<job_id> flow"
+  - "Given a `..`-containing or symlink-loop path, when GET /api/browse is requested, then it returns a handled error response, not an unhandled exception or an infinite loop"
+  - "Given the full test suite for web/, when run, then no route under web/app.py accepts a secret-bearing value (candidate passwords/phrases) via a GET query string"
+
+steps:
+  - id: test-spec
+    description: Write failing tests in tests/test_web_app_staging_drive.py covering staging copy-not-move, no-silent-overwrite, mocked Drive scan wiring, and the browse-endpoint traversal/symlink-loop handling; add a repo-wide grep-based test asserting no GET route in web/app.py reads a secret-shaped parameter name (password, candidate, phrase) from request.args.
+    agent: tester
+  - id: implement
+    description: Implement /item/stage, GET /drive, POST /drive/scan, and any /api/browse hardening fixes surfaced by the traversal/symlink tests, to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review the epic as a whole against docs/design-discussion.md's Risks section -- confirm every listed risk has a corresponding test or explicit accepted-limitation note, not silently dropped.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit /item/stage, /drive routes/templates, tests/test_web_app_staging_drive.py, and a final README pass finishing the Local Web UI section (full flow walkthrough, screenshot-free) plus the Mermaid diagram update showing web/app.py as the UI layer over all 13 tools. This is the epic's final story -- CHANGELOG entry covers the whole local-web-ui epic.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/scan_google_drive.py
+      purpose: get_drive_service/scan_drive_for_wallets reused unchanged -- the web route is a thin caller, not a reimplementation.
+    - path: .pHive/epics/local-web-ui/docs/design-discussion.md
+      purpose: Risks section is this story's review checklist; staging-area design ("copy only, never move") is specified here.
+
+files_to_modify:
+  - file: web/app.py
+    change: add /item/stage, GET /drive, POST /drive/scan routes
+  - file: web/templates/drive.html
+    change: new file
+  - file: tests/test_web_app_staging_drive.py
+    change: new file
+  - file: README.md
+    change: finish Local Web UI section, update Mermaid pipeline diagram
+  - file: CHANGELOG.md
+    change: entry covering the whole local-web-ui epic
+
+design_decisions:
+  - decision: Staging is copy-only, refuses to overwrite an existing same-named file rather than silently replacing it.
+    rationale: The staging area exists to be a safe place to gather recovery candidates without risking the original drive/file -- silent overwrite would defeat that if two different-source files happened to share a name.
+  - decision: Drive OAuth flow is reused exactly as the CLI tool implements it, not reimplemented for the web context.
+    rationale: The OAuth/content-safety architecture in tools/scan_google_drive.py was built specifically in response to a real safety incident earlier this session; there is no reason to re-derive it, and doing so would risk reintroducing the same class of mistake.
+
+risks:
+  - severity: low
+    description: shutil.copy2 preserves metadata (timestamps) but not filesystem ACLs/extended attributes on all platforms.
+    mitigation: Acceptable for a personal recovery-staging use case; not a stated requirement anywhere in this epic's scope.
+  - severity: medium
+    description: The Drive OAuth consent flow opening a local browser window from within a Flask request handler could block that request thread until consent completes.
+    mitigation: Run the OAuth/scan call in a background job (web/jobs.py, same as every other long-running action this epic introduces) rather than inline in the request handler, so the HTTP response returns immediately with a job_id.
+
+references:
+  - path: .pHive/epics/local-web-ui/docs/design-discussion.md
+    relevant_excerpt: "a user-chosen local output directory (defaults to ./ui_output/<session>/staged/), populated via shutil.copy2 -- copy only, never move"

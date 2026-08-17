@@ -1,0 +1,102 @@
+id: lwu-02-item-actions
+epic: local-web-ui
+title: Per-item on-demand tool actions (scan_wallet_dat, crawl, fork coins, seed phrases)
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.14.0"
+complexity: medium
+methodology: tdd
+depends_on: [lwu-01-scan-and-results]
+
+description: |
+  Wires the standalone tools that intentionally sit outside the default
+  auto-pipeline into results-page actions, each a background job reusing
+  web/jobs.py from lwu-01:
+
+  - POST /item/scan-wallet-dat -- body: file path. Runs
+    tools.scan_wallet_dat.scan_wallet_for_addresses +
+    check_addresses_balances.
+  - POST /item/crawl -- body: one or more addresses (reuses
+    tools.crawl_transaction_graph.load_seed_addresses's file-or-literal
+    handling: a small textarea of addresses is written to a temp file
+    server-side before calling it, matching the existing multi-seed CLI
+    contract instead of reinventing it). Runs crawl_wallet_cluster +
+    render_cluster_report.
+  - POST /item/fork-coins -- body: one or more addresses. Runs
+    tools.check_fork_coins.check_fork_coins_for_addresses +
+    render_fork_coin_report.
+  - POST /item/find-seed-phrases -- body: a directory or file path. Runs
+    tools.find_seed_phrases.scan_directory. Result rendering follows the
+    CLI's existing rule: candidate phrase text is never included in the job
+    result payload/HTML -- only counts and file locations. (Matching phrases
+    can be inspected via the existing CLI's own output file, not through
+    this UI -- the UI's job is discovery, not phrase disclosure.)
+  - POST /item/match-seed-phrases -- body: a phrase-candidates file path (an
+    existing local file, not typed into the browser -- see design
+    rationale below). Runs tools.match_seed_phrases.match_phrases +
+    render_match_report. Preserves the existing rule: phrase text is only
+    ever shown in the result for a phrase that actually produced a balance.
+
+  Each action redirects back to /scan/<job_id> (or a new dedicated result
+  view for crawl/fork-coin output, since those aren't scoped to one scan
+  job) with a job_id the results page polls, reusing the exact same
+  web/jobs.py + poll.js machinery as lwu-01 -- no second job-runner
+  implementation.
+
+acceptance_criteria:
+  - "Given a wallet.dat file path, when POST /item/scan-wallet-dat is submitted, then a job starts that calls scan_wallet_for_addresses and check_addresses_balances (mocked balance service in tests) and the job result includes the discovered addresses"
+  - "Given a list of addresses submitted via the crawl form, when POST /item/crawl runs, then load_seed_addresses receives them via a server-written temp file, not as a raw request parameter forwarded verbatim into a shell or eval context"
+  - "Given a find-seed-phrases job result, when rendered, then no candidate phrase text appears anywhere in the HTML or the job's JSON status payload -- only counts/locations"
+  - "Given a match-seed-phrases job where no candidate phrase produced a balance, when rendered, then no phrase text appears in the result; given one that did, only that phrase's text appears"
+
+steps:
+  - id: test-spec
+    description: Write failing tests in tests/test_web_app_item_actions.py (Flask test client, mocked tool functions) covering each of the five action routes and the two phrase-secrecy assertions above.
+    agent: tester
+  - id: implement
+    description: Implement the five /item/* routes and their result templates to make the failing tests pass, reusing web/jobs.py unchanged. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically that the seed-phrase-secrecy acceptance criteria are enforced by the route/template code itself, not merely true by coincidence of current test data.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit the new routes/templates and tests/test_web_app_item_actions.py; update README's Local Web UI section to list the wired-in on-demand tools.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/app.py
+      purpose: Extended with the five new /item/* routes from lwu-01's app factory.
+    - path: web/jobs.py
+      purpose: Reused unchanged as the background-job mechanism for these actions.
+    - path: tools/crawl_transaction_graph.py
+      purpose: load_seed_addresses's existing file-or-literal contract is reused rather than reimplemented for the multi-address textarea input.
+
+files_to_modify:
+  - file: web/app.py
+    change: add /item/scan-wallet-dat, /item/crawl, /item/fork-coins, /item/find-seed-phrases, /item/match-seed-phrases routes
+  - file: web/templates/item_result.html
+    change: new file
+  - file: tests/test_web_app_item_actions.py
+    change: new file
+  - file: README.md
+    change: extend Local Web UI section
+
+design_decisions:
+  - decision: match-seed-phrases takes an existing local file path (not a browser textarea) for the phrase-candidates input.
+    rationale: A textarea would mean typing real seed-phrase material into a browser form field on a page whose whole point is showing results -- a materially different secret-handling posture than the CLI's "read from a file you already prepared." Keeping it file-path-based preserves the existing "never as free browser input" discipline; the file the user points at is exactly the kind of file find-seed-phrases.py's own scan already writes.
+  - decision: find-seed-phrases job results never include phrase text, at all -- stricter than the CLI's own "never printed, only in the output file" rule.
+    rationale: A CLI output file sits on local disk under the user's control; an HTTP job-result payload sits in server memory rendered into a browser tab. Since this discovery step doesn't need the phrase text to be useful (counts/locations are enough to decide what to do next), the extra caution costs nothing.
+
+risks:
+  - severity: medium
+    description: Free-text address/file-path inputs on these forms are attacker-input-shaped even though this is a single-user local tool.
+    mitigation: Every value flows into the existing tool functions' own validated parameters (file-path existence checks, address-format handling already in each tool) -- never string-concatenated into a shell command or file path without going through Path/os.path handling.
+
+references:
+  - path: .pHive/epics/local-web-ui/docs/research-brief.md
+    relevant_excerpt: "tools/find_seed_phrases.py ... Phrase text is security-sensitive."

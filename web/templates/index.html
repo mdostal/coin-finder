@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder{% endblock %}
+{% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+{% if staged %}<div class="banner warning">Staged to {{ staged }}.</div>{% endif %}
+
+{% if not targets and not volumes %}
+<div class="banner" style="background:var(--bg-raised);border-color:var(--border);color:var(--text-dim)">
+  First time here? The <a href="{{ url_for('wizard_start') }}">setup wizard</a>
+  walks you through attaching a drive, physical or cloud, step by step.
+</div>
+{% endif %}
+
+{% if interrupted_scans %}
+<div class="banner warning">
+  <strong>{{ interrupted_scans | length }} interrupted scan{{ "s" if interrupted_scans | length != 1 else "" }}</strong>
+  never finished (app quit, update, or crash mid-scan). Nothing was lost --
+  re-scanning the same folder picks up from where it stopped instead of
+  starting over.
+  <ul style="margin:0.5rem 0 0 1.25rem">
+    {% for s in interrupted_scans %}
+    <li>
+      <code>{{ s.input_dir }}</code>
+      -- {{ s.dirs_checked }} director{{ "y" if s.dirs_checked == 1 else "ies" }} already
+      checked, {{ s.wallets_found_so_far }} potential wallet{{ "s" if s.wallets_found_so_far != 1 else "" }} found so far
+      <form method="post" action="{{ url_for('start_scan') }}" style="display:inline">
+        <input type="hidden" name="input_dir" value="{{ s.input_dir }}">
+        <input type="hidden" name="dedup_index" value="1">
+        <button type="submit" class="btn-secondary">Resume</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if interrupted_balance_checks %}
+<div class="banner warning">
+  <strong>{{ interrupted_balance_checks | length }} interrupted balance check{{ "s" if interrupted_balance_checks | length != 1 else "" }}</strong>
+  never finished. Addresses already confirmed a real balance won't be
+  re-checked -- resuming only checks what's left.
+  <ul style="margin:0.5rem 0 0 1.25rem">
+    {% for b in interrupted_balance_checks %}
+    <li>
+      <code>{{ b.output_dir }}</code>
+      -- {{ b.addresses_confirmed_so_far }} address{{ "es" if b.addresses_confirmed_so_far != 1 else "" }} already confirmed
+      <form method="post" action="{{ url_for('scans_view_check_balances') }}" style="display:inline">
+        <input type="hidden" name="output_dir" value="{{ b.output_dir }}">
+        <button type="submit" class="btn-secondary">Resume</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if findings_count and findings_count > 0 %}
+<div class="card">
+  <a href="{{ url_for('findings_page') }}" style="text-decoration:none">
+    <strong style="color:var(--text)">{{ findings_count }}</strong> finding{{ "s" if findings_count != 1 else "" }} recorded
+    {% if findings_needs_review_count %}
+    &mdash; <strong style="color:var(--accent)">{{ findings_needs_review_count }}</strong> still worth a look
+    {% endif %}
+    &rarr;
+  </a>
+</div>
+{% endif %}
+
+<h2>Scan a drive or directory</h2>
+<p>Point this at a directory (a mounted old drive, a backup folder, anything)
+and it will run the full wallet-discovery pipeline against it: search,
+analyze, check balances, build a relationship graph, and flag anything that
+looks like a hidden/encrypted volume.</p>
+
+<div class="card">
+  <form method="post" action="{{ url_for('start_scan') }}">
+    {{ m.path_input("Directory to scan", "input_dir", mode="directory", placeholder="/path/to/drive-or-directory", required=True) }}
+    <label class="radio-row"><input type="checkbox" name="dedup_index" value="1" checked> Skip files identical to ones already scanned before (recommended for multi-drive/backup scans)</label>
+    <button type="submit">Scan</button>
+  </form>
+</div>
+
+{% if mounted_drives %}
+<div class="card">
+  <h3 style="margin-top:0">Scan mounted drives</h3>
+  <p class="subtle">Pick one or more currently-mounted cloud drives (<a href="{{ url_for('mounts_page') }}">manage mounts</a>)
+  -- each selected one runs as its own background scan, all at once, no need to do them one at a time.</p>
+  <form method="post" action="{{ url_for('start_scan_mounts') }}">
+    {% for d in mounted_drives %}
+    <label class="radio-row"><input type="checkbox" name="mount_points" value="{{ d.mount_point }}"> {{ d.remote_name }} <code class="subtle">{{ d.mount_point }}</code></label>
+    {% endfor %}
+    <label class="radio-row"><input type="checkbox" name="dedup_index" value="1" checked> Skip files identical to ones already scanned before</label>
+    <button type="submit">Scan selected</button>
+  </form>
+</div>
+{% endif %}
+
+{% if scan_index_count %}
+<div class="card">
+  <p class="subtle" style="margin:0 0 0.5rem">{{ scan_index_count }} file{{ "s" if scan_index_count != 1 else "" }} in the dedup index -- content already analyzed once, skipped on future scans regardless of which drive it's found on again.</p>
+  <form method="post" action="{{ url_for('scan_index_clear') }}" style="display:inline" onsubmit="return confirm('Clear the dedup index? Future scans will re-analyze every file from scratch -- your findings are not affected, only skip a previously deep-scanned wallet.');">
+    <button type="submit" class="btn-secondary">Clear dedup index</button>
+  </form>
+</div>
+{% endif %}
+
+{% if targets %}
+<div class="card">
+  <h3 style="margin-top:0">Your saved targets</h3>
+  <table>
+    <thead><tr><th>Label</th><th>Kind</th><th></th></tr></thead>
+    <tbody>
+      {% for t in targets %}
+      <tr>
+        <td>{{ t.label }}</td>
+        <td>{{ t.kind }}</td>
+        <td>
+          <form method="post" action="{{ url_for('start_scan') }}" style="display:inline">
+            <input type="hidden" name="input_dir" value="{{ t.path }}">
+            <input type="hidden" name="dedup_index" value="1">
+            <button type="submit">Scan</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="subtle" style="margin-bottom:0"><a href="{{ url_for('targets_page') }}">Manage targets &rarr;</a></p>
+</div>
+{% endif %}
+
+{% set unbound_count = (volumes or []) | rejectattr("is_bound") | list | length %}
+{% if unbound_count > 0 %}
+<div class="banner warning">
+  {{ unbound_count }} plugged-in drive{{ "s" if unbound_count != 1 else "" }} not
+  yet saved as a target -- see <a href="{{ url_for('targets_page') }}">Targets</a>.
+</div>
+{% endif %}
+
+<p>
+  <a href="{{ url_for('wizard_start') }}">Setup wizard</a>
+  &nbsp;&middot;&nbsp;
+  <a href="{{ url_for('item_unlock_form') }}">Unlock a wallet (BTCRecover / hashcat)</a>
+  &nbsp;&middot;&nbsp;
+  <a href="{{ url_for('drive_form') }}">Scan Google Drive</a>
+  &nbsp;&middot;&nbsp;
+  <a href="{{ url_for('mounts_page') }}">Mounts</a>
+  &nbsp;&middot;&nbsp;
+  <a href="{{ url_for('lookup_form') }}">Quick lookup</a>
+</p>
+{% endblock %}

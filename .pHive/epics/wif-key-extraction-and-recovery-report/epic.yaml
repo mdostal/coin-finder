@@ -1,0 +1,65 @@
+name: wif-key-extraction-and-recovery-report
+title: WIF Key Extraction + Wallet Recoverability Report
+description: >
+  Direct response to a real find: backup-wallet-1/wallet.dat's address
+  1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB holds 0.29999058 BTC and the wallet is
+  unencrypted, so the private key is sitting in the file's value-half
+  records right now. Two new standalone tools: tools/extract_private_key.py
+  extracts one address's WIF private key from an unencrypted Bitcoin Core
+  wallet.dat (offline-gated, self-verifying, never prints the key) for
+  import into Electrum and a full-balance sweep to a fresh address --
+  chosen over hand-rolling transaction construction/signing/broadcast, to
+  keep that irreversible, real-money step in well-audited software, not
+  new custom code. tools/generate_wallet_report.py produces a
+  recoverability report (file-structure-identified software, encryption
+  status, on-chain dormancy for addresses of interest) referencing
+  docs/wallet_recovery_reference.md.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, security-critical, real-financial-stakes]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Extends the existing single-language Python CLI/pipeline codebase."
+    cli-tool: "Standalone tools, same shape as all prior epics."
+    security-critical: "Directly produces real, spendable secret material -- the highest-stakes code this project has written."
+    real-financial-stakes: "A live 0.3 BTC balance is the direct target; an extraction bug could produce a wrong/corrupted key or (via the self-verification step) fail loudly instead -- correctness here was validated against real wallet data (15 random zero-balance addresses, 15/15 round-tripped correctly) before ever being pointed at the funded address."
+  confidence: high
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as all prior epics. Three real bugs
+      were caught and fixed during this epic's own TDD process, in order of
+      discovery: (1) a BDB value-item pairing off-by-3 (missing the 3-byte
+      item-header offset) found by a synthetic-fixture unit test: value
+      bytes require the 3 byte offset for the header; (2) `cryptography`'s
+      DER parser rejecting Bitcoin Core's CPrivKey format because it
+      includes an 8-byte trailing timestamp -- discovered only once real
+      wallet data was tried (`brew install bitcoin`'s own `migratewallet`
+      RPC was explored first and abandoned after repeatedly failing on
+      real-shaped legacy wallets with "Address book data...cannot be
+      identified"); (3) a real-data-only discovery that Bitcoin Core's
+      actual value format is `compact_size(len) + DER + more metadata`, not
+      bare DER -- the DER parser's "unexpected tag" error on the exact real
+      byte layout led to the fix; (4) `cryptography`'s DER key loader
+      unconditionally refusing Bitcoin Core's explicit-curve-parameter
+      secp256k1 encoding (a known Core/OpenSSL quirk), requiring a switch
+      from a general DER/EC-key loader to a minimal, self-validating
+      fixed-field extraction of just the version + 32-byte private-key
+      OCTET STRING, with the pre-existing self-verification round-trip
+      (re-derive the address, refuse on mismatch) as the independent
+      correctness backstop. This progression -- synthetic test first, then
+      real zero-value data, only then the funded address -- is exactly why
+      each bug was caught before any real key was mishandled.
+
+stories:
+  - id: wker-01-extraction-and-report
+    title: WIF extraction (offline-gated) + wallet recoverability report
+    complexity: large
+    depends_on: []

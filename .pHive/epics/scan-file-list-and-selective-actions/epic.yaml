@@ -1,0 +1,40 @@
+name: scan-file-list-and-selective-actions
+title: Scan File List + Selective Actions
+description: >
+  The Find (Stage 1) results page shows only aggregate coin counts, never
+  the individual file paths that produced them, and offers only an
+  all-or-nothing "check balances for the whole scan" action. This exposes
+  the per-file breakdown (already computed, just discarded before
+  reaching the summary) and adds selective per-file/bulk actions: check
+  balances for just selected files, or graph/check-fork-coins their
+  addresses directly.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, flask-ui, pipeline-stage]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Python/Flask, same as every prior epic."
+    pipeline-stage: "Extends run_pipeline.find()'s existing summary and reuses check_wallet_balances()/filter_wallet_balances() directly for the selective path."
+  confidence: high
+  gate_decisions:
+    note: >
+      No live multi-agent dispatch -- same adaptation as every prior epic
+      this session. Small-to-medium scope, two stories.
+
+stories:
+  - id: sfl-01-expose-file-list
+    title: Expose per-file breakdown in find()'s summary + render on scan.html
+    complexity: low
+    depends_on: []
+  - id: sfl-02-selective-actions
+    title: Selective check-balances + bulk graph/fork-coins for selected files
+    complexity: medium
+    depends_on: [sfl-01-expose-file-list]

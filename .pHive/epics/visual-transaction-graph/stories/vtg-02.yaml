@@ -1,0 +1,102 @@
+id: vtg-02
+epic: visual-transaction-graph
+title: Canvas visual graph rendering + proactive overlap banner
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [vtg-01]
+description: >
+  item_result.html renders every crawl job result as a plain-text <pre>
+  report -- no visual graph exists. Adds a hand-rolled vanilla-JS Canvas
+  renderer (no external library) that draws the BFS cluster from vtg-01's
+  discovered_via edges: ring-by-generation layout, node color/size by
+  confidence and balance, hover tooltip, click-to-copy address. Also
+  makes group-view overlap detection (already shipped) proactively
+  visible on findings.html instead of an always-present subtle link.
+acceptance_criteria:
+  - item_result.html renders a <canvas>-based graph when job.kind ==
+    "crawl" and job.result.results is present, feeding the address dict
+    (with discovered_via/generation/confidence/balance/dormant_years) as
+    JSON to a new web/static/graph.js. Every other job kind renders
+    exactly as before (the existing <pre> report), unchanged.
+  - graph.js lays out nodes in concentric rings by generation (seed at
+    center), draws one line per node back to its discovered_via parent
+    (skipped for seeds, whose discovered_via is None), colors/sizes nodes
+    by confidence and balance, shows a tooltip with
+    address/balance/confidence/dormancy on hover, and copies the address
+    to the clipboard on click.
+  - The existing text report (render_cluster_report's output,
+    job.result.report) remains visible alongside the graph (e.g. in a
+    collapsible/secondary section) -- the visual graph augments, does not
+    replace, the existing detail.
+  - findings.html shows a banner (not just a subtle link) linking to
+    group-view ONLY when find_overlap_addresses() is non-empty -- silent
+    when there's nothing to see (fewer than two saved crawl runs, or no
+    shared addresses), matching every other empty-state convention in
+    this app.
+  - No changes to find_overlap_addresses()/crawl_runs.py or any other job
+    kind's rendering.
+steps:
+  - phase: research
+    notes: >
+      web/templates/item_result.html currently unconditionally renders
+      job.result.report in a <pre> tag for every job kind -- crawl,
+      fork-coins, scan-wallet-dat, find/match-seed-phrases all share this
+      one template. web/app.py:995 already returns job.result.results
+      (the raw dict) alongside .report, just unused by the template.
+      findings.html:17 has the existing subtle group-view link to
+      replace with a conditional banner.
+  - phase: test-spec
+    notes: >
+      tests/test_web_app.py or a new test file: item_result route passes
+      job.result.results through to the template for kind=="crawl" jobs
+      (assert the rendered HTML contains a data attribute/script tag
+      carrying the JSON, not asserting on Canvas pixel output -- that's
+      not meaningfully unit-testable, verified live instead).
+      tests/test_web_app.py: findings_page shows the overlap banner only
+      when find_overlap_addresses() returns non-empty (two cases:
+      patched empty -> no banner; patched non-empty -> banner present).
+  - phase: implement
+    notes: >
+      New web/static/graph.js: reads a JSON blob (script tag or data
+      attribute) with {address: {confidence, generation, balance,
+      discovered_via, dormant_years}}, computes ring position (radius =
+      f(generation), angle = index within that generation's ring), draws
+      via 2D canvas context, wires hover (nearest-node hit-test) and
+      click (navigator.clipboard.writeText). item_result.html: conditional
+      block for kind=="crawl" adding <canvas> + a
+      <script type="application/json"> data payload + the graph.js
+      include; existing <pre> report kept below/beside it, not removed.
+      findings.html: {% if overlaps %}-gated banner instead of the
+      unconditional subtle link; web/app.py's findings_page route already
+      computes has_bitcoin_findings-style context, add an overlaps_count
+      (or similar) the same way.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/templates/item_result.html
+    - web/templates/findings.html
+    - web/static/graph.js (new)
+    - web/app.py
+    - tests/test_web_app.py (or a new test file)
+design_decisions:
+  - Hand-rolled Canvas, no external graphing library -- the data is
+    already a tree (one discovered_via parent per node), so a
+    deterministic ring layout needs no force-directed physics engine, and
+    this avoids vendoring a new dependency into an app that otherwise
+    keeps external dependencies to an explicit minimum.
+  - Text report kept, not replaced -- the graph is a new, faster way to
+    see relationships at a glance; the exact address/balance/confidence
+    detail the report already gives stays available for anyone who wants
+    to read it precisely instead of visually.
+risks:
+  - Real crawl results can have dozens of addresses -- ring layout with
+    many nodes at the same generation can get visually crowded; mitigated
+    by keeping node size small and relying on hover for detail rather
+    than trying to label every node inline.
+references:
+  - web/templates/item_result.html
+  - web/templates/findings.html
+  - web/crawl_runs.py (find_overlap_addresses, unchanged)
+  - web/app.py:975 (_run_crawl_job)

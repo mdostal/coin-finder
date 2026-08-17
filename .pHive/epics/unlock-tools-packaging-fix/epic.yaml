@@ -1,0 +1,31 @@
+name: unlock-tools-packaging-fix
+title: BTCRecover/exodus2hashcat actually work in the packaged app
+description: >
+  The most severe bug found this session: unlock has never actually
+  worked in any installed build. Two stacked bugs, both confirmed live:
+  vendor/btcrecover and vendor/hashcat-tools were never bundled by
+  PyInstaller at all, and once bundled, sys.executable in a frozen build
+  is the app's own binary (not a real Python interpreter), crashing any
+  attempt to shell out to a vendored script. Fixed both, verified live
+  end to end -- a real password found via the real frozen binary.
+target_codebase: .
+methodology: tdd
+version_bump: patch
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session. Discovered live from the user's own screenshot, fixed and
+      verified through multiple real iterations against the actual
+      frozen binary (not assumed fixed after any single change) until a
+      real BTCRecover run against a real test wallet actually succeeded.
+stories:
+  - id: utp-01
+    title: Bundle vendor tools + a frozen-safe script runner
+    complexity: medium
+    depends_on: []

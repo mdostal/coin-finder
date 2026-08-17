@@ -1,0 +1,35 @@
+name: auto-unlock
+title: Auto-Unlock Across All Wallets
+description: >
+  Batch unlock: try every enabled Vault password against every known
+  wallet file (from Findings' recorded source_paths), producing a
+  wallet -> matched-password map. Loops around the existing single-wallet
+  unlock mechanism unmodified -- same offline gate, same file-only-secrets
+  discipline, same once-only result consumption.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, flask-ui, security-sensitive]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Python/Flask, same as every prior epic."
+    security-sensitive: "Touches the offline-gate-protected unlock flow -- every existing invariant (offline gate, file-only secrets, once-only result) must be preserved exactly, see design-discussion.md."
+  confidence: high
+  gate_decisions:
+    note: >
+      No live multi-agent dispatch -- same adaptation as every prior epic
+      this session. Small-to-medium scope, single story, extra design-
+      discussion detail given the security-sensitive surface.
+
+stories:
+  - id: au-01-auto-unlock
+    title: Batch unlock across known wallets + Vault entries
+    complexity: medium
+    depends_on: []

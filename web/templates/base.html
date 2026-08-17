@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}coin-finder{% endblock %}</title>
+<link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='icon/favicon.ico') }}">
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='icon/icon-32.png') }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='icon/icon-16.png') }}">
+<link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icon/icon-180.png') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script>document.documentElement.setAttribute("data-theme", localStorage.getItem("coin-finder-theme") || "dark");</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="page">
+    <a class="brand" href="{{ url_for('index') }}">coin<span>-finder</span></a>
+    <nav class="topnav">
+      <a href="{{ url_for('targets_page') }}" class="nav-single{{ ' active' if active_nav_group == 'sources' }}">Sources</a>
+      <a href="{{ url_for('item_unlock_form') }}" class="nav-single{{ ' active' if active_nav_group == 'unlock' }}">Unlock</a>
+      <a href="{{ url_for('findings_page') }}" class="nav-single{{ ' active' if active_nav_group == 'findings' }}">Findings</a>
+      <a href="{{ url_for('update_page') }}" class="nav-single{{ ' active' if active_nav_group == 'about' }}">About</a>
+      <a href="{{ url_for('jobs_page') }}" class="jobs-chip" title="Background jobs -- survives navigating away">
+        <span class="dot{{ ' idle' if running_jobs_count == 0 }}"></span>{{ running_jobs_count }} running
+      </a>
+      <span id="conn-status" class="conn-status conn-unknown" title="Checking network status...">&bull; checking&hellip;</span>
+      <button type="button" id="theme-toggle" class="btn-secondary theme-toggle-btn">Light mode</button>
+    </nav>
+  </div>
+</header>
+<div class="page">
+{% block content %}{% endblock %}
+</div>
+<script src="{{ url_for('static', filename='connectivity.js') }}"></script>
+<script src="{{ url_for('static', filename='browse.js') }}"></script>
+<script src="{{ url_for('static', filename='theme.js') }}"></script>
+<script src="{{ url_for('static', filename='path-chip.js') }}"></script>
+</body>
+</html>

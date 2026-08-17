@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- reveal {{ name }}{% endblock %}
+{% block content %}
+<h2>Reveal: {{ name }}</h2>
+<div class="banner warning">
+This is shown once, right now. It is not saved anywhere by this page and
+will not reappear if you reload or come back -- resubmitting the Reveal
+action from the vault page shows it again, on demand, same as the vault
+itself already does.
+</div>
+
+<div class="card">
+  <strong style="color:var(--accent)"><code>{{ value }}</code></strong>
+</div>
+
+<a class="back-link" href="{{ url_for('vault_page') }}">&laquo; back to vault</a>
+{% endblock %}

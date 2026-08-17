@@ -1,0 +1,105 @@
+id: cgr-01
+epic: cytoscape-graph-rebuild
+title: Vendor Cytoscape.js, rewrite graph.js around breadthfirst layout
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+description: >
+  Vendor cytoscape.min.js locally (no CDN), rewrite web/static/graph.js
+  to build a real Cytoscape graph from the existing discovered_via edge
+  data using the breadthfirst layout rooted at seed addresses, and swap
+  item_result.html's <canvas> for a Cytoscape container <div>. Fixes the
+  confirmed-live bug where a real 200-node crawl rendered as an
+  unreadable blob with no pan/zoom.
+acceptance_criteria:
+  - web/static/vendor/cytoscape.min.js exists, is the real unmodified
+    Cytoscape.js distribution file (MIT license header intact), and is
+    referenced with no CDN/network dependency.
+  - item_result.html's crawl-result block renders a Cytoscape container
+    (<div id="cy">) instead of <canvas id="graph-canvas">, includes the
+    vendored cytoscape.min.js script before graph.js, and still embeds
+    the same job.result.results JSON payload graph.js already reads.
+  - graph.js builds nodes from the JSON payload (one per address, data:
+    confidence/generation/balance/dormant_years) and edges from each
+    non-seed address's discovered_via parent (seeds, discovered_via ===
+    null, get no edge).
+  - Layout is breadthfirst, roots = every address with generation === 0
+    (the seed set), directed: true.
+  - Node color/size logic is preserved (balance -> accent color, seed/
+    co-spend/output -> distinct colors, same as the previous renderer) --
+    ported, not redesigned.
+  - Hover shows the same tooltip content as before (address, confidence,
+    generation, balance, dormancy); click copies the address to the
+    clipboard -- same interactions, now via Cytoscape's event API instead
+    of manual pixel hit-testing.
+  - Pan and zoom work with zero additional code (Cytoscape's defaults) --
+    verified live, not just "the option exists in docs".
+  - A real 200-node dataset (the exact live crawl job that prompted this
+    epic, or an equivalent regenerated one) renders as a legible,
+    navigable graph, verified via a live browser screenshot -- not just
+    "no console errors".
+steps:
+  - phase: research
+    notes: >
+      Already done in the epic design discussion -- Cytoscape.js chosen
+      over Sigma.js/vis-network via WebSearch, breadthfirst/concentric
+      confirmed as core built-in layouts via js.cytoscape.org docs,
+      standalone UMD file confirmed downloadable and MIT-licensed.
+  - phase: test-spec
+    notes: >
+      tests/test_web_app_graph_render.py: update/extend the existing
+      crawl-result-page tests to assert `id="cy"` is present instead of
+      `id="graph-canvas"`, and that the vendored cytoscape.min.js script
+      tag is included ahead of graph.js's own script tag. No Python-level
+      test can meaningfully cover graph.js's own rendering logic (JS,
+      not Python) -- that verification happens live via Playwright
+      against real data, per this project's established pattern for
+      frontend-only behavior.
+  - phase: implement
+    notes: >
+      Download cytoscape.min.js (verified MIT-licensed, current stable)
+      to web/static/vendor/cytoscape.min.js. Rewrite web/static/graph.js
+      end to end around cytoscape({container, elements, style, layout}).
+      Update item_result.html's crawl-result block: <div id="cy"
+      style="width:100%;height:600px;"> in place of the canvas, add the
+      vendored script tag before graph.js's.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/static/vendor/cytoscape.min.js (new, vendored)
+    - web/static/graph.js (full rewrite)
+    - web/templates/item_result.html
+    - tests/test_web_app_graph_render.py
+design_decisions:
+  - Full rewrite of graph.js rather than incremental patching -- the
+    hand-rolled ring-layout math has no salvageable parts once Cytoscape
+    owns layout/rendering/interaction; keeping dead manual-positioning
+    code around would just be confusing.
+  - Verification for this story leans on live browser testing
+    (Playwright, real data) more than unit tests, since the actual bug
+    being fixed is a rendering/UX one that Python-level template
+    assertions can only partially cover.
+risks:
+  - None beyond what's already covered in the epic design discussion's
+    Risks section (vendoring, multi-root breadthfirst, disconnected
+    components) -- all addressed there.
+
+correction_during_implementation: >
+  Live testing against a real 200-node dataset (2 seeds, 9 gen-1, 189
+  gen-2) showed breadthfirst's default band/tree layout falls apart with
+  this uneven a distribution -- it either crushed everything into a
+  sliver (fit shrinking to accommodate the widest band) or ran off-screen
+  entirely depending on fit settings. Switched to Cytoscape's built-in
+  `concentric` layout (concentric: -generation, so generation 0 sits at
+  the highest concentric value and ends up centered) -- genuine rings
+  sized to fit however many nodes share one, which is what "ring
+  distance = hops" actually needs. Verified live: all 200 nodes visible
+  with zero overlap, zoom/hover/click-to-copy all confirmed working via
+  real Playwright mouse events against Cytoscape's actual rendered node
+  positions (not synthetic/guessed coordinates).
+references:
+  - web/static/graph.js (current, to be replaced)
+  - web/templates/item_result.html
+  - https://js.cytoscape.org/

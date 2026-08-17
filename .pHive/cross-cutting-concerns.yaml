@@ -1,0 +1,16 @@
+concerns:
+  - id: documentation
+    name: Documentation Updates
+    description: >
+      When a story changes user-facing behavior, workflow steps, or configuration,
+      corresponding documentation must be updated.
+    applies_when: >
+      Story modifies workflows, schemas, directory structure, configuration files,
+      or adds/removes/renames reference documents
+    planning_prompt: >
+      Which documentation files reference the behavior this story changes?
+      List each doc and what section needs updating.
+    implementation_checklist:
+      - "All docs referencing changed behavior identified"
+      - "Affected sections updated to reflect new behavior"
+      - "No stale references to old behavior remain"

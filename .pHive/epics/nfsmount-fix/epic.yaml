@@ -1,0 +1,30 @@
+name: nfsmount-fix
+title: Switch rclone mount to nfsmount -- FUSE mounting is broken via Homebrew
+description: >
+  Confirmed live via direct reproduction: Homebrew's macOS rclone build
+  does not support the `mount` subcommand at all (FUSE dependency not
+  included) -- every mount attempt through this app fails immediately.
+  `nfsmount` (same Homebrew binary, no macFUSE needed) works, verified
+  live against the user's real Google Drive. Switches the mount
+  mechanism and captures real diagnostics instead of discarding them.
+target_codebase: .
+methodology: tdd
+version_bump: patch
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session. Discovered and verified live (direct command reproduction
+      against the user's real, just-connected Google Drive remote)
+      before writing any code -- a confirmed, structural bug affecting
+      every macOS user of this feature, not a guess.
+stories:
+  - id: nmf-01
+    title: Switch to nfsmount, capture real diagnostics on failure
+    complexity: small
+    depends_on: []

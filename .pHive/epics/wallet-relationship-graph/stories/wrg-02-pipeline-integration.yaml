@@ -1,0 +1,92 @@
+id: wrg-02-pipeline-integration
+epic: wallet-relationship-graph
+title: Wire relationship graph into run_pipeline.py as stage 5
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.1.0"
+complexity: low
+methodology: tdd
+depends_on: [wrg-01-relationship-graph-core]
+
+description: |
+  Add the relationship-graph as a fifth stage in run_pipeline.py's main(), running
+  after filter_wallet_balances but fed from scan_output (wallet_balances.json,
+  pre-filter) rather than filter_output — duplicate/coverage signals are still
+  useful for zero-balance addresses, per design-discussion.md Section 3, point 4.
+
+  Sequence in main():
+    1. search_for_wallets
+    2. analyze_wallets
+    3. check_wallet_balances
+    4. filter_wallet_balances
+    5. build_relationship_graph + render_graph_report (NEW) — write
+       <output_dir>/checks/wallet_relationships.json (graph) and
+       <output_dir>/wallet_relationships.md (report), mirroring the existing
+       sub_dir/output_dir split used for the other stages.
+
+  This runs automatically as part of the default pipeline (design-discussion.md
+  Open Question 1 resolved: automatic, not opt-in-only — it's cheap, stdlib-only,
+  and the whole point of the epic is that users get this signal without an extra
+  step to remember).
+
+acceptance_criteria:
+  - "Given run_pipeline.main(input_dir, output_dir) is called, when the pipeline runs, then build_relationship_graph is called with the contents of scan_output (wallet_balances.json), not filter_output"
+  - "Given the pipeline runs successfully, when it completes, then <output_dir>/checks/wallet_relationships.json and <output_dir>/wallet_relationships.md both exist"
+  - "Given the CLI wrapper in tools/build_wallet_graph.py, when invoked standalone as `python tools/build_wallet_graph.py <input> <output>`, then it behaves identically to being called from run_pipeline.py (same function, no pipeline-only code path)"
+
+steps:
+  - id: test-spec
+    description: |
+      Write a failing test (tests/test_run_pipeline.py) that patches
+      tools.build_wallet_graph.build_relationship_graph and render_graph_report,
+      calls run_pipeline.main() against a temp input/output dir with a minimal
+      fixture, and asserts: (a) build_relationship_graph is called once with
+      scan_output's contents, (b) both output files are written to the expected
+      paths.
+    agent: tester
+  - id: implement
+    description: Import build_relationship_graph and render_graph_report in run_pipeline.py, add stage 5 to main() per the sequence above, matching the existing print()-status-line convention.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review that stage 5 reads from scan_output (not filter_output) as specified, and that output paths follow the existing sub_dir/output_dir convention.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit run_pipeline.py and tests/test_run_pipeline.py. Manually run the full pipeline end-to-end against a small local fixture directory to visually confirm wallet_relationships.md reads sensibly (per design-discussion.md Verification Plan — this manual pass supplements, not replaces, the automated wiring test).
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: run_pipeline.py
+      purpose: Orchestrator that threads stage outputs together; new stage slots in after filter_wallet_balances.
+
+files_to_modify:
+  - file: run_pipeline.py
+    change: add stage 5 (relationship graph) to main(), reading scan_output
+  - file: tests/test_run_pipeline.py
+    change: new file -- wiring test for the new stage
+
+design_decisions:
+  - decision: Feed stage 5 from scan_output (pre-filter, wallet_balances.json) rather than filter_output.
+    rationale: Duplicate-address and coverage-gap signals are valuable even for zero-balance addresses; filtering them out first would hide relationships the epic exists to surface.
+  - decision: Run automatically as part of the default pipeline, not behind an opt-in flag.
+    rationale: design-discussion.md Open Question 1 -- stdlib-only and cheap enough that making it opt-in just adds a step users have to remember.
+
+risks:
+  - severity: low
+    description: Adding a fifth stage increases pipeline runtime; negligible for stdlib-only JSON processing at current data sizes, but noted per design-discussion.md Section 4 memory/scale risk (accepted as an existing ceiling, not a new one).
+    mitigation: None needed for v1; revisit if a future deep-crawl epic increases data volume significantly.
+
+references:
+  - path: .pHive/epics/wallet-relationship-graph/docs/design-discussion.md
+    relevant_excerpt: |
+      "Pipeline integration: add this as a fifth stage in run_pipeline.py, after
+      filter_wallet_balances... pass it scan_output (wallet_balances.json,
+      pre-filter) rather than filter_output."
+  - path: .pHive/epics/wallet-relationship-graph/stories/wrg-01-relationship-graph-core.yaml
+    relevant_excerpt: |
+      build_relationship_graph(wallet_data) and render_graph_report(graph) --
+      the two functions this story wires into the pipeline.

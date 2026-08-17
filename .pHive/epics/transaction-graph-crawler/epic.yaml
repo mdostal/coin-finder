@@ -1,0 +1,39 @@
+name: transaction-graph-crawler
+title: Blockchain Transaction-Graph Crawler
+description: >
+  Crawl outward from a known Bitcoin address using the common-input-ownership
+  heuristic (co-spend clustering) plus bounded output-following, to discover
+  other addresses likely owned by the same person -- surfacing "sitting"
+  wallets with unspent balances. Public blockchain data only, no private keys.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, cli-tool, blockchain-analysis]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Single-language Python CLI/pipeline codebase."
+    cli-tool: "project_type: framework, has_ui: false."
+    blockchain-analysis: "New capability class -- public transaction-graph clustering, not file/regex based like prior epics."
+  confidence: medium
+  gate_decisions:
+    note: >
+      Same no-live-teammates adaptation as prior epics. Motivated directly by
+      a real find during manual testing of epics 1-3 against the user's own
+      Bitcoin Core wallet.dat.
+
+stories:
+  - id: tgc-01-crawler-core
+    title: Co-spend clustering + bounded output-following core module
+    complexity: medium
+    depends_on: []
+  - id: tgc-02-cli-report-docs
+    title: CLI, report, and README documentation
+    complexity: low
+    depends_on: [tgc-01-crawler-core]

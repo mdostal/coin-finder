@@ -1,0 +1,30 @@
+name: cytoscape-graph-rebuild
+title: Replace hand-rolled canvas graph with Cytoscape.js
+description: >
+  The hand-rolled Canvas graph renderer (visual-transaction-graph epic)
+  collapses seeds onto one point and crams every node at a generation
+  onto one fixed-radius ring with no spacing or zoom -- confirmed live
+  against a real 200-address crawl that it renders as an unreadable
+  blob. Replaces it with Cytoscape.js (vendored locally, MIT-licensed),
+  using its built-in breadthfirst layout rooted at the seed addresses --
+  real collision-avoiding spacing, real pan/zoom, at any node count.
+target_codebase: .
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Same pattern as every prior epic this
+      session. Researched real alternatives (WebSearch) per direct user
+      request before choosing an approach, rather than iterating on the
+      same hand-rolled rendering code again.
+stories:
+  - id: cgr-01
+    title: Vendor Cytoscape.js, rewrite graph.js around breadthfirst layout
+    complexity: medium
+    depends_on: []

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- extract private key{% endblock %}
+{% block content %}
+{{ m.group_tabs('unlock') }}
+<h2>Extract a private key</h2>
+
+<div class="banner {{ '' if network_status == 'OFFLINE' else 'warning' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
+  Network status right now: <strong style="color:inherit">{{ network_status }}</strong>.
+  {% if network_status != "OFFLINE" %}
+  The extracted key never gets sent anywhere by this app -- offline is
+  recommended for a local reason: if this machine were ever compromised,
+  producing key material while online means it exists on a machine that
+  can reach the outside world during that window. Full details:
+  <a href="{{ url_for('network_page') }}">what actually touches the
+  network</a>. Your call either way -- see the checkbox below.
+  {% else %}
+  Safe to extract a real key.
+  {% endif %}
+</div>
+
+<div class="banner warning">
+  Only works on an <strong>unencrypted</strong> wallet -- if the address is
+  in an encrypted (password-protected) record, use
+  <a href="{{ url_for('item_unlock_form') }}">Unlock a wallet</a> instead to
+  find the password first. The extracted key (WIF) is shown to you exactly
+  once, immediately after the job finishes, and is never written to disk or
+  logged. Once you have it: import it into
+  <a href="https://electrum.org/">Electrum</a> and use its own
+  <strong>sweep</strong> function to move the entire balance to a fresh
+  address you control long-term -- don't just spend part of it.
+</div>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="{{ url_for('item_extract_key') }}">
+    {{ m.path_input("Wallet file (must be unencrypted)", "wallet_path", mode="file", required=True) }}
+
+    <label>Address to extract the key for</label>
+    <input type="text" name="address" required>
+
+    {% if network_status != "OFFLINE" %}
+    <label style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:1rem">
+      <input type="checkbox" name="allow_online" value="1" style="width:auto;margin-top:0.2rem">
+      <span>I understand the risk and want to extract this <strong>while online</strong> anyway.
+      Recommended path is still OFFLINE (see above) -- this is your choice to make, not a hard requirement.</span>
+    </label>
+    {% endif %}
+
+    <button type="submit">Extract</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,133 @@
+id: lwu-01-scan-and-results
+epic: local-web-ui
+title: Flask skeleton, scan job runner, results page
+status: shipped
+shipped_at: "2026-08-13T00:00:00Z"
+release_id: "v0.14.0"
+complexity: large
+methodology: tdd
+depends_on: []
+
+description: |
+  New web/app.py (Flask factory + routes) is the foundation every later story
+  builds on:
+
+  - create_app(): Flask app factory. Binds to 127.0.0.1 by default; refuses
+    to start (raises before app.run) if given any other host -- this guard
+    exists from the first commit, not bolted on later.
+  - Job runner (web/jobs.py): in-memory {job_id: {"status": "running"|"done"|
+    "error", "result", "error", "started_at"}} registry + a run_job(fn, *args)
+    helper that starts fn in a background threading.Thread and returns a
+    job_id (uuid4).
+  - GET /: form to enter a local directory path (plus a directory-browse
+    helper endpoint GET /api/browse?path=... that lists immediate
+    subdirectories of an existing local path -- used by the frontend to let
+    the user navigate instead of typing a full path blind). The browse
+    endpoint resolves and validates the path exists and is a directory
+    before listing; it does not restrict *which* directory (browsing
+    anywhere the OS user can read is the point), but never lists or follows
+    symlink loops infinitely and never executes/opens file contents.
+  - POST /scan: reads the submitted directory, starts a job running
+    run_pipeline.main(input_dir, per-job output_dir under ./ui_output/<job_id>/)
+    plus tools.detect_hidden_volumes.scan_for_hidden_volumes(input_dir),
+    redirects to /scan/<job_id>.
+  - GET /scan/<job_id>: renders job status; once done, renders results --
+    found wallet-like files with their guessed coin/format
+    (wallet_analysis.json), balances incl. inconclusive
+    (wallet_balances.json / inconclusive_balances.json), the relationship
+    graph (render_graph_report's Markdown rendered to HTML via a minimal
+    markdown-to-HTML pass -- no new heavy dependency), and hidden-volume
+    flags. Every row carries enough identifying data (address, file path,
+    coin) for story lwu-02's action buttons to target it.
+  - GET /api/jobs/<job_id>: JSON status endpoint the results page polls
+    (used by the frontend JS so the page doesn't need a manual refresh).
+
+  Frontend: web/templates/{base,index,scan}.html (Jinja2, minimal inline CSS,
+  no build step) + web/static/poll.js (small vanilla-JS polling loop against
+  /api/jobs/<job_id>).
+
+  README gets a new "Local Web UI" section (how to run it, screenshot-free
+  description of the flow) and the Mermaid pipeline diagram gains a note
+  that web/app.py is a UI consumer of the same pipeline. requirements.txt
+  adds flask. .pHive/project-profile.yaml's has_ui flips to true and
+  tech_stack.frameworks gains flask.
+
+acceptance_criteria:
+  - "Given create_app() is called with host='0.0.0.0' (or any non-loopback host), when the app would start, then it raises instead of binding"
+  - "Given a valid local directory, when POST /scan is submitted, then a job_id is returned/redirected to and GET /api/jobs/<job_id> initially reports status running"
+  - "Given a completed scan job, when GET /scan/<job_id> is requested, then the response includes the found wallet-like files, their balances (including any inconclusive ones), and the relationship graph content"
+  - "Given a directory path with a non-existent target, when GET /api/browse is requested, then it returns a 4xx with an error rather than raising an unhandled exception"
+  - "Given an unknown job_id, when GET /api/jobs/<job_id> is requested, then it returns 404, not a 500"
+
+steps:
+  - id: research
+    description: (Already completed live during epic research -- see docs/research-brief.md's tool-signature table and docs/design-discussion.md's Flask-vs-FastAPI and job-model decisions.)
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests in tests/test_web_app.py using Flask's test client -- cover the host-guard, job lifecycle (mock run_pipeline.main and scan_for_hidden_volumes so tests don't hit real network), the browse endpoint's error path, and the unknown-job 404.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement web/app.py, web/jobs.py, templates, and static/poll.js to make the failing tests pass. Do not modify the tests.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically that the host guard cannot be bypassed by a default-changing refactor later (test asserts the guard, not just manual inspection), and that no scan result data silently swallows the inconclusive-balances case.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit web/app.py, web/jobs.py, web/templates/, web/static/, tests/test_web_app.py, requirements.txt, README.md, and .pHive/project-profile.yaml (has_ui, tech_stack.frameworks) updates.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: run_pipeline.py
+      purpose: The existing default pipeline (search -> analyze -> check_balances -> filter -> graph) this story's scan job wraps.
+    - path: tools/detect_hidden_volumes.py
+      purpose: scan_for_hidden_volumes/render_hidden_volumes_report -- run alongside the default pipeline as part of one scan job.
+    - path: .pHive/epics/local-web-ui/docs/design-discussion.md
+      purpose: Page/flow model, job model, and the localhost-only-bind risk mitigation this story implements.
+
+files_to_modify:
+  - file: web/app.py
+    change: new file
+  - file: web/jobs.py
+    change: new file
+  - file: web/templates/base.html
+    change: new file
+  - file: web/templates/index.html
+    change: new file
+  - file: web/templates/scan.html
+    change: new file
+  - file: web/static/poll.js
+    change: new file
+  - file: tests/test_web_app.py
+    change: new file
+  - file: requirements.txt
+    change: add flask
+  - file: README.md
+    change: add Local Web UI section, note web/app.py on the pipeline diagram
+  - file: .pHive/project-profile.yaml
+    change: has_ui true, tech_stack.frameworks add flask
+
+design_decisions:
+  - decision: Host-binding guard lives in create_app() itself, enforced by a test, not documented-only convention.
+    rationale: docs/design-discussion.md flags this as a real risk (directory-browse is path-traversal-shaped by design; fine locally, not fine if ever exposed) that must survive future refactors, not just today's code.
+  - decision: In-memory job registry, no task-queue dependency.
+    rationale: Single local user, one scan at a time is the realistic pattern; matches every existing tool's already-synchronous, blocking-call design.
+
+risks:
+  - severity: medium
+    description: A results page rendering the relationship-graph Markdown as raw HTML could introduce an XSS-shaped issue if any address/file-path string is ever attacker-influenced.
+    mitigation: Render via Jinja2 autoescaping (Flask's default) for all interpolated values; only the pre-rendered graph Markdown itself goes through a markdown-to-HTML pass, and that input is derived from local scan data the same user already has filesystem access to -- not third-party input.
+  - severity: low
+    description: Long scans (large drives) block the single background thread's target function on network I/O already known to be occasionally rate-limited.
+    mitigation: Already handled by the underlying tools' retry/inconclusive-tracking; the UI surfaces "inconclusive, recheck later" rather than hiding it.
+
+references:
+  - path: .pHive/epics/local-web-ui/docs/research-brief.md
+    relevant_excerpt: "All 13 tools are already pure-function-callable... No tool requires re-implementation to be UI-drivable."
+  - path: .pHive/epics/local-web-ui/docs/design-discussion.md
+    relevant_excerpt: "hard-fail startup (refuse to bind) if --host is passed anything other than 127.0.0.1/localhost"

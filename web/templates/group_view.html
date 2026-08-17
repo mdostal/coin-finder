@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- group view{% endblock %}
+{% block content %}
+<h2>Group view</h2>
+<p>Merges every saved <a href="{{ url_for('findings_page') }}">Graph</a> run
+together and surfaces addresses discovered by <strong>more than one separate
+crawl</strong> -- the signal that two independently-found wallets are
+probably related (a mining wallet and its holding wallet, for example).
+{{ runs | length }} crawl run(s) saved.</p>
+
+<div class="card">
+  <form method="post" action="{{ url_for('group_view_clear') }}" style="display:inline" onsubmit="return confirm('Clear all saved crawl runs? This does not touch your findings, only the saved Graph run history used for this overlap view -- and cannot be undone.');">
+    <button type="submit" class="btn-secondary">Clear all saved crawl runs</button>
+  </form>
+</div>
+
+{% if overlaps %}
+<table>
+  <thead>
+    <tr><th>Address</th><th>Balance</th><th>Found by</th></tr>
+  </thead>
+  <tbody>
+    {% for address, info in overlaps.items() %}
+    <tr class="{{ 'has-balance-row' if info.balance }}">
+      <td>{{ address }}</td>
+      <td>
+        {% if info.balance is none %}
+        <span class="subtle">inconclusive</span>
+        {% elif info.balance %}
+        <strong class="balance-found">{{ info.balance }}</strong>
+        {% else %}
+        <span class="subtle">0</span>
+        {% endif %}
+      </td>
+      <td>
+        {% for run in info.runs %}
+        <div>{{ run.seed_addresses | join(", ") }} <span class="subtle">({{ run.confidence }}, gen {{ run.generation }})</span></div>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No overlaps yet -- run Graph on a couple more findings.
+Overlap needs at least two saved crawl runs that share a discovered
+address; this is expected with few or no runs saved yet, not an error.</p>
+{% endif %}
+{% endblock %}

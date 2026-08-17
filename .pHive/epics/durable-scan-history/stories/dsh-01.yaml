@@ -1,0 +1,89 @@
+id: dsh-01
+epic: durable-scan-history
+title: Persist Find summary + scan-history index to disk
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+description: >
+  _run_find_job's computed summary (files_found, coin_counts,
+  total_address_instances, files[], hidden_volumes_report) currently only
+  ever lives in web/jobs.py's in-memory _jobs dict. Write it to
+  output_dir/find_summary.json (durable, one json.dump, no new
+  computation) and record a lightweight sqlite index row
+  (input_dir/output_dir/created_at/files_found) in a new
+  web/scan_history.py module, so a completed scan can always be found
+  again after a restart -- independent of whether its in-memory job still
+  exists.
+acceptance_criteria:
+  - _run_find_job writes output_dir/find_summary.json containing the exact
+    summary dict it returns (byte-for-byte the same data, just also on
+    disk).
+  - web/scan_history.py provides record_scan(input_dir, output_dir,
+    files_found, db_path=DEFAULT_DB_PATH), list_scan_history(db_path=...)
+    (newest first), and clear_scan_history(db_path=...) -- same
+    _connect/_SCHEMA/_MIGRATIONS pattern as web/crawl_runs.py.
+  - record_scan is called once per completed find job, from _run_find_job,
+    alongside the find_summary.json write.
+  - DEFAULT_DB_PATH = app_data_dir() / "scan_history.db".
+  - clear_scan_history() only deletes index rows -- never touches
+    output_dir or find_summary.json on disk.
+  - index_db_path=None (dedup-index off) behavior is completely unrelated
+    and unaffected -- scan_history recording happens regardless of whether
+    the dedup index is enabled.
+steps:
+  - phase: research
+    notes: >
+      Confirmed web/app.py:1107 _run_find_job already computes the exact
+      summary dict returned by run_pipeline.find() (files_found,
+      coin_counts, total_address_instances, files[]) plus
+      hidden_volumes_report appended after. web/crawl_runs.py is the
+      template to follow for the new sqlite module.
+  - phase: test-spec
+    notes: >
+      tests/test_scan_history.py (new, mirrors tests/test_crawl_runs.py):
+      record_scan + list_scan_history round-trip, newest-first ordering,
+      clear_scan_history wipes the index. tests/test_web_app.py (or a new
+      tests/test_web_app_scan_history.py): a real /scan POST followed by
+      asserting find_summary.json exists on disk under the returned
+      output_dir with the same files_found as the job's in-memory result,
+      and that web.scan_history.list_scan_history() (patched/real tmp db)
+      picked up one row.
+  - phase: implement
+    notes: >
+      New web/scan_history.py. web/app.py: import record_scan,
+      list_scan_history, clear_scan_history; _run_find_job writes
+      find_summary.json (json.dump(summary, f)) and calls record_scan(
+      input_dir, output_dir, summary["files_found"]) right before
+      returning.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - web/scan_history.py (new)
+    - web/app.py
+    - tests/test_scan_history.py (new)
+    - tests/test_web_app_scan_history.py (new)
+    - .gitignore (add /web/scan_history.db, same pattern as
+      /web/crawl_runs.db and /web/scan_index.db)
+design_decisions:
+  - find_summary.json duplicates data already implicitly recoverable from
+    wallet_analysis.json, but recomputing coin_counts/files[] from raw
+    analysis on every durable-view page load would mean re-deriving logic
+    that already lives in run_pipeline.find() -- writing the finished
+    summary once is simpler and cannot drift from what the live job page
+    showed.
+  - scan_history is an INDEX only (like scan_index.py's dedup index) --
+    it never deletes or duplicates the actual scan output on disk, so
+    clear_scan_history() is cheap and always safe.
+risks:
+  - Low -- purely additive (one new file write, one new sqlite insert) on
+    an already-succeeding code path. No existing behavior changes if the
+    write/insert is a no-op failure... but it should not fail silently:
+    if find_summary.json can't be written, that's a real bug to surface,
+    not swallow. Use it unguarded (matches how wallet_analysis.json's own
+    write is unguarded) rather than adding a try/except that would hide a
+    real disk-full or permissions problem.
+references:
+  - web/crawl_runs.py
+  - web/app.py:1107 (_run_find_job)

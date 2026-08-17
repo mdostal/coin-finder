@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- past scans{% endblock %}
+
+{% block content %}
+{{ m.group_tabs('sources', extra=[('Guided setup', 'wizard_start')]) }}
+<h2>Past scans</h2>
+<p class="subtle">Every completed Find, saved to disk -- survives an app restart, unlike the
+<a href="{{ url_for('index') }}">live scan</a> flow's in-memory job state.</p>
+
+<div class="card">
+  <form method="post" action="{{ url_for('scans_clear') }}" style="display:inline" onsubmit="return confirm('Clear scan history? This only removes this list -- the scan output on disk is untouched, and can be re-indexed by scanning the same directory again.');">
+    <button type="submit" class="btn-secondary">Clear scan history</button>
+  </form>
+</div>
+
+{% if scans %}
+<table>
+  <thead><tr><th>Input directory</th><th>Files found</th><th></th></tr></thead>
+  <tbody>
+    {% for s in scans %}
+    <tr>
+      <td><code>{{ s.input_dir }}</code></td>
+      <td>{{ s.files_found }}</td>
+      <td><a href="{{ url_for('scan_view', output_dir=s.output_dir) }}">View &rarr;</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No scans recorded yet -- run a <a href="{{ url_for('index') }}">Find</a> first.</p>
+{% endif %}
+{% endblock %}

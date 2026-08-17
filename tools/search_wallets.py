@@ -1,11 +1,113 @@
+import json
 import os
+import sys
+import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS, MAX_FILE_SIZE, MIN_FILE_SIZE, COIN_NAMES
 
-def search_for_wallets(start_path, output_file):
-    potential_wallets = []
+CHECKPOINT_EVERY_DIRS = 200
+CHECKPOINT_EVERY_SECONDS = 20
+PROGRESS_EVERY_SECONDS = 0.5
+
+
+def _is_excluded(candidate_path, excludes):
+    """
+    True if candidate_path is one of excludes, or nested under one --
+    matched on real path components (via Path.parts), not a naive string
+    prefix, so an exclude of "/Volumes/Old" never accidentally also
+    matches "/Volumes/OldDrive2".
+    """
+    candidate_parts = Path(candidate_path).parts
+    for excluded in excludes:
+        excluded_parts = Path(excluded).parts
+        if candidate_parts[: len(excluded_parts)] == excluded_parts:
+            return True
+    return False
+
+
+def _load_checkpoint(checkpoint_path, start_path):
+    if not checkpoint_path or not Path(checkpoint_path).exists():
+        return set(), []
+    try:
+        with open(checkpoint_path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return set(), []
+    if data.get("start_path") != str(start_path):
+        return set(), []
+    return set(data.get("completed_dirs", [])), list(data.get("potential_wallets", []))
+
+
+def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_callback=None, excludes=None):
+    """
+    Walks start_path looking for likely wallet files. A long walk over a
+    huge mounted drive is exactly the kind of job that used to be thrown
+    away entirely by an app quit/update/crash mid-scan -- os.walk had no
+    notion of "already checked this directory," so any interruption meant
+    starting over from nothing.
+
+    checkpoint_path, when given, makes this resumable: after every
+    CHECKPOINT_EVERY_DIRS directories (or CHECKPOINT_EVERY_SECONDS,
+    whichever comes first), the directories already checked and the
+    wallets found so far are flushed to checkpoint_path and output_file.
+    If checkpoint_path already exists and matches start_path, those
+    directories are skipped this run instead of being re-walked --
+    picking back up close to where a prior, interrupted run left off
+    instead of restarting from zero. The checkpoint is removed once the
+    walk finishes cleanly.
+
+    :param progress_callback: optional callable(current, total, message).
+        total is always None here -- there is no way to know how many
+        directories a walk will visit before it's done, so this reports
+        real, live movement (directories walked, matches found so far,
+        current path) rather than a fabricated percentage. Throttled to
+        roughly every PROGRESS_EVERY_SECONDS so a fast walk over small
+        directories doesn't flood the caller.
+    :param excludes: optional list of paths -- user-configurable (see
+        web/scan_excludes.py), never a built-in blocklist. A directory
+        that is one of these, or nested under one, is skipped entirely
+        (pruned from os.walk, not just excluded from the results) --
+        the actual point being to avoid both wasted time AND false-
+        positive matches from paths already known not to matter.
+    """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+    excludes = excludes or []
+
+    completed_dirs, potential_wallets = _load_checkpoint(checkpoint_path, start_path)
+    if completed_dirs:
+        print(f"Resuming scan of {start_path}: {len(completed_dirs)} directory(ies) already checked, {len(potential_wallets)} wallet(s) found so far.")
+
+    def _flush():
+        with open(output_file, "w") as f:
+            for wallet in potential_wallets:
+                f.write(wallet + "\n")
+        if checkpoint_path:
+            with open(checkpoint_path, "w") as f:
+                json.dump(
+                    {"start_path": str(start_path), "completed_dirs": sorted(completed_dirs), "potential_wallets": potential_wallets},
+                    f,
+                )
+
+    dirs_since_checkpoint = 0
+    last_checkpoint_at = time.time()
+    last_progress_at = time.time()
+    dirs_walked = len(completed_dirs)
 
     for root, dirs, files in os.walk(start_path):
+        if excludes and _is_excluded(root, excludes):
+            dirs[:] = []  # don't descend into an excluded subtree at all
+            continue
+
+        if excludes:
+            dirs[:] = [d for d in dirs if not _is_excluded(str(Path(root) / d), excludes)]
+
+        if root in completed_dirs:
+            continue
+
         for file in files:
             file_path = Path(root) / file
             try:
@@ -27,10 +129,22 @@ def search_for_wallets(start_path, output_file):
             except Exception as e:
                 print(f"Error accessing file {file_path}: {e}")
 
-    # Write results to the output file
-    with open(output_file, "w") as f:
-        for wallet in potential_wallets:
-            f.write(wallet + "\n")
+        completed_dirs.add(root)
+        dirs_since_checkpoint += 1
+        dirs_walked += 1
+        if checkpoint_path and (dirs_since_checkpoint >= CHECKPOINT_EVERY_DIRS or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS):
+            _flush()
+            dirs_since_checkpoint = 0
+            last_checkpoint_at = time.time()
+
+        if time.time() - last_progress_at >= PROGRESS_EVERY_SECONDS:
+            progress_callback(dirs_walked, None, f"{len(potential_wallets)} potential wallet(s) found so far — {root}")
+            last_progress_at = time.time()
+
+    progress_callback(dirs_walked, None, f"{len(potential_wallets)} potential wallet(s) found — walk complete")
+    _flush()
+    if checkpoint_path:
+        Path(checkpoint_path).unlink(missing_ok=True)
 
     print(f"Search complete. Found {len(potential_wallets)} potential wallet files.")
     print(f"Results saved to {output_file}.")

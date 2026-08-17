@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- related accounts{% endblock %}
+{% block content %}
+<h2>Related accounts</h2>
+<p>Candidates worth investigating -- addresses directly linked to a known Bitcoin finding by
+real, distinct transactions (co-spend or a transfer), ranked by evidence strength. These are
+<strong>candidates, not confirmed findings</strong> -- run Graph against one to see the full
+picture, and check its balance before treating it as real.</p>
+
+{% if candidates %}
+<table>
+  <thead><tr><th>Address</th><th>Confidence</th><th>Evidence</th><th></th></tr></thead>
+  <tbody>
+    {% for c in candidates %}
+    <tr>
+      <td><code>{{ c.address }}</code></td>
+      <td>{{ c.confidence_label }} <span class="subtle">(score {{ c.score }})</span></td>
+      <td>
+        {%- if c.direct_cospend_count %}{{ c.direct_cospend_count }} co-spend transaction(s) with a known address{% endif -%}
+        {%- if c.direct_cospend_count and c.direct_output_count %}, {% endif -%}
+        {%- if c.direct_output_count %}{{ c.direct_output_count }} transfer(s) with a known address{% endif -%}
+        {%- if c.cross_run_count > 1 %}; discovered independently by {{ c.cross_run_count }} separate crawls{% endif -%}
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('item_crawl') }}" style="display:inline">
+          <input type="hidden" name="addresses" value="{{ c.address }}">
+          <button type="submit" class="btn-secondary">Graph this address</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No related-account candidates yet -- run Graph against a known finding first;
+candidates need at least one real, direct transaction linking them to a known address.</p>
+{% endif %}
+{% endblock %}

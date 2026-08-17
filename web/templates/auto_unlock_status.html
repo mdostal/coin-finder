@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- auto-unlock job{% endblock %}
+{% block content %}
+<h2>Auto-unlock job running</h2>
+<p>{{ m.status_pill(job.status) }}</p>
+{% if job.status == "running" %}
+<div class="card"><p>Working -- trying every wallet against every saved
+password can take a while. This page will move on automatically once
+it's done.</p></div>
+{% elif job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='poll.js') }}" data-job-id="{{ job_id }}" data-status="{{ job.status }}" data-done-url="{{ url_for('auto_unlock_result', job_id=job_id) }}"></script>
+{% endblock %}

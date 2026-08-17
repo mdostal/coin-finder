@@ -1,0 +1,89 @@
+id: vtg-01
+epic: visual-transaction-graph
+title: discovered_via edge tracking + configurable hop depth
+status: pending
+complexity: small
+methodology: tdd
+depends_on: []
+description: >
+  crawl_wallet_cluster() already knows which frontier address led to each
+  newly-discovered address (the BFS loop variable) but throws it away.
+  Record it as discovered_via so vtg-02 can draw real edges, not just
+  generation rings. Separately, thread hop depth (max_generations) through
+  the web UI -- today it's hardcoded to crawl_wallet_cluster()'s default
+  of 2 with zero user control, from the manual crawl form, the scan.html
+  bulk "Graph selected" toolbar, and the durable-view equivalent.
+acceptance_criteria:
+  - Every entry in crawl_wallet_cluster()'s returned dict has a
+    discovered_via key -- None for generation-0 seeds, the parent
+    frontier address for every co-spend/output discovery.
+  - Existing tests continue to pass unmodified (none assert exact dict
+    equality on a full entry, all use subscript access on specific keys).
+  - A new test asserts discovered_via correctness for a simple 2-hop
+    chain (seed -> co-spend A -> co-spend B), confirming B's
+    discovered_via is A, not the seed.
+  - item_crawl (POST /item/crawl) accepts an optional "generations" form
+    field (default 2 when omitted, matching current behavior exactly),
+    validated as an int clamped to [1, 5] -- a crawl is a real, possibly
+    slow, live-network operation, so hop depth is a bounded dropdown/
+    number input, not free text.
+  - The manual crawl form (scan.html's "More actions" card) and the bulk
+    "Graph selected" button (scan.html + the durable /scans/view
+    equivalent) both expose the same hop-depth control, passed through
+    to _run_crawl_job -> crawl_wallet_cluster's max_generations.
+  - _run_crawl_job(addresses, max_generations=2) threads the value to
+    crawl_wallet_cluster(seeds, max_generations=max_generations) --
+    default preserves today's exact behavior for any caller that doesn't
+    pass it.
+steps:
+  - phase: research
+    notes: >
+      tools/crawl_transaction_graph.py:106-159 -- the BFS loop's outer
+      `address` variable IS the parent for every discovered co-spend/
+      output address; just never stored. web/app.py:290 (item_crawl) and
+      :975 (_run_crawl_job) never pass max_generations at all today.
+  - phase: test-spec
+    notes: >
+      tests/test_crawl_transaction_graph.py: new discovered_via
+      correctness test (2-hop chain). tests/test_web_app.py or a new
+      test file: item_crawl's generations field is read, clamped, and
+      passed through to crawl_wallet_cluster via a mocked
+      crawl_wallet_cluster call, asserting the max_generations kwarg.
+  - phase: implement
+    notes: >
+      tools/crawl_transaction_graph.py: discovered[addr] = {...,
+      "discovered_via": address} at both co-spend and output discovery
+      sites; discovered[seed] = {..., "discovered_via": None} for seeds.
+      web/app.py: item_crawl reads request.form.get("generations"),
+      clamps via max(1, min(5, int(...))) with a safe fallback to 2 on
+      anything unparseable, passes through run_job's extra args to
+      _run_crawl_job(addresses, max_generations=...).
+      web/templates/scan.html: hop-depth <select> (1-5, default 2) added
+      to the bulk-form and its formaction targets; a hidden/visible field
+      threading the same value through for the manual crawl form.
+  - phase: review
+  - phase: integrate
+context:
+  files_to_modify:
+    - tools/crawl_transaction_graph.py
+    - web/app.py
+    - web/templates/scan.html
+    - tests/test_crawl_transaction_graph.py
+    - tests/test_web_app.py (or a new test file)
+design_decisions:
+  - discovered_via is None (not omitted) for seeds -- explicit "this is a
+    root" signal is easier for vtg-02's renderer to branch on than
+    checking key absence.
+  - Hop depth clamped server-side (not just client-side) -- a crawl is a
+    real network operation against a live API; a malicious or malformed
+    request must not be able to request an unbounded generation count.
+risks:
+  - Within one BFS generation, a set() frontier has no guaranteed
+    iteration order, so which parent "wins" for an address reachable from
+    two frontier nodes in the same generation isn't deterministic across
+    runs -- acceptable for visualization (documented in the epic design
+    discussion), not something this story tries to fix.
+references:
+  - tools/crawl_transaction_graph.py
+  - web/app.py:290 (item_crawl), :975 (_run_crawl_job)
+  - tests/test_crawl_transaction_graph.py

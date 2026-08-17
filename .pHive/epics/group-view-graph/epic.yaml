@@ -1,0 +1,43 @@
+name: group-view-graph
+title: Group-View Transaction Graph
+description: >
+  Persist every transaction-graph crawl run's full result (previously
+  ephemeral, gone once the job finishes) and build a merged "group view"
+  across all saved runs that surfaces addresses discovered by more than one
+  separate crawl -- the actual "these two found wallets are probably
+  related" signal. Lets the user keep or clear saved crawl run data.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [backend-python, flask-ui, sqlite-persistence]
+  roster: [researcher, technical-writer, tpm]
+  per_tag_reasoning:
+    backend-python: "Python/Flask codebase, same as every prior epic in this repo."
+    flask-ui: "web/app.py route + Jinja template, matching the findings.py/findings.html pattern extended this session."
+    sqlite-persistence: "New crawl_runs.db, same _connect/_SCHEMA/_MIGRATIONS shape as web/findings.py."
+  confidence: high
+  gate_decisions:
+    note: >
+      No live multi-agent dispatch configured -- researcher/technical-writer/tpm
+      roles performed directly by the orchestrating agent, same adaptation as
+      transaction-graph-crawler and wallet-relationship-graph. Grill and
+      collaborative review condensed into one self-review pass on the design
+      discussion. Small scope per design-discussion.md §7 -- H/V planning and
+      structured outline skipped per /plan's own routing rules.
+
+stories:
+  - id: gvg-01-crawl-run-persistence
+    title: Persist every crawl run's full result to disk
+    complexity: medium
+    depends_on: []
+  - id: gvg-02-group-view-page
+    title: Group-view page (overlap detection) + manage/clear action
+    complexity: medium
+    depends_on: [gvg-01-crawl-run-persistence]

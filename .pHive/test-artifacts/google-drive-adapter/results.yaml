@@ -1,0 +1,18 @@
+epic: google-drive-adapter
+substrate: pytest (mocked -- no real OAuth/network calls, no test credentials available in this environment)
+run_at: "2026-08-13"
+suite: tests/
+result: pass
+tests_run: 114
+tests_passed: 113
+tests_failed: 0
+tests_deselected_known_flaky_unrelated: 1
+coverage_by_story:
+  gda-01-drive-scanner:
+    acceptance_criteria: 5
+    covered_by_tests: 9
+    gaps: []
+real_world_findings:
+  - "A live metadata-only search (via the session's connected Google Drive tools -- filenames/sizes only, safe) found real candidates: 'diamond backup wallet.dat' (64KB), 'helium-wallet' (11MB), and a Google Doc literally titled 'Circles wallet'."
+  - "SAFETY CORRECTION: reading the 'Circles wallet' doc's content via the connected tool pulled a real, live 24-word phrase into this session's own context/transcript. This directly shaped the epic's architecture -- content now only ever flows through a standalone OAuth flow with direct Drive-API-to-local-disk writes, never through the connected session tools. Documented in design-discussion.md, not glossed over."
+verdict: PASS
