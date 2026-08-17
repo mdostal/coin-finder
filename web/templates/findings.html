@@ -40,20 +40,29 @@ below) always sort to the top, real balances sort right after them.</p>
 
 {% if findings %}
 {% set has_bitcoin_findings = findings | selectattr("coin", "equalto", "Bitcoin") | list %}
-{% if has_bitcoin_findings %}
 <form id="bulk-form" method="post">
   <input type="hidden" name="addresses" id="bulk-addresses">
+  <input type="hidden" name="selection" id="bulk-watch-selection">
+  {% if include_archived %}<input type="hidden" name="include_archived" value="1">{% endif %}
 </form>
 
 <div class="card">
-  <label class="radio-row"><input type="checkbox" id="bulk-select-all"> Select all Bitcoin findings below</label>
-  <button type="submit" form="bulk-form" formaction="{{ url_for('item_crawl') }}" class="btn-secondary">Graph selected</button>
-  <button type="submit" form="bulk-form" formaction="{{ url_for('item_fork_coins') }}" class="btn-secondary">Check fork coins selected</button>
-  <p class="subtle" style="margin:0.5rem 0 0">Both run against every checked
-  row at once, as one background job -- same tools as the per-finding actions
-  below, just batched.</p>
+  <label class="radio-row"><input type="checkbox" id="bulk-select-all"> Select all findings below</label>
+  <div class="bulk-actions-row" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-top:0.5rem">
+    <input type="text" name="note" form="bulk-form" placeholder="optional note for all selected (Watch only)" style="flex:1;min-width:12rem">
+    <button type="submit" form="bulk-form" formaction="{{ url_for('findings_watch_bulk') }}" class="btn-secondary">&#9733; Watch selected</button>
+    <button type="button" id="bulk-try-unlock" data-unlock-url="{{ url_for('auto_unlock_form') }}" class="btn-secondary" title="Runs the existing Try-unlock flow, scoped to every checked finding that has a recorded source wallet file.">Try unlock selected</button>
+    {% if has_bitcoin_findings %}
+    <button type="submit" form="bulk-form" formaction="{{ url_for('item_crawl') }}" data-btc-only="1" class="btn-secondary">Graph selected</button>
+    <button type="submit" form="bulk-form" formaction="{{ url_for('item_fork_coins') }}" data-btc-only="1" class="btn-secondary">Check fork coins selected</button>
+    {% endif %}
+  </div>
+  <p class="subtle" style="margin:0.5rem 0 0">Watch and Try unlock apply to
+  every checked finding, any coin. Graph and Check fork coins run only
+  against checked Bitcoin rows (Bitcoin-only tools) -- all four run as one
+  background job per click, same tools as the per-finding actions below,
+  just batched.</p>
 </div>
-{% endif %}
 
 {% set coins = findings | map(attribute="coin") | unique | list %}
 <div class="findings-toolbar">
@@ -76,9 +85,7 @@ below) always sort to the top, real balances sort right after them.</p>
     {{ m.coin_tab(f.coin) }}
     <div class="finding-card-body">
       <div class="finding-card-select">
-        {% if f.coin == "Bitcoin" %}
-        <input type="checkbox" class="bulk-select" value="{{ f.address }}">
-        {% endif %}
+        <input type="checkbox" class="bulk-select" value="{{ f.address }}" data-coin="{{ f.coin }}" data-source-path="{{ f.source_path or '' }}">
       </div>
       <div class="finding-card-main">
         {% if f.balance %}

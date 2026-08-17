@@ -92,6 +92,54 @@ def test_findings_page_hides_bitcoin_only_actions_for_other_coins(mock_list, cli
 
 
 @patch("web.app.list_findings")
+def test_findings_page_offers_bulk_watch_and_try_unlock_for_any_coin(mock_list, client):
+    """
+    Watch selected / Try unlock selected are NOT Bitcoin-only tools (unlike
+    Graph/Check fork coins) -- they must appear even for a page of
+    non-Bitcoin findings, and the per-row checkbox must be selectable on
+    every coin's row, not just Bitcoin's.
+    """
+    mock_list.return_value = [
+        {"coin": "Ethereum", "address": "0xabc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0}
+    ]
+    resp = client.get("/findings")
+    assert resp.status_code == 200
+    assert b'formaction="/findings/watch-bulk"' in resp.data
+    assert b'id="bulk-try-unlock"' in resp.data
+    assert b'value="0xabc"' in resp.data
+    # Bitcoin-only actions still absent for an all-Ethereum page.
+    assert b'action="/item/crawl"' not in resp.data
+    assert b'action="/item/fork-coins"' not in resp.data
+
+
+@patch("web.app.set_watched")
+def test_findings_watch_bulk_applies_one_note_to_every_checked_address_across_coins(mock_set_watched, client):
+    resp = client.post(
+        "/findings/watch-bulk",
+        data={"selection": "Bitcoin\t1abc\nEthereum\t0xdef", "note": "suspected mining chain"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert mock_set_watched.call_count == 2
+    mock_set_watched.assert_any_call("Bitcoin", "1abc", True, note="suspected mining chain")
+    mock_set_watched.assert_any_call("Ethereum", "0xdef", True, note="suspected mining chain")
+
+
+@patch("web.app.set_watched")
+def test_findings_watch_bulk_note_is_optional(mock_set_watched, client):
+    resp = client.post("/findings/watch-bulk", data={"selection": "Bitcoin\t1abc"}, follow_redirects=False)
+    assert resp.status_code == 302
+    mock_set_watched.assert_called_once_with("Bitcoin", "1abc", True, note="")
+
+
+@patch("web.app.set_watched")
+def test_findings_watch_bulk_requires_at_least_one_selection(mock_set_watched, client):
+    resp = client.post("/findings/watch-bulk", data={"note": "no selection made"}, follow_redirects=False)
+    assert resp.status_code == 302
+    mock_set_watched.assert_not_called()
+
+
+@patch("web.app.list_findings")
 def test_findings_page_highlights_watched_rows(mock_list, client):
     mock_list.return_value = [
         {"coin": "Bitcoin", "address": "1abc", "balance": 0.5, "source_path": None, "source_label": None, "status": "new", "first_seen_at": 0, "last_checked_at": 0, "watched": 1, "watch_note": "suspected mining chain"}
