@@ -1017,6 +1017,10 @@ def create_app(host="127.0.0.1"):
         result = perform_update()
         return render_template("update.html", status=check_for_update(), result=result)
 
+    @app.route("/settings")
+    def settings_page():
+        return render_template("settings.html", palettes=PALETTES)
+
     return app
 
 
@@ -1111,7 +1115,37 @@ _NAV_GROUP_BY_ENDPOINT = {
     "network_page": "about",
     "update_page": "about",
     "update_run": "about",
+    # Settings -- standalone, no tab strip (same pattern as Findings).
+    "settings_page": "settings",
 }
+
+# Named color palettes (uio-02) -- each id must have a matching pair of
+# CSS token blocks in web/static/style.css, keyed by
+# :root[data-palette="<id>"] (dark) and
+# :root[data-palette="<id>"][data-theme="light"] (light). The "swatch"
+# values here are only for the small preview dots on the Settings page --
+# the real, authoritative colors live in style.css's CSS custom
+# properties, not here.
+PALETTES = [
+    {
+        "id": "archival",
+        "name": "Archival",
+        "description": "Warm brass and gold on a ledger-dark ground -- the original, default look.",
+        "swatch": {"bg": "#14110d", "accent": "#d6a54f", "seal": "#c65340", "text": "#f2ead9"},
+    },
+    {
+        "id": "graphite",
+        "name": "Graphite",
+        "description": "Cooler graphite and ink, brass accents, a teal focus color -- an investigator's desk, not a vault.",
+        "swatch": {"bg": "#0d1316", "accent": "#d3a94f", "seal": "#e2574a", "text": "#dce6e2"},
+    },
+    {
+        "id": "terminal",
+        "name": "Terminal",
+        "description": "Amber-on-near-black with a cyan accent -- a terminal-tinted ledger.",
+        "swatch": {"bg": "#0b0906", "accent": "#ffb020", "seal": "#ff3b54", "text": "#efe4cc"},
+    },
+]
 
 _STATUS_ENDPOINT_BY_KIND = {
     "find": "scan_status",

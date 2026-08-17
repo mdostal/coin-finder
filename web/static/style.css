@@ -86,6 +86,137 @@
   --seal-ink: #fdf3ea;
 }
 
+/* ============ Named color palettes (uio-02) ============
+   Palette is a second axis, fully orthogonal to light/dark: applied via
+   data-palette on <html> alongside the existing data-theme attribute
+   (web/static/theme.js). "Archival" (above) is the default and needs no
+   data-palette selector of its own -- it's what the bare :root and
+   :root[data-theme="light"] blocks already are. Every other palette
+   below defines its own complete dark AND light token set using the
+   exact same token names, so component CSS never has to know which
+   palette is active. Compound selectors (…[data-palette="x"][data-theme=
+   "light"]) are used for each palette's light variant so its specificity
+   always wins over both the bare dark default and the archival light
+   block, regardless of source order. */
+
+/* Graphite -- cooler graphite/ink, brass accents, a teal focus color.
+   Color language adapted from design option B; layout/typography are
+   unchanged (uio-01's unified hybrid design). */
+:root[data-palette="graphite"] {
+  --bg: #0d1316;
+  --bg-raised: #131b1f;
+  --bg-inset: #0a0f12;
+  --border: #263338;
+  --border-strong: #3b4c52;
+  --text: #dce6e2;
+  --text-dim: #9fb0ac;
+
+  --accent: #d3a94f;
+  --accent-dim: #a9863c;
+  --accent-bright: #f0c877;
+  --accent-ink: #1d1608;
+
+  --success: #63c08a;
+  --success-bg: #12241b;
+  --warning: #e7c25a;
+  --warning-bg: #2b2414;
+  --warning-border: #4d4020;
+  --error: #e2725a;
+  --error-bg: #2b1712;
+  --error-border: #4d2a20;
+  --info: #6fd3e8;
+
+  --seal: #e2574a;
+  --seal-ink: #2a0c08;
+}
+
+:root[data-palette="graphite"][data-theme="light"] {
+  --bg: #e8ece9;
+  --bg-raised: #f2f5f2;
+  --bg-inset: #dee4e0;
+  --border: #c1cbc7;
+  --border-strong: #9fada9;
+  --text: #161d20;
+  --text-dim: #3b474b;
+
+  --accent: #8c6a22;
+  --accent-dim: #6b511a;
+  --accent-bright: #ad8938;
+  --accent-ink: #fffbf0;
+
+  --success: #257a4e;
+  --success-bg: #e1f0e7;
+  --warning: #8f6a12;
+  --warning-bg: #f1e8ce;
+  --warning-border: #d8c48a;
+  --error: #a5432f;
+  --error-bg: #f4e1db;
+  --error-border: #ddb6a9;
+  --info: #1e5f74;
+
+  --seal: #a5291f;
+  --seal-ink: #fdf0ee;
+}
+
+/* Terminal -- amber-on-near-black with a cyan accent, a terminal-tinted
+   ledger. Color language adapted from design option C; layout/typography
+   are unchanged (uio-01's unified hybrid design). */
+:root[data-palette="terminal"] {
+  --bg: #0b0906;
+  --bg-raised: #16110c;
+  --bg-inset: #1c1610;
+  --border: #33291c;
+  --border-strong: #4d3f28;
+  --text: #efe4cc;
+  --text-dim: #a4906c;
+
+  --accent: #ffb020;
+  --accent-dim: #cc8c1a;
+  --accent-bright: #ffc45c;
+  --accent-ink: #241a08;
+
+  --success: #67d17e;
+  --success-bg: #16241c;
+  --warning: #f0cc55;
+  --warning-bg: #2c2712;
+  --warning-border: #4d4420;
+  --error: #ff7a63;
+  --error-bg: #2c1712;
+  --error-border: #4d2820;
+  --info: #5be1e8;
+
+  --seal: #ff3b54;
+  --seal-ink: #2a0408;
+}
+
+:root[data-palette="terminal"][data-theme="light"] {
+  --bg: #f3ecda;
+  --bg-raised: #fbf6e7;
+  --bg-inset: #e2d8ba;
+  --border: #cdbf94;
+  --border-strong: #a99a68;
+  --text: #241d10;
+  --text-dim: #5b4f34;
+
+  --accent: #9a5f06;
+  --accent-dim: #7a4a04;
+  --accent-bright: #b87a12;
+  --accent-ink: #fff8e8;
+
+  --success: #1f7a3d;
+  --success-bg: #e1f0e5;
+  --warning: #8a6a10;
+  --warning-bg: #f1e8ce;
+  --warning-border: #d8c48a;
+  --error: #a5331f;
+  --error-bg: #f4e1db;
+  --error-border: #ddb6a9;
+  --info: #0d6e77;
+
+  --seal: #c81e3a;
+  --seal-ink: #fdeef1;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -759,6 +890,70 @@ pre {
   .finding-card-tab-name { writing-mode: horizontal-tb; }
   .finding-card-body { flex-wrap: wrap; }
   .wax-seal { top: -14px; right: 12px; width: 68px; height: 68px; font-size: 0.55rem; }
+}
+
+/* ============ Settings: palette picker (uio-02) ============ */
+.palette-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+button.palette-option {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  text-align: left;
+  background: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  font-weight: 400;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+/* Explicit background here (not just border-color) -- otherwise the
+   global button:hover rule (element + pseudo-class) outranks a
+   class-only .palette-option selector on specificity and paints the
+   whole row solid --accent-bright while the mouse lingers post-click. */
+button.palette-option:hover {
+  background: var(--bg-inset);
+  border-color: var(--border-strong);
+}
+button.palette-option.active {
+  background: var(--bg-inset);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+button.palette-option.active:hover {
+  background: var(--bg-inset);
+}
+.palette-swatch {
+  display: flex;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.palette-swatch-dot {
+  width: 1.1rem;
+  height: 1.9rem;
+}
+.palette-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.palette-option-name {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.02rem;
+}
+.palette-option-desc {
+  font-size: 0.82rem;
 }
 
 /* A cell packing several small action forms/links (findings.html) --
