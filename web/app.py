@@ -1,6 +1,7 @@
 import hashlib
 import json
 import shutil
+import sqlite3
 import sys
 import tempfile
 import time
@@ -1886,7 +1887,7 @@ def _run_gmail_scan_job(output_dir, queries, job_id):
 
 
 def _find_checkpoint_path(output_dir):
-    return str(Path(output_dir) / "checks" / "scan_checkpoint.json")
+    return str(Path(output_dir) / "checks" / "scan_checkpoint.db")
 
 
 def _interrupted_balance_checks():
@@ -1934,32 +1935,48 @@ def _index_context():
 
 def _interrupted_scans():
     """
-    Every scan_checkpoint.json left behind by a scan that never finished
-    -- app quit, update, crash, mid-walk -- across every scan this app has
+    Every scan_checkpoint.db left behind by a scan that never finished --
+    app quit, update, crash, mid-walk -- across every scan this app has
     ever started. Surfaced on the scan page so resuming one is a click,
     not "remember the exact folder path and re-run scan yourself."
     _run_find_job resumes automatically (same input_dir -> same
     output_dir -> same checkpoint_path) the moment that same folder is
     scanned again -- this is purely the "so the user knows to" discovery
     layer on top of that.
+
+    dirs_checked is a real sqlite COUNT (see tools.search_wallets), not a
+    loaded-into-memory list -- a checkpoint for a real multi-hundred-
+    thousand-directory drive must never require reading its entire
+    completed-directories history into Python just to show a summary
+    count. wallets_found_so_far counts lines in the sibling
+    wallet_search_output.txt (search_for_wallets' real, durable output
+    file) instead -- matches found are no longer duplicated into the
+    checkpoint itself.
     """
     if not DEFAULT_OUTPUT_ROOT.is_dir():
         return []
     interrupted = []
-    for checkpoint_path in DEFAULT_OUTPUT_ROOT.glob("*/checks/scan_checkpoint.json"):
+    for checkpoint_path in DEFAULT_OUTPUT_ROOT.glob("*/checks/scan_checkpoint.db"):
         try:
-            with open(checkpoint_path) as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+            conn = sqlite3.connect(str(checkpoint_path))
+            row = conn.execute("SELECT value FROM meta WHERE key = 'start_path'").fetchone()
+            dirs_checked = conn.execute("SELECT COUNT(*) FROM completed_dirs").fetchone()[0]
+            conn.close()
+        except sqlite3.Error:
             continue
-        start_path = data.get("start_path")
+        start_path = row[0] if row else None
         if not start_path or not Path(start_path).is_dir():
             continue
+        output_file = checkpoint_path.parent / "wallet_search_output.txt"
+        wallets_found_so_far = 0
+        if output_file.exists():
+            with open(output_file) as f:
+                wallets_found_so_far = sum(1 for line in f if line.strip())
         interrupted.append(
             {
                 "input_dir": start_path,
-                "dirs_checked": len(data.get("completed_dirs", [])),
-                "wallets_found_so_far": len(data.get("potential_wallets", [])),
+                "dirs_checked": dirs_checked,
+                "wallets_found_so_far": wallets_found_so_far,
             }
         )
     return interrupted
