@@ -1,0 +1,83 @@
+id: sse-05-concurrency-safety-and-mount-health
+epic: scalable-scan-engine
+title: Concurrency-safety guard + mount health during scans
+status: pending
+complexity: low
+methodology: tdd
+depends_on: [sse-04-job-durability-and-pause]
+
+description: |
+  Two smaller, confirmed real gaps closed together since both are narrow,
+  low-risk additions to code already touched by this epic:
+
+  1. web/app.py has a duplicate-job guard for `find` jobs
+     (_running_find_job_for), added after a real live incident, but NO
+     equivalent guard for `check-balances` jobs -- two such jobs racing on
+     the same output_dir last-writer-wins clobber the same checkpoint and
+     output JSON. Mirror the existing guard as
+     _running_check_balances_job_for.
+
+  2. is_mounted() (web/mounts.py) already exists and is used at page-load
+     and in the mounts-management UI, but nothing re-checks it once a scan
+     starts walking a mount -- a dead mount surfaces only indirectly,
+     through whatever I/O errors bubble up. Wire a periodic health check
+     into the search-walk and check-balances loops when the job's target
+     is under a tracked mount.
+
+acceptance_criteria:
+  - "Given a check-balances job is already running against output_dir X, when a second check-balances job is requested against the same output_dir, then the second request is redirected to the existing job instead of starting a duplicate -- identical pattern to the existing find-job guard"
+  - "Given a search-walk job is running against a mounted drive, when the mount becomes unavailable mid-scan (simulated: is_mounted() returns False), then the job flushes current progress and fails with a clear 'drive disconnected' message rather than stalling silently or producing incomplete results indistinguishable from a clean finish"
+  - "Given a check-balances job is running with input files on a mounted drive, when the mount health check fires periodically, then it uses the same cadence family as existing checkpoint flushes (no new, separate polling loop)"
+  - "Given a job's target is NOT under any tracked mount, when it runs, then no mount health check overhead is added at all -- this only activates for mount-backed targets"
+
+steps:
+  - id: research
+    description: Confirm the exact existing _running_find_job_for implementation and is_mounted()'s exact signature/behavior to mirror both precisely.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the check-balances duplicate-job guard (mirroring existing find-guard tests) and the mount-health-during-scan behavior (mocked is_mounted() returning False mid-run).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Add _running_check_balances_job_for and its guard call sites; wire periodic is_mounted() checks into the search-walk and check-balances loops for mount-backed targets.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review for parity with the existing find-guard pattern and confirm zero overhead added for non-mount-backed targets.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/app.py
+      purpose: "_running_find_job_for is the existing pattern to mirror for check-balances; also owns the scan-loop call sites where mount health checks get wired in"
+    - path: web/mounts.py
+      purpose: "is_mounted() already implements the real health check (PID-alive + listdir-works) -- this story wires it into a new call site, does not change its implementation"
+
+files_to_modify:
+  - file: web/app.py
+    change: "Add _running_check_balances_job_for guard (mirrors _running_find_job_for); wire periodic is_mounted() calls into scan loops for mount-backed targets"
+  - file: tests/test_web_app.py
+    change: "Add check-balances duplicate-job guard tests, mirroring existing find-job guard tests"
+  - file: tests/test_web_app_scan_mounts.py
+    change: "Add mount-health-during-scan test coverage"
+
+design_decisions:
+  - decision: "Bundle these two fixes into one story rather than two"
+    rationale: "Both are narrow, low-risk, low-complexity additions to code this epic already touches extensively (web/app.py's job dispatch layer) -- splitting further would add process overhead without reducing real risk"
+
+risks:
+  - severity: low
+    description: "Mount health check overhead if applied indiscriminately to every job, not just mount-backed ones"
+    mitigation: "Explicit acceptance criterion: zero overhead for non-mount-backed targets"
+
+references:
+  - path: .pHive/epics/scalable-scan-engine/docs/structured-outline.md
+    relevant_excerpt: "Part 1.7 (concurrency-safety guard + mount health design)."
+  - path: .pHive/epics/scalable-scan-engine/docs/design-discussion.md
+    relevant_excerpt: "§4.4/§4.5 -- the original confirmed gaps this story closes."

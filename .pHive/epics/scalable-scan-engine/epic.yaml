@@ -1,0 +1,70 @@
+name: scalable-scan-engine
+title: Scalable Scan Engine
+description: >
+  Rearchitect the scanning pipeline (search, analyze, check-balances, crawl)
+  around one shared, sqlite-backed checkpoint store instead of three
+  bespoke, partly-broken formats; give analyze real resume + real
+  multiprocessing (the biggest live correctness gap); make the job
+  registry durable and add a real Pause button; auto-detect safe
+  concurrency defaults from machine specs with a manual advanced override;
+  close a concurrency-safety race and add mount health checks. Driven by
+  two real incidents the same night (an OOM crash from an unbounded
+  in-memory checkpoint, and a Google Drive API quota throttle) plus the
+  user's explicit ask for a system that can work through a petabyte-scale
+  drive in bounded sections without risking the machine, tunable to
+  whatever hardware it's running on.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [architecture, performance, reliability, concurrency, ux-settings]
+  roster: [researcher, technical-writer, tpm-sequencing]
+  per_tag_reasoning:
+    architecture: "Multi-file rearchitecture of the pipeline's checkpoint/concurrency layer"
+    performance: "Real terabyte/petabyte-scale throughput requirement, multiprocessing"
+    reliability: "Two real incidents same night; job durability, pause, mount health"
+    concurrency: "Thread pool (search), multiprocessing (analyze), existing thread pool (check_balances)"
+    ux-settings: "User-facing, auto-detected + manually overridable resource controls"
+  confidence: high
+  gate_decisions:
+    collaborative_review: skipped_solo_project
+    hv_planning: required_large_scope
+    structured_outline: required_large_scope
+  note: >
+    Personal, solo-maintained repo (per .pHive/project-profile.yaml) — planning
+    was orchestrator-direct research + design discussion + H/V + structured
+    outline with the user as the sole reviewer at every gate, rather than the
+    full multi-persona CC-Workflows/Multica routing infrastructure (not
+    configured for this project).
+
+stories:
+  - id: sse-01-checkpoint-store-and-analyze-resume
+    title: Shared checkpoint store + analyze resume/parallelism
+    complexity: high
+    depends_on: []
+  - id: sse-02-check-balances-store-and-first-settings
+    title: check_balances onto the shared store + first exposed settings
+    complexity: medium
+    depends_on: [sse-01-checkpoint-store-and-analyze-resume]
+  - id: sse-03-parallel-search-walk
+    title: Parallelize the search (directory walk) stage
+    complexity: medium
+    depends_on: [sse-02-check-balances-store-and-first-settings]
+  - id: sse-04-job-durability-and-pause
+    title: Durable job registry + real Pause button
+    complexity: high
+    depends_on: [sse-03-parallel-search-walk]
+  - id: sse-05-concurrency-safety-and-mount-health
+    title: Concurrency-safety guard + mount health during scans
+    complexity: low
+    depends_on: [sse-04-job-durability-and-pause]
+  - id: sse-06-resource-profile-ui
+    title: Full auto-detected resource-profile UI with advanced override
+    complexity: medium
+    depends_on: [sse-05-concurrency-safety-and-mount-health]
