@@ -1,6 +1,16 @@
-import json
+import sqlite3
 
 from tools.search_wallets import search_for_wallets
+
+
+def _write_checkpoint_db(checkpoint_path, start_path, completed_dirs):
+    conn = sqlite3.connect(str(checkpoint_path))
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("CREATE TABLE completed_dirs (path TEXT PRIMARY KEY)")
+    conn.execute("INSERT INTO meta (key, value) VALUES ('start_path', ?)", (str(start_path),))
+    conn.executemany("INSERT INTO completed_dirs (path) VALUES (?)", [(d,) for d in completed_dirs])
+    conn.commit()
+    conn.close()
 
 
 def test_search_for_wallets_without_checkpoint_finds_wallet_files(tmp_path):
@@ -27,7 +37,7 @@ def test_search_for_wallets_resumes_by_skipping_already_completed_directories(tm
     Regression test for the real, repeated ask: an app quit/update mid-scan
     should not throw away hours of progress. search_for_wallets can't
     naturally trigger its own CHECKPOINT_EVERY_DIRS/SECONDS thresholds in a
-    small, fast test, so this writes a checkpoint directly -- simulating
+    small, fast test, so this writes a checkpoint db directly -- simulating
     an interrupted prior run that had already fully walked `subdir`.
     """
     subdir = tmp_path / "already-scanned"
@@ -36,16 +46,9 @@ def test_search_for_wallets_resumes_by_skipping_already_completed_directories(tm
     wallet_in_subdir.write_bytes(b"x" * 100)
 
     output_file = tmp_path / "out.txt"
-    checkpoint_path = tmp_path / "checkpoint.json"
-    checkpoint_path.write_text(
-        json.dumps(
-            {
-                "start_path": str(tmp_path),
-                "completed_dirs": [str(subdir)],
-                "potential_wallets": [str(wallet_in_subdir)],
-            }
-        )
-    )
+    output_file.write_text(str(wallet_in_subdir) + "\n")
+    checkpoint_path = tmp_path / "checkpoint.db"
+    _write_checkpoint_db(checkpoint_path, tmp_path, [str(subdir)])
 
     # Proves the resumed run actually SKIPS re-walking `subdir` (not just
     # coincidentally re-finding the same file): delete it from disk -- if
@@ -67,16 +70,8 @@ def test_search_for_wallets_resumes_by_skipping_already_completed_directories(tm
 def test_search_for_wallets_ignores_checkpoint_for_a_different_start_path(tmp_path):
     (tmp_path / "wallet.dat").write_bytes(b"x" * 100)
     output_file = tmp_path / "out.txt"
-    checkpoint_path = tmp_path / "checkpoint.json"
-    checkpoint_path.write_text(
-        json.dumps(
-            {
-                "start_path": "/some/other/path",
-                "completed_dirs": [str(tmp_path)],
-                "potential_wallets": ["/some/other/path/bogus.dat"],
-            }
-        )
-    )
+    checkpoint_path = tmp_path / "checkpoint.db"
+    _write_checkpoint_db(checkpoint_path, "/some/other/path", [str(tmp_path)])
 
     results = search_for_wallets(str(tmp_path), str(output_file), checkpoint_path=str(checkpoint_path))
 

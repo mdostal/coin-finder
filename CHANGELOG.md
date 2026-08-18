@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.53.6] - 2026-08-18
+
+### Fixed
+
+- **Critical: scanning a very large drive (multi-terabyte, hundreds of
+  thousands of folders) could use enough memory to crash the whole app**,
+  taking down an in-progress scan along with it. The scan's resume
+  checkpoint was tracking every folder it had ever checked as a single
+  ever-growing list held fully in memory, re-saved in full every few
+  seconds — on a huge drive that list, and the cost of re-saving it,
+  only ever grew for as long as the scan ran. Checked folders are now
+  tracked in a small on-disk index instead, so memory use and save time
+  stay flat no matter how large the drive or how long the scan runs.
+
 ## [0.53.5] - 2026-08-18
 
 ### Fixed

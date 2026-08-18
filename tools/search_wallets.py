@@ -1,5 +1,5 @@
-import json
 import os
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -28,17 +28,55 @@ def _is_excluded(candidate_path, excludes):
     return False
 
 
-def _load_checkpoint(checkpoint_path, start_path):
-    if not checkpoint_path or not Path(checkpoint_path).exists():
-        return set(), []
-    try:
-        with open(checkpoint_path) as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return set(), []
-    if data.get("start_path") != str(start_path):
-        return set(), []
-    return set(data.get("completed_dirs", [])), list(data.get("potential_wallets", []))
+def _open_checkpoint_db(checkpoint_path, start_path):
+    """
+    Opens (creating if absent) the sqlite-backed completed-directories
+    index at checkpoint_path, or returns None if checkpoint_path is
+    falsy. Confirmed live on a real multi-terabyte Google Drive mount:
+    the original design held every completed directory as a full path
+    string in an in-memory Python set for the entire scan, and
+    re-serialized (json.dump of a freshly-sorted copy of the whole set)
+    on every checkpoint flush -- 34,199 directories into an 8+ hour real
+    scan, that was already a 3.85MB file being fully re-sorted and
+    rewritten every ~20 seconds, with memory use growing without bound
+    for as long as the walk ran. A drive with hundreds of thousands or
+    millions of directories -- exactly the scale this app now gets
+    pointed at -- turns that into unbounded memory growth (confirmed
+    live: a real out-of-memory event that killed the app mid-scan) and
+    ever-slower checkpoint flushes. A sqlite table with an indexed
+    membership lookup and incremental inserts keeps both memory and
+    per-flush cost flat regardless of how many directories have been
+    walked so far.
+
+    A checkpoint recorded against a DIFFERENT start_path (an unrelated
+    scan's leftover file re-used at the same path) is treated as stale:
+    its completed_dirs rows are wiped and the file is reused fresh,
+    rather than left on disk unread -- there is exactly one scan per
+    checkpoint_path in practice (see web/app.py's _find_checkpoint_path),
+    so this only ever fires on a genuinely stale leftover.
+    """
+    if not checkpoint_path:
+        return None
+    conn = sqlite3.connect(str(checkpoint_path))
+    conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS completed_dirs (path TEXT PRIMARY KEY)")
+    row = conn.execute("SELECT value FROM meta WHERE key = 'start_path'").fetchone()
+    if row is None:
+        conn.execute("INSERT INTO meta (key, value) VALUES ('start_path', ?)", (str(start_path),))
+        conn.commit()
+    elif row[0] != str(start_path):
+        conn.execute("DELETE FROM completed_dirs")
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'start_path'", (str(start_path),))
+        conn.commit()
+    return conn
+
+
+def _is_dir_completed(conn, path):
+    return conn.execute("SELECT 1 FROM completed_dirs WHERE path = ?", (path,)).fetchone() is not None
+
+
+def _count_completed_dirs(conn):
+    return conn.execute("SELECT COUNT(*) FROM completed_dirs").fetchone()[0]
 
 
 def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_callback=None, excludes=None):
@@ -49,15 +87,18 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
     notion of "already checked this directory," so any interruption meant
     starting over from nothing.
 
-    checkpoint_path, when given, makes this resumable: after every
-    CHECKPOINT_EVERY_DIRS directories (or CHECKPOINT_EVERY_SECONDS,
-    whichever comes first), the directories already checked and the
-    wallets found so far are flushed to checkpoint_path and output_file.
-    If checkpoint_path already exists and matches start_path, those
-    directories are skipped this run instead of being re-walked --
-    picking back up close to where a prior, interrupted run left off
-    instead of restarting from zero. The checkpoint is removed once the
-    walk finishes cleanly.
+    checkpoint_path, when given, makes this resumable via a small sqlite
+    db (see _open_checkpoint_db) recording exactly which directories are
+    already done: after every CHECKPOINT_EVERY_DIRS directories (or
+    CHECKPOINT_EVERY_SECONDS, whichever comes first), directories
+    completed since the last flush are committed and output_file is
+    flushed. If checkpoint_path already has completed directories
+    recorded for this exact start_path, those are skipped this run
+    instead of being re-walked -- picking back up close to where a prior,
+    interrupted run left off instead of restarting from zero. The
+    checkpoint is removed once the walk finishes cleanly. output_file
+    itself is opened in append mode when resuming (its prior matches are
+    real results, not stale data) and truncated fresh otherwise.
 
     :param progress_callback: optional callable(current, total, message).
         total is always None here -- there is no way to know how many
@@ -77,25 +118,29 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
         progress_callback = lambda current, total, message="": None
     excludes = excludes or []
 
-    completed_dirs, potential_wallets = _load_checkpoint(checkpoint_path, start_path)
-    if completed_dirs:
-        print(f"Resuming scan of {start_path}: {len(completed_dirs)} directory(ies) already checked, {len(potential_wallets)} wallet(s) found so far.")
+    conn = _open_checkpoint_db(checkpoint_path, start_path)
+    dirs_walked = _count_completed_dirs(conn) if conn else 0
+    resuming = dirs_walked > 0
+
+    potential_wallets = []
+    if resuming and Path(output_file).exists():
+        potential_wallets = [line.rstrip("\n") for line in open(output_file) if line.strip()]
+        print(f"Resuming scan of {start_path}: {dirs_walked} directory(ies) already checked, {len(potential_wallets)} wallet(s) found so far.")
+
+    out_f = open(output_file, "a" if resuming else "w")
+
+    pending_dirs = []
 
     def _flush():
-        with open(output_file, "w") as f:
-            for wallet in potential_wallets:
-                f.write(wallet + "\n")
-        if checkpoint_path:
-            with open(checkpoint_path, "w") as f:
-                json.dump(
-                    {"start_path": str(start_path), "completed_dirs": sorted(completed_dirs), "potential_wallets": potential_wallets},
-                    f,
-                )
+        out_f.flush()
+        if conn and pending_dirs:
+            conn.executemany("INSERT OR IGNORE INTO completed_dirs (path) VALUES (?)", [(d,) for d in pending_dirs])
+            conn.commit()
+            pending_dirs.clear()
 
     dirs_since_checkpoint = 0
     last_checkpoint_at = time.time()
     last_progress_at = time.time()
-    dirs_walked = len(completed_dirs)
 
     for root, dirs, files in os.walk(start_path):
         if excludes and _is_excluded(root, excludes):
@@ -105,7 +150,7 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
         if excludes:
             dirs[:] = [d for d in dirs if not _is_excluded(str(Path(root) / d), excludes)]
 
-        if root in completed_dirs:
+        if conn and _is_dir_completed(conn, root):
             continue
 
         for file in files:
@@ -126,13 +171,14 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
                    any(coin_name in file.lower() for coin_name in COIN_NAMES) or \
                    any(keyword in file.lower() for keyword in WALLET_KEYWORDS):
                     potential_wallets.append(str(file_path))
+                    out_f.write(str(file_path) + "\n")
             except Exception as e:
                 print(f"Error accessing file {file_path}: {e}")
 
-        completed_dirs.add(root)
+        pending_dirs.append(root)
         dirs_since_checkpoint += 1
         dirs_walked += 1
-        if checkpoint_path and (dirs_since_checkpoint >= CHECKPOINT_EVERY_DIRS or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS):
+        if conn and (dirs_since_checkpoint >= CHECKPOINT_EVERY_DIRS or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS):
             _flush()
             dirs_since_checkpoint = 0
             last_checkpoint_at = time.time()
@@ -143,6 +189,9 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
 
     progress_callback(dirs_walked, None, f"{len(potential_wallets)} potential wallet(s) found — walk complete")
     _flush()
+    out_f.close()
+    if conn:
+        conn.close()
     if checkpoint_path:
         Path(checkpoint_path).unlink(missing_ok=True)
 
