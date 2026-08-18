@@ -1,6 +1,6 @@
 [package]
 name = "coin-finder-desktop"
-version = "0.53.4"
+version = "0.53.5"
 description = "Desktop shell for coin-finder"
 authors = ["Mathew Dostal"]
 edition = "2021"
