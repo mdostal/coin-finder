@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.53.5] - 2026-08-18
+
+### Fixed
+
+- **Google Drive scans were slow and threw repeated "Queries per minute"
+  errors from Google's API**, each one silently skipping an entire folder
+  instead of scanning it. The drive mount was listing folders with more
+  concurrency than the shared connection's request quota could sustain,
+  so it kept bursting past the limit and getting throttled instead of
+  making steady progress. Mount concurrency is now tuned down and paced
+  to stay under the quota, so scans should run steadier and skip fewer
+  folders. (The most complete fix is connecting your own Google account
+  credentials for the drive connection instead of the shared default one
+  — ask if you want help setting that up.)
+
 ## [0.53.4] - 2026-08-17
 
 ### Fixed
