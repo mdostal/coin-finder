@@ -56,6 +56,16 @@ def record_finding(coin, address, balance, source_path=None, source_label=None, 
     leaves `status` untouched -- a routine re-scan must never silently
     un-archive a finding the user already reviewed and dismissed.
     first_seen_at is set only on true insert.
+
+    balance=None means the check failed or was inconclusive (a real API
+    error, a timeout, a rate limit) -- NOT "checked and found empty."
+    Confirmed live: a transient 500 from the balance API during a
+    re-scan silently overwrote an already-confirmed 0.3 BTC balance with
+    NULL, because the old upsert took `excluded.balance` unconditionally.
+    A real successful check that finds an address has since been spent
+    still legitimately writes 0.0 (a real value, not NULL) -- only a
+    failed/inconclusive check (NULL) is protected from clobbering
+    whatever balance was already on record.
     """
     now = time.time()
     conn = _connect(db_path)
@@ -65,7 +75,7 @@ def record_finding(coin, address, balance, source_path=None, source_label=None, 
             INSERT INTO findings (coin, address, balance, source_path, source_label, status, first_seen_at, last_checked_at)
             VALUES (?, ?, ?, ?, ?, 'new', ?, ?)
             ON CONFLICT(coin, address) DO UPDATE SET
-                balance = excluded.balance,
+                balance = COALESCE(excluded.balance, findings.balance),
                 source_path = COALESCE(excluded.source_path, findings.source_path),
                 source_label = COALESCE(excluded.source_label, findings.source_label),
                 last_checked_at = excluded.last_checked_at
