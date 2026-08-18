@@ -150,32 +150,42 @@ today's crash-resume, just user-triggered instead of only crash-triggered.
 
 ### 1.6 Resource-control settings (`web/scan_settings.py`, new + UI)
 
+Confirmed with the user: default to **auto-detecting machine specs**, not a
+user-picked named tier, with manual override still available.
+
 ```yaml
 # stored via a small key-value settings table, same pattern as other
 # small persisted app state (mirrors web/vault.py's simplicity, not a
 # new heavyweight config system)
-profile: balanced   # low | balanced | max | custom
-overrides:           # only read when profile == custom
+mode: auto   # auto | custom
+overrides:    # only read when mode == custom
   search_walk_threads: null
   analyze_processes: null
   check_balances_global_workers: null
   check_balances_per_coin_concurrency: null
 ```
 
-Profile → defaults mapping (illustrative, tuned during implementation, not
-frozen here):
-| | Low | Balanced | Max |
-|---|---|---|---|
-| search_walk_threads | 1 | 2 | 4 |
-| analyze_processes | 1 | `cpu_count() // 2` | `cpu_count()` |
-| check_balances_global_workers | 16 | 64 (today's constant) | 128 |
-| check_balances_per_coin_concurrency | 5 | 15 (today's constant) | 25 |
+**Auto mode** computes worker counts from `os.cpu_count()` at call time —
+stdlib-only, no new third-party dependency (this repo's dependency list is
+currently just `requests` + `python-dotenv`; adding something like `psutil`
+for memory-aware tuning is a real option but a separate decision, not
+bundled into this epic without asking first). Illustrative formulas (tuned
+during implementation, not frozen here):
 
-UI: a settings-page section with the profile picker (radio group) plus a
-collapsed "Advanced" panel exposing the four raw numbers directly — both
-required per the confirmed decision, not profile-only. Changing a setting
-takes effect on the *next* job dispatch (each stage function reads its
-worker-count parameter at call time, not from a live-reloaded global).
+| | Formula | Rationale |
+|---|---|---|
+| search_walk_threads | `min(4, max(1, cpu_count() // 2))` | I/O-bound; more than a handful of walkers adds no value and raises the rclone-quota risk (§ Risk R3) |
+| analyze_processes | `max(1, cpu_count() - 1)` | CPU-bound; use most cores, leave one free for the Flask app itself |
+| check_balances_global_workers | `64` (today's constant, unchanged) | Network-bound, not CPU/core-bound — cpu_count() isn't the relevant signal here |
+| check_balances_per_coin_concurrency | `15` (today's constant, unchanged) | Same — already tuned against a real external API's rate limit, not local hardware |
+
+UI: a settings-page section defaulting to "Auto" (showing the live computed
+numbers for the current machine, read-only) with a "Custom" toggle that
+reveals the same four fields as direct, editable numeric inputs — the
+required advanced/manual path, now framed as "override auto-detection"
+rather than a third named tier. Changing a setting takes effect on the
+*next* job dispatch (each stage function reads its worker-count parameter
+at call time, not from a live-reloaded global).
 
 ### 1.7 Concurrency-safety guard + mount health (`web/app.py`)
 
@@ -199,9 +209,10 @@ worker-count parameter at call time, not from a live-reloaded global).
 | `tools/check_wallet_balances.py` | Re-point checkpoint flush at `CheckpointStore`; make worker/semaphore counts parameters (§1.3). |
 | `tools/crawl_transaction_graph.py` | Re-point checkpoint flush at `CheckpointStore` (lowest priority, format-consistency only — no live incident). |
 | `run_pipeline.py` | Thread `checkpoint_path` into `analyze_wallets` call (currently only `search_for_wallets` gets it); pass resource-setting params through. |
-| `web/jobs_store.py` | **New.** Sqlite-backed job registry (§1.5), same `create_job`/`start_job`/`report_progress`/`get_job` surface as today's `web/jobs.py`. |
+| `web/jobs_store.py` | **New.** Sqlite-backed job registry (§1.5), same `create_job`/`start_job`/`report_progress`/`get_job` surface as today's `web/jobs.py`. Its db file (`web/jobs.db` in dev, `app_data_dir()/jobs.db` frozen) is **gitignored** — same pattern as every existing `*.db` in this repo (see `.gitignore` addition below). |
 | `web/jobs.py` | Delegate to `jobs_store` instead of the in-memory dict; add `paused` status handling. |
-| `web/scan_settings.py` | **New.** Resource-profile settings store (§1.6). |
+| `web/scan_settings.py` | **New.** Resource-profile settings store (§1.6). Its db file (`web/scan_settings.db`) is likewise gitignored. |
+| `.gitignore` | Add `/web/jobs.db` and `/web/scan_settings.db`, matching the existing `/web/findings.db`, `/web/crawl_runs.db`, etc. entries. |
 | `web/templates/settings.html` | Add the resource-profile UI section (profile picker + advanced overrides). |
 | `web/app.py` | New `POST /jobs/<job_id>/pause` route; `_running_check_balances_job_for()` guard; mount-health wiring into scan routes; settings read/write routes. |
 | `web/mounts.py` | No functional change expected — `is_mounted()` is reused as-is, just called from a new site. |
@@ -222,7 +233,7 @@ worker-count parameter at call time, not from a live-reloaded global).
 | R4 | Medium | Shared sqlite store under real multi-process (not just multi-thread) writers — analyze's `Pool` workers are separate OS processes | WAL mode + busy_timeout from day one (§1.1); confirmed design keeps *all* sqlite writes in the main process (§1.2) for analyze specifically, sidestepping true multi-process write contention on the store itself for that stage |
 | R5 | Medium | Pause semantics: a worker mid-request when pause fires | Confirmed decision: let in-flight units finish, never abort mid-write — applies uniformly across all four stages |
 | R6 | Low | Job registry migration (`web/jobs.py` dict → sqlite) touches every existing job call site | Preserve the exact existing function signatures (`create_job`/`start_job`/`report_progress`/`get_job`) so no caller in `web/app.py` needs to change beyond the pause-specific additions |
-| R7 | Low | This tool handles real private keys/wallet secrets (per `hive.config.yaml`'s own developer note) | New stores persist only progress metadata (paths, counts, status) — same discipline as every existing checkpoint/cache in this repo; explicit test asserting no key material ever reaches `checkpoint_store`/`jobs_store` |
+| R7 | Low | This tool handles real private keys/wallet secrets, and the repo is public — new store files must never get committed, and must never contain wallet data | Verified directly: every existing `*.db` file in this repo is already gitignored (`web/findings.db`, `web/crawl_runs.db`, `web/scan_index.db`, `web/scan_history.db`, `web/auto_unlock_history.db`), `.env` is gitignored, and a repo-wide scan for tracked wallet/key/db-like files turned up nothing but source code and planning docs. The two new db files (`web/jobs.db`, `web/scan_settings.db`) get the same gitignore treatment from the first commit that creates them (§ file manifest), and — same as R7's original scope — new stores persist only progress metadata (paths, counts, status), never key material, matching every existing checkpoint/cache in this repo; an explicit test asserts this |
 | R8 | Low | Resource-profile settings drift out of sync with the actual hardcoded defaults they're meant to replace | Settings module reads its "Balanced" profile defaults FROM the existing module constants (`GLOBAL_MAX_WORKERS`, etc.) at definition time, not a separately-maintained duplicate number |
 
 ## Part 4: Elicitation (planning team stress-test)
