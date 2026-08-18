@@ -1,0 +1,7 @@
+epic_id: group-view-graph
+created: "2026-08-15T21:30:00Z"
+adaptation_note: >
+  No live multi-agent dispatch configured -- researcher/developer/tester/
+  reviewer roles performed directly by the orchestrating agent, same
+  adaptation as transaction-graph-crawler and wallet-relationship-graph.
+escalations: []
