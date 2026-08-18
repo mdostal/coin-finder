@@ -159,12 +159,29 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
     live this was the difference between a bare, undiagnosable "ERROR"
     pill and an actionable error message.
 
-    --checkers 32 (rclone's default is 8): a `find` scan over this mount
-    is a pure metadata walk (readdir/stat, no file content), and the
-    default concurrency left a real 6TB/many-hundred-thousand-file drive
-    crawling for 10+ hours with a mostly-idle rclone process in between --
-    confirmed live via the mount's own log (zero errors, clean directory
-    listings, just serialized on too few concurrent listing workers).
+    --checkers 16 (rclone's default is 8; this was 32 briefly, see below):
+    a `find` scan over this mount is a pure metadata walk (readdir/stat,
+    no file content), and the original default concurrency left a real
+    6TB/many-hundred-thousand-file drive crawling for 10+ hours with a
+    mostly-idle rclone process in between -- confirmed live via the
+    mount's own log (zero errors, clean directory listings, just
+    serialized on too few concurrent listing workers). --checkers 32
+    then overshot the other way: confirmed live via the same log that
+    this remote authenticates through rclone's own shared default Google
+    API client (this remote's `client_id`/`client_secret` are blank),
+    whose request quota is shared across every rclone user on Google
+    Drive globally, not just this drive -- 32 concurrent listers against
+    a big/deep tree burst past that shared quota (repeated real 403
+    "Queries per minute" RATE_LIMIT_EXCEEDED errors, each one silently
+    dropping an entire subtree's listing, not just slowing down). 16
+    plus --tpslimit smooths the request rate instead of bursting-then-
+    backing-off, which is faster in practice than either extreme. The
+    durable fix is a personal Google Cloud OAuth client (its own
+    dedicated quota) via create_remote()'s client_id/client_secret --
+    this tuning is a mitigation, not a replacement for that.
+    --tpslimit 8: caps total Drive API transactions/sec so the mount
+    self-paces under the shared quota instead of relying purely on
+    rclone's post-hoc 403 backoff.
     --drive-skip-dangling-shortcuts: this user's real Drive has a small
     number of broken shortcuts (files whose link target was deleted) that
     otherwise get silently re-resolved (and logged) on every directory
@@ -181,7 +198,8 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
             "rclone", "nfsmount", f"{remote_name}:", str(mount_point),
             "--read-only",
             "--vfs-cache-mode", "minimal",
-            "--checkers", "32",
+            "--checkers", "16",
+            "--tpslimit", "8",
             "--drive-skip-dangling-shortcuts",
         ],
         stdout=subprocess.DEVNULL,

@@ -47,14 +47,21 @@ def test_mount_starts_rclone_nfsmount_read_only(mock_popen, tmp_path):
 @patch("web.mounts.subprocess.Popen")
 def test_mount_tunes_checkers_and_skips_dangling_shortcuts(mock_popen, tmp_path):
     """
-    Regression test for a real stalled scan hit live: a `find` job over a
-    large (6TB) real Google Drive mount ran for 10+ hours with rclone's
-    default --checkers 8, no visible progress, and a mostly-idle rclone
-    process -- the mount log itself was clean (no errors), just too
-    little listing concurrency for the drive's real size. --checkers 32
-    and --drive-skip-dangling-shortcuts (a handful of broken shortcuts on
+    Regression test for two real, sequential live incidents on the same
+    mount. First: a `find` job over a large (6TB) real Google Drive mount
+    ran for 10+ hours with rclone's default --checkers 8, no visible
+    progress, mount log clean -- too little listing concurrency for the
+    drive's real size. --checkers 32 fixed that, but then overshot: this
+    remote authenticates through rclone's own shared default Google API
+    client (no client_id/client_secret configured), and 32 concurrent
+    listers against a big/deep tree tripped that shared client's Drive
+    API quota -- real, repeated 403 "Queries per minute" errors in the
+    mount log, each one silently dropping an entire subtree's listing.
+    --checkers 16 plus --tpslimit 8 self-paces under the shared quota
+    instead of bursting into 403s and backing off after the fact.
+    --drive-skip-dangling-shortcuts (a handful of broken shortcuts on
     this real Drive were getting needlessly re-resolved on every
-    directory cache refresh) fix that.
+    directory cache refresh) is unchanged.
     """
     mock_popen.return_value = MagicMock(pid=12345)
     state_path = tmp_path / "mounts_state.json"
@@ -64,7 +71,9 @@ def test_mount_tunes_checkers_and_skips_dangling_shortcuts(mock_popen, tmp_path)
 
     args = mock_popen.call_args[0][0]
     assert "--checkers" in args
-    assert args[args.index("--checkers") + 1] == "32"
+    assert args[args.index("--checkers") + 1] == "16"
+    assert "--tpslimit" in args
+    assert args[args.index("--tpslimit") + 1] == "8"
     assert "--drive-skip-dangling-shortcuts" in args
 
 
