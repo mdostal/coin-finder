@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS, MAX_FILE_SIZE, MIN_FILE_SIZE, COIN_NAMES
-from tools.checkpoint_store import CheckpointStore
+from tools.checkpoint_store import CheckpointPaused, CheckpointStore
 
 CHECKPOINT_EVERY_DIRS = 200
 CHECKPOINT_EVERY_SECONDS = 20
@@ -230,7 +230,20 @@ def search_for_wallets(
     errors = []
     errors_lock = threading.Lock()
 
+    # sse-04: set only from inside the need_flush block below, right after
+    # a flush has already durably committed progress -- so by the time any
+    # worker observes this set, there is nothing left in flight that a
+    # pause could interrupt mid-write. Checked at the top of
+    # _process_directory so an item already queued (but not yet started)
+    # is simply skipped rather than processed -- it was never marked
+    # completed nor removed from the queue's future candidates, so a
+    # resumed run rediscovers it naturally by walking from start_path
+    # again, identical to how a hard crash mid-walk already behaves today.
+    paused_event = threading.Event()
+
     def _process_directory(root):
+        if paused_event.is_set():
+            return
         if excludes and _is_excluded(root, excludes):
             return  # never queued further -- whole subtree pruned, same as the sequential walk's dirs[:] = []
 
@@ -294,6 +307,13 @@ def search_for_wallets(
 
         if need_flush:
             _flush()
+            # Checked at the same point the checkpoint is already flushed
+            # (sse-04: "no new polling loop") -- request_pause() is durable
+            # and immediately visible to this store's own connection, even
+            # though it was set by a completely different connection (the
+            # pause route's, opened against this same checkpoint file).
+            if store and store.is_paused():
+                paused_event.set()
         if need_progress:
             with output_lock:
                 wallets_so_far = len(potential_wallets)
@@ -330,9 +350,19 @@ def search_for_wallets(
     if errors:
         raise errors[0]
 
-    progress_callback(state["dirs_walked"], None, f"{len(potential_wallets)} potential wallet(s) found — walk complete")
     _flush()
     out_f.close()
+
+    if paused_event.is_set():
+        # Never delete the checkpoint on a pause -- there IS something
+        # left to resume, unlike clean completion. output_file already
+        # holds every real match found so far (written incrementally as
+        # each directory was processed, not buffered until the end), so
+        # nothing found before the pause is lost.
+        print(f"Search paused. Found {len(potential_wallets)} potential wallet file(s) so far.")
+        raise CheckpointPaused(f"search paused after {state['dirs_walked']} directories")
+
+    progress_callback(state["dirs_walked"], None, f"{len(potential_wallets)} potential wallet(s) found — walk complete")
     if store:
         store.delete()
 

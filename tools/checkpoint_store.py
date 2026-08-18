@@ -211,3 +211,73 @@ class CheckpointStore:
         Path(self.checkpoint_path).unlink(missing_ok=True)
         Path(f"{self.checkpoint_path}-wal").unlink(missing_ok=True)
         Path(f"{self.checkpoint_path}-shm").unlink(missing_ok=True)
+
+
+class CheckpointPaused(Exception):
+    """
+    Raised by a pipeline stage function (search_for_wallets, analyze_wallets,
+    check_wallet_balances) when it notices mid-run that its CheckpointStore's
+    is_paused() has become true and stops early. Always raised only AFTER
+    whatever unit(s) were already in flight have fully finished and any
+    buffered checkpoint progress has been flushed -- confirmed pause
+    semantics (sse-04): let in-flight work finish, never abort mid-write.
+
+    web/jobs.py's start_job() catches this specifically (not just any
+    Exception) to report the job's status as "paused" rather than "error".
+    """
+
+
+def request_pause_for(checkpoint_path):
+    """
+    Sets the pause flag on an existing checkpoint file at checkpoint_path
+    directly, WITHOUT opening a full CheckpointStore -- and therefore
+    without ever needing to know (or risk mismatching) that store's
+    run_key. Opening a real CheckpointStore with the wrong run_key would
+    make _sync_run_key() treat this as an unrelated stale run and wipe
+    its completed_units table -- exactly the kind of real-progress-loss
+    bug a pause action must never risk. This is the mechanism a pause
+    route uses: it knows a job's checkpoint_path (recorded at job
+    creation), never the run_key the actual running stage opened it
+    with.
+
+    Uses the same busy_timeout discipline as CheckpointStore itself,
+    since this connection may race a running job's own flush() -- see
+    DEFAULT_BUSY_TIMEOUT_MS's docstring above.
+
+    :return: True if the flag was set, False if checkpoint_path does not
+        exist yet -- nothing is running against it to pause (e.g. a
+        multi-stage job whose next stage hasn't started its own
+        checkpoint file yet; whichever stage IS currently running has a
+        checkpoint file that does exist, and gets paused normally).
+    """
+    if not Path(checkpoint_path).exists():
+        return False
+    conn = sqlite3.connect(str(checkpoint_path))
+    try:
+        conn.execute(f"PRAGMA busy_timeout={DEFAULT_BUSY_TIMEOUT_MS}")
+        conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('paused', '1')")
+        conn.commit()
+    finally:
+        conn.close()
+    return True
+
+
+def clear_pause_for(checkpoint_path):
+    """
+    Inverse of request_pause_for() -- clears the pause flag so a resumed
+    run doesn't immediately notice "paused" again and stop after zero new
+    work. Same run_key-agnostic, no-full-CheckpointStore approach, same
+    no-op-if-missing behavior.
+    """
+    if not Path(checkpoint_path).exists():
+        return False
+    conn = sqlite3.connect(str(checkpoint_path))
+    try:
+        conn.execute(f"PRAGMA busy_timeout={DEFAULT_BUSY_TIMEOUT_MS}")
+        conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('paused', '0')")
+        conn.commit()
+    finally:
+        conn.close()
+    return True

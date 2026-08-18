@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.wallet import WALLET_SERVICES
-from tools.checkpoint_store import CheckpointStore
+from tools.checkpoint_store import CheckpointPaused, CheckpointStore
 
 MAX_BALANCE_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
@@ -255,8 +255,22 @@ def check_wallet_balances(
         for crypto_name, pairs in remaining_by_coin.items()
     }
 
+    # sse-04: set only from inside check_one()'s own existing flush block,
+    # right after store.flush() has already durably committed progress --
+    # so nothing observing this afterward can be interrupted mid-write.
+    # Checked at the very top of check_one(), before the per-coin
+    # semaphore is even acquired, so once set, no NEW API request starts;
+    # every check_one() call already past this point (mid network-request,
+    # bounded by the per-coin semaphore) runs to completion normally,
+    # confirmed pause semantics (structured-outline.md Q4): "let
+    # in-flight work finish."
+    paused_event = threading.Event()
+
     def check_one(crypto_name, file_path, address):
         nonlocal checked_count, last_checkpoint_at
+
+        if paused_event.is_set():
+            return
 
         service = services[crypto_name]
         with semaphores[crypto_name]:
@@ -281,6 +295,8 @@ def check_wallet_balances(
             ):
                 store.flush()
                 last_checkpoint_at = time.time()
+                if store.is_paused():
+                    paused_event.set()
 
     tasks = [
         (crypto_name, file_path, address)
@@ -297,6 +313,17 @@ def check_wallet_balances(
 
     if store:
         store.flush()
+
+    if paused_event.is_set():
+        # No output_file/inconclusive_output write on a pause, and the
+        # checkpoint is left in place -- unlike analyze's output_file,
+        # this isn't a completeness concern: every confirmed balance is
+        # already durable in the checkpoint store itself and gets
+        # restored via _load_resume_state() the moment this same
+        # checkpoint_path is resumed, so nothing found before the pause
+        # is at risk of being lost.
+        print(f"Balance check paused. {checked_count}/{total_addresses} address(es) confirmed so far.")
+        raise CheckpointPaused(f"check_balances paused after {checked_count}/{total_addresses}")
 
     with open(output_file, "w") as f:
         json.dump(results, f, indent=4)

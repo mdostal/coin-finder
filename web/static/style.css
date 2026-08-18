@@ -530,6 +530,7 @@ pre {
 .status-running { background: rgba(110, 163, 207, 0.14); color: var(--info); }
 .status-done { background: rgba(111, 174, 127, 0.14); color: var(--success); }
 .status-error { background: var(--error-bg); color: var(--error); }
+.status-paused { background: var(--warning-bg); color: var(--warning); }
 .status-new { background: rgba(214, 165, 79, 0.12); color: var(--accent-bright); }
 .status-archived { background: var(--bg-inset); color: var(--text-dim); }
 

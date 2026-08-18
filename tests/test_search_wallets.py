@@ -1,5 +1,8 @@
 import sqlite3
 
+import pytest
+
+from tools.checkpoint_store import CheckpointPaused, clear_pause_for, request_pause_for
 from tools.search_wallets import DEFAULT_WALK_THREADS, search_for_wallets
 
 
@@ -77,6 +80,77 @@ def test_search_for_wallets_ignores_checkpoint_for_a_different_start_path(tmp_pa
 
     assert str(tmp_path / "wallet.dat") in results
     assert "/some/other/path/bogus.dat" not in results
+
+
+def test_search_for_wallets_stops_cleanly_when_paused(tmp_path, monkeypatch):
+    """
+    sse-04 confirmed pause semantics: let in-flight work finish, never
+    abort mid-write. CHECKPOINT_EVERY_DIRS is forced to 1 so a small, fast
+    test tree naturally hits a flush -- the point pause is checked -- after
+    the very first directory, exactly like
+    test_search_for_wallets_resumes_by_skipping_already_completed_directories
+    already does for CHECKPOINT_EVERY_DIRS's real role. The checkpoint is
+    pre-marked paused via request_pause_for -- the exact, run-key-agnostic
+    mechanism a real pause route uses -- so the walk itself is what
+    notices and stops, not a test-only shortcut.
+    """
+    import tools.search_wallets as search_wallets_module
+
+    monkeypatch.setattr(search_wallets_module, "CHECKPOINT_EVERY_DIRS", 1)
+
+    for i in range(5):
+        sub = tmp_path / f"dir{i}"
+        sub.mkdir()
+        (sub / "wallet.dat").write_bytes(b"x" * 100)
+
+    output_file = tmp_path / "out.txt"
+    checkpoint_path = tmp_path / "checkpoint.db"
+    _write_checkpoint_db(checkpoint_path, tmp_path, [])
+    request_pause_for(str(checkpoint_path))
+
+    with pytest.raises(CheckpointPaused):
+        search_for_wallets(str(tmp_path), str(output_file), checkpoint_path=str(checkpoint_path), walk_threads=1)
+
+    # Never deleted on a pause -- unlike clean completion, there IS
+    # something left to resume.
+    assert checkpoint_path.exists()
+
+    conn = sqlite3.connect(str(checkpoint_path))
+    completed = conn.execute("SELECT COUNT(*) FROM completed_dirs").fetchone()[0]
+    conn.close()
+    # Exactly the root directory -- the flush that noticed the pause
+    # request committed durably (mark_completed + flush already happened)
+    # BEFORE the walk stopped queueing/processing anything further; none
+    # of the 5 subdirectories were touched.
+    assert completed == 1
+
+
+def test_search_for_wallets_resumes_after_being_paused(tmp_path, monkeypatch):
+    """Resuming a paused job is: clear the pause flag, then re-dispatch
+    the exact same stage function against the exact same checkpoint_path
+    -- identical mechanism to today's crash-resume, just user-triggered."""
+    import tools.search_wallets as search_wallets_module
+
+    monkeypatch.setattr(search_wallets_module, "CHECKPOINT_EVERY_DIRS", 1)
+
+    for i in range(3):
+        sub = tmp_path / f"dir{i}"
+        sub.mkdir()
+        (sub / "wallet.dat").write_bytes(b"x" * 100)
+
+    output_file = tmp_path / "out.txt"
+    checkpoint_path = tmp_path / "checkpoint.db"
+    _write_checkpoint_db(checkpoint_path, tmp_path, [])
+    request_pause_for(str(checkpoint_path))
+
+    with pytest.raises(CheckpointPaused):
+        search_for_wallets(str(tmp_path), str(output_file), checkpoint_path=str(checkpoint_path), walk_threads=1)
+
+    clear_pause_for(str(checkpoint_path))
+    results = search_for_wallets(str(tmp_path), str(output_file), checkpoint_path=str(checkpoint_path), walk_threads=1)
+
+    assert len(results) == 3
+    assert not checkpoint_path.exists()  # cleaned up on the eventual clean completion
 
 
 def test_search_for_wallets_reports_indeterminate_progress(tmp_path, monkeypatch):

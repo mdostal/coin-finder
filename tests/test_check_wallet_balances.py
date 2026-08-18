@@ -458,6 +458,110 @@ def test_resume_skips_confirmed_addresses_and_retries_inconclusive_ones(mock_loa
 
 @patch("tools.check_wallet_balances.time.sleep")
 @patch("tools.check_wallet_balances.load_service")
+def test_pauses_cleanly_without_starting_new_requests(mock_load_service, mock_sleep, tmp_path, monkeypatch):
+    """
+    sse-04 confirmed pause semantics: let in-flight work finish, never
+    abort mid-write ("no NEW request starts" -- structured-outline.md Q4).
+    per_coin_max_concurrency=1/global_max_workers=1 makes this
+    deterministic: addresses are strictly serialized, so exactly one
+    address is genuinely in flight at a time. CHECKPOINT_EVERY_ADDRESSES
+    is forced to 1 so the very first confirmed address's flush is the one
+    that notices the pre-set pause flag.
+    """
+    import tools.check_wallet_balances as check_wallet_balances_module
+    from tools.checkpoint_store import CheckpointPaused, request_pause_for
+
+    monkeypatch.setattr(check_wallet_balances_module, "CHECKPOINT_EVERY_ADDRESSES", 1)
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["addr1", "addr2", "addr3"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    store = CheckpointStore(str(checkpoint_path), run_key={"input_file": str(input_file)})
+    store.close()
+    request_pause_for(str(checkpoint_path))
+
+    calls = []
+
+    def check_balance(address):
+        calls.append(address)
+        return 1.0
+
+    mock_load_service.return_value = make_service(check_balance)
+
+    with pytest.raises(CheckpointPaused):
+        check_wallet_balances(
+            str(input_file),
+            str(output_file),
+            coins_to_check=["Bitcoin"],
+            checkpoint_path=str(checkpoint_path),
+            per_coin_max_concurrency=1,
+            global_max_workers=1,
+        )
+
+    assert calls == ["addr1"]  # only the already-in-flight address ran
+    assert checkpoint_path.exists()  # never deleted on a pause
+    assert not output_file.exists()  # no partial output written
+
+    conn = sqlite3.connect(str(checkpoint_path))
+    completed = conn.execute("SELECT COUNT(*) FROM completed_units").fetchone()[0]
+    conn.close()
+    assert completed == 1  # durably recorded before the pause was raised
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_resumes_after_being_paused(mock_load_service, mock_sleep, tmp_path, monkeypatch):
+    import tools.check_wallet_balances as check_wallet_balances_module
+    from tools.checkpoint_store import CheckpointPaused, clear_pause_for, request_pause_for
+
+    monkeypatch.setattr(check_wallet_balances_module, "CHECKPOINT_EVERY_ADDRESSES", 1)
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["addr1", "addr2", "addr3"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    store = CheckpointStore(str(checkpoint_path), run_key={"input_file": str(input_file)})
+    store.close()
+    request_pause_for(str(checkpoint_path))
+
+    calls = []
+
+    def check_balance(address):
+        calls.append(address)
+        return 1.0
+
+    mock_load_service.return_value = make_service(check_balance)
+
+    with pytest.raises(CheckpointPaused):
+        check_wallet_balances(
+            str(input_file),
+            str(output_file),
+            coins_to_check=["Bitcoin"],
+            checkpoint_path=str(checkpoint_path),
+            per_coin_max_concurrency=1,
+            global_max_workers=1,
+        )
+
+    clear_pause_for(str(checkpoint_path))
+    result = check_wallet_balances(
+        str(input_file),
+        str(output_file),
+        coins_to_check=["Bitcoin"],
+        checkpoint_path=str(checkpoint_path),
+        per_coin_max_concurrency=1,
+        global_max_workers=1,
+    )
+
+    assert sorted(calls) == ["addr1", "addr2", "addr3"]  # addr1 never re-checked
+    assert result["walletA.dat"]["Bitcoin"] == {"addr1": 1.0, "addr2": 1.0, "addr3": 1.0}
+    assert not checkpoint_path.exists()
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
 def test_checkpoint_ignored_for_a_different_input_file(mock_load_service, mock_sleep, tmp_path):
     """CheckpointStore's own run-key-mismatch handling (sse-01) wipes a
     checkpoint recorded under a different input_file -- this just proves

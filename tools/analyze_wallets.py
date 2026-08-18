@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.address_validators import filter_valid_addresses
 from config.analysis import CRYPTO_PATTERNS
-from tools.checkpoint_store import CheckpointStore
+from tools.checkpoint_store import CheckpointPaused, CheckpointStore
 from tools.scan_index import hash_file_bytes, is_known, record_scanned_file
 
 # Cadence for flushing the (optional) checkpoint store during a long
@@ -140,14 +140,25 @@ def analyze_wallets(
     total = len(file_paths)
 
     if processes and processes > 1:
-        _analyze_wallets_parallel(
+        paused = _analyze_wallets_parallel(
             file_paths, wallet_analysis, index_db_path, progress_callback, store, total, processes
         )
     else:
-        _analyze_wallets_sequential(file_paths, wallet_analysis, index_db_path, progress_callback, store, total)
+        paused = _analyze_wallets_sequential(file_paths, wallet_analysis, index_db_path, progress_callback, store, total)
 
     if store:
         store.flush()
+
+    if paused:
+        # No output_file write on a pause -- wallet_analysis here only
+        # holds results from files analyzed THIS run (a file already
+        # marked completed by a prior run is skipped, not re-added -- same
+        # accepted resume semantics as a crash, see
+        # test_analyze_wallets_resumes_by_skipping_already_completed_files),
+        # so writing it now would silently make output_file look complete
+        # when it isn't. The checkpoint is left in place for resume.
+        print(f"\nAnalysis paused. {len(wallet_analysis)} file(s) analyzed this run.")
+        raise CheckpointPaused("analyze paused")
 
     # Save results to a JSON file
     with open(output_file, "w") as f:
@@ -162,10 +173,14 @@ def analyze_wallets(
 def _analyze_wallets_sequential(file_paths, wallet_analysis, index_db_path, progress_callback, store, total):
     """
     The original loop, unchanged in every branch that existing callers
-    (checkpoint_path=None, processes=None) already exercise -- only two
-    additions, both no-ops unless a checkpoint store is actually in play:
-    a resume-skip at the top of the loop, and a mark_completed() call
-    alongside the existing record_scanned_file() call.
+    (checkpoint_path=None, processes=None) already exercise -- only a few
+    additions, all no-ops unless a checkpoint store is actually in play:
+    a resume-skip at the top of the loop, a mark_completed() call
+    alongside the existing record_scanned_file() call, and (sse-04) a
+    pause check at the same point the checkpoint is already flushed.
+
+    :return: True if this run stopped early because a pause was
+        requested, False if it ran every file to completion.
     """
     for i, file_path in enumerate(file_paths, start=1):
         if store and store.is_completed(file_path):
@@ -199,8 +214,12 @@ def _analyze_wallets_sequential(file_paths, wallet_analysis, index_db_path, prog
             store.mark_completed(file_path)
             if i % CHECKPOINT_EVERY_FILES == 0:
                 store.flush()
+                if store.is_paused():
+                    progress_callback(i, total, file_path)
+                    return True
 
         progress_callback(i, total, file_path)
+    return False
 
 
 def _analyze_wallets_parallel(file_paths, wallet_analysis, index_db_path, progress_callback, store, total, processes):
@@ -212,6 +231,9 @@ def _analyze_wallets_parallel(file_paths, wallet_analysis, index_db_path, progre
     handed to a worker at all. Only files that genuinely need a fresh
     regex pass go into the pool; cache hits and resumed files are
     recorded here directly, identical in effect to the sequential path.
+
+    :return: True if this run stopped early because a pause was
+        requested, False if it ran every dispatched file to completion.
     """
     to_dispatch = []
     hashes = {}
@@ -242,8 +264,9 @@ def _analyze_wallets_parallel(file_paths, wallet_analysis, index_db_path, progre
         to_dispatch.append(file_path)
 
     if not to_dispatch:
-        return
+        return False
 
+    paused = False
     with Pool(processes) as pool:
         for file_path, file_results in pool.imap_unordered(_analyze_one_file, to_dispatch):
             print(f"Analyzing file: {file_path}")
@@ -257,9 +280,23 @@ def _analyze_wallets_parallel(file_paths, wallet_analysis, index_db_path, progre
                 store.mark_completed(file_path)
                 if completed_count % CHECKPOINT_EVERY_FILES == 0:
                     store.flush()
+                    if store.is_paused():
+                        paused = True
 
             completed_count += 1
             progress_callback(completed_count, total, file_path)
+
+            if paused:
+                # Leaving the `with Pool(...)` block below terminates any
+                # not-yet-collected worker results -- safe: nothing was
+                # ever written for them (no mark_completed/flush happened
+                # for a file until its result is collected here, in the
+                # main process, one at a time), so nothing is aborted
+                # mid-write. They simply aren't marked completed and get
+                # re-dispatched fresh on resume, same as a hard crash.
+                break
+
+    return paused
 
 
 if __name__ == "__main__":

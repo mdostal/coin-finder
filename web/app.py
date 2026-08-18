@@ -16,6 +16,7 @@ from web.bound_targets import add_target, list_mounted_volumes, list_targets, re
 from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.check_wallet_balances import check_wallet_balances, load_service, _check_balance_with_retries
+from tools.checkpoint_store import clear_pause_for, request_pause_for
 from config.wallet import WALLET_SERVICES
 from tools.crawl_transaction_graph import crawl_wallet_cluster, load_seed_addresses, render_cluster_report
 from tools.detect_hidden_volumes import render_hidden_volumes_report, scan_for_hidden_volumes
@@ -228,7 +229,8 @@ def create_app(host="127.0.0.1"):
         # Stage 1 only (search + analyze) -- fast, no network calls. See
         # scan_check_balances() for the slow stage, kicked off separately
         # once you've seen what stage 1 actually found.
-        job_id = create_job(kind="find", label=input_dir)
+        output_dir = str(DEFAULT_OUTPUT_ROOT / Path(input_dir).name)
+        job_id = create_job(kind="find", label=input_dir, checkpoint_path=_find_checkpoint_path(output_dir))
         start_job(job_id, _run_find_job, input_dir, job_id, index_db_path)
         return redirect(url_for("scan_status", job_id=job_id))
 
@@ -262,7 +264,8 @@ def create_app(host="127.0.0.1"):
         for mount_point in mount_points:
             if _running_find_job_for(mount_point):
                 continue
-            job_id = create_job(kind="find", label=mount_point)
+            output_dir = str(DEFAULT_OUTPUT_ROOT / Path(mount_point).name)
+            job_id = create_job(kind="find", label=mount_point, checkpoint_path=_find_checkpoint_path(output_dir))
             start_job(job_id, _run_find_job, mount_point, job_id, index_db_path)
 
         return redirect(url_for("jobs_page"))
@@ -281,7 +284,7 @@ def create_app(host="127.0.0.1"):
             abort(404)
 
         output_dir = job["result"]["output_dir"]
-        balances_job_id = create_job(kind="check-balances", label=job["label"])
+        balances_job_id = create_job(kind="check-balances", label=job["label"], checkpoint_path=_balance_checkpoint_path(output_dir))
         start_job(balances_job_id, _run_check_balances_job, output_dir, balances_job_id)
         return redirect(url_for("scan_balances_status", job_id=balances_job_id))
 
@@ -329,7 +332,7 @@ def create_app(host="127.0.0.1"):
         if not output_dir or not Path(output_dir).is_dir():
             abort(404)
 
-        balances_job_id = create_job(kind="check-balances", label=output_dir)
+        balances_job_id = create_job(kind="check-balances", label=output_dir, checkpoint_path=_balance_checkpoint_path(output_dir))
         start_job(balances_job_id, _run_check_balances_job, output_dir, balances_job_id)
         return redirect(url_for("scan_balances_status", job_id=balances_job_id))
 
@@ -1304,6 +1307,70 @@ def create_app(host="127.0.0.1"):
     def jobs_page():
         return render_template("jobs.html", jobs=list_jobs(), status_endpoint=_job_status_endpoint)
 
+    @app.route("/jobs/<job_id>/pause", methods=["POST"])
+    def pause_job_route(job_id):
+        """
+        Cooperative pause (sse-04) -- sets the pause flag on whichever
+        checkpoint file(s) this job's own stage(s) actually check, via a
+        fresh connection opened directly against checkpoint_path (see
+        tools.checkpoint_store.request_pause_for -- deliberately not a
+        full CheckpointStore, so this route never needs to know the
+        run_key the running stage itself opened it with). Nothing here
+        stops the job immediately: it stops on its own, cleanly, the next
+        time its own worker loop checks in at a checkpoint flush, and
+        only after whatever unit(s) are already in flight finish.
+        """
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
+
+        if job["status"] == "running":
+            for path in _job_checkpoint_paths(job):
+                request_pause_for(path)
+
+        return redirect(url_for("jobs_page"))
+
+    @app.route("/jobs/<job_id>/resume", methods=["POST"])
+    def resume_job_route(job_id):
+        """
+        Resuming a paused job is: clear the pause flag(s), then
+        re-dispatch the exact same stage function against the exact same
+        checkpoint_path/output_dir as a brand new job -- already-completed
+        units are skipped automatically (CheckpointStore.is_completed()),
+        identical mechanism to today's crash-resume, just user-triggered
+        here instead of only ever crash-triggered.
+        """
+        job = get_job(job_id)
+        if job is None or job["status"] != "paused":
+            abort(404)
+
+        checkpoint_path = job.get("checkpoint_path")
+        paths = _job_checkpoint_paths(job)
+        if not checkpoint_path or not paths:
+            abort(400)
+
+        for path in paths:
+            clear_pause_for(path)
+
+        if job["kind"] == "find":
+            input_dir = job["label"]
+            # index_db_path (the dedup-index toggle) isn't recorded on the
+            # job today -- a resumed "find" job runs without it. A known,
+            # small trade-off: it only ever skips re-analyzing a file
+            # whose exact content is already indexed elsewhere, never
+            # affects correctness of a resumed run.
+            new_job_id = create_job(kind="find", label=input_dir, checkpoint_path=checkpoint_path)
+            start_job(new_job_id, _run_find_job, input_dir, new_job_id)
+            return redirect(url_for("scan_status", job_id=new_job_id))
+
+        if job["kind"] == "check-balances":
+            output_dir = str(Path(checkpoint_path).parent.parent)
+            new_job_id = create_job(kind="check-balances", label=job["label"], checkpoint_path=checkpoint_path)
+            start_job(new_job_id, _run_check_balances_job, output_dir, new_job_id)
+            return redirect(url_for("scan_balances_status", job_id=new_job_id))
+
+        abort(400)
+
     @app.route("/network")
     def network_page():
         return render_template("network.html", network_status=check_network_status())
@@ -1912,6 +1979,33 @@ def _run_gmail_scan_job(output_dir, queries, job_id):
 
 def _find_checkpoint_path(output_dir):
     return str(Path(output_dir) / "checks" / "scan_checkpoint.db")
+
+
+def _job_checkpoint_paths(job):
+    """
+    Every checkpoint file a pause/resume action for this job should touch.
+    A "find" job wraps two sequential stages in one job (search, then
+    analyze -- see run_pipeline.find()), each with its own sibling
+    checkpoint file. Only whichever stage is actually running has a
+    checkpoint file that exists on disk at any given moment: search's own
+    file is deleted the instant it finishes cleanly, and analyze's
+    sibling file doesn't exist until analyze itself starts -- so touching
+    both here (request_pause_for/clear_pause_for are no-ops against a
+    path that doesn't exist yet) is always safe and always reaches
+    whichever one is real. "check-balances" jobs wrap exactly one stage,
+    so just their own recorded checkpoint_path.
+
+    :return: [] for a job with no checkpoint_path at all (every job kind
+        this story doesn't cover -- unlock, crawl, drive-scan, ...; and
+        the checkpoint-less check-balances-selected variant).
+    """
+    checkpoint_path = job.get("checkpoint_path")
+    if not checkpoint_path:
+        return []
+    paths = [checkpoint_path]
+    if job.get("kind") == "find":
+        paths.append(str(Path(checkpoint_path).parent / "analyze_checkpoint.db"))
+    return paths
 
 
 def _interrupted_balance_checks():

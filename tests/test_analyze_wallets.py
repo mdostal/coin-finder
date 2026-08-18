@@ -1,5 +1,8 @@
 import json
+import sqlite3
 from unittest.mock import patch
+
+import pytest
 
 from tools.analyze_wallets import _analyze_one_file, analyze_wallet_file, analyze_wallets
 from tools.checkpoint_store import CheckpointStore
@@ -238,6 +241,112 @@ def test_analyze_wallets_deletes_checkpoint_on_clean_completion(tmp_path):
     analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
 
     assert not checkpoint_path.exists()
+
+
+def test_analyze_wallets_stops_cleanly_when_paused(tmp_path, monkeypatch):
+    """
+    sse-04 confirmed pause semantics: let in-flight work finish, never
+    abort mid-write. CHECKPOINT_EVERY_FILES is forced to 1 so a small,
+    fast test naturally hits a flush -- the point pause is checked --
+    after the very first file. The checkpoint is pre-marked paused via
+    request_pause_for, the exact run-key-agnostic mechanism a real pause
+    route uses, so analyze_wallets() itself is what notices and stops.
+    """
+    import tools.analyze_wallets as analyze_wallets_module
+    from tools.checkpoint_store import CheckpointPaused, request_pause_for
+
+    monkeypatch.setattr(analyze_wallets_module, "CHECKPOINT_EVERY_FILES", 1)
+
+    files = []
+    for i in range(3):
+        f = tmp_path / f"wallet{i}.dat"
+        f.write_text("nothing interesting")
+        files.append(f)
+    input_file = _write_input_file(tmp_path, files)
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+    _write_checkpoint_store(checkpoint_path, input_file, [])
+    request_pause_for(str(checkpoint_path))
+
+    with patch("tools.analyze_wallets.analyze_wallet_file") as mock_analyze_file:
+        mock_analyze_file.return_value = {}
+        with pytest.raises(CheckpointPaused):
+            analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
+
+    # Only the first file -- already in flight when the pause request was
+    # noticed at the checkpoint flush right after it -- was analyzed.
+    mock_analyze_file.assert_called_once_with(str(files[0]))
+    # No output written -- writing it now would make it look like this
+    # run's results are complete when they aren't (see paused branch's
+    # comment in analyze_wallets()).
+    assert not output_file.exists()
+    assert checkpoint_path.exists()  # never deleted on a pause
+
+
+def test_analyze_wallets_resumes_after_being_paused(tmp_path, monkeypatch):
+    import tools.analyze_wallets as analyze_wallets_module
+    from tools.checkpoint_store import CheckpointPaused, clear_pause_for, request_pause_for
+
+    monkeypatch.setattr(analyze_wallets_module, "CHECKPOINT_EVERY_FILES", 1)
+
+    files = []
+    for i in range(3):
+        f = tmp_path / f"wallet{i}.dat"
+        f.write_text("nothing interesting")
+        files.append(f)
+    input_file = _write_input_file(tmp_path, files)
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+    _write_checkpoint_store(checkpoint_path, input_file, [])
+    request_pause_for(str(checkpoint_path))
+
+    with patch("tools.analyze_wallets.analyze_wallet_file") as mock_analyze_file:
+        mock_analyze_file.return_value = {}
+        with pytest.raises(CheckpointPaused):
+            analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
+
+        clear_pause_for(str(checkpoint_path))
+        analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
+
+    # file[0] (before the pause) + file[1], file[2] (after resume) -- never
+    # re-analyzed, identical to today's crash-resume semantics.
+    assert mock_analyze_file.call_count == 3
+    assert not checkpoint_path.exists()
+    assert output_file.exists()
+
+
+def test_analyze_wallets_parallel_stops_cleanly_when_paused(tmp_path, monkeypatch):
+    """Same confirmed pause semantics, exercised through the
+    multiprocessing.Pool path (processes > 1) via _FakePool -- proves the
+    pause check inside _analyze_wallets_parallel's own collection loop
+    works the same way as the sequential path's."""
+    import tools.analyze_wallets as analyze_wallets_module
+    from tools.checkpoint_store import CheckpointPaused, request_pause_for
+
+    monkeypatch.setattr(analyze_wallets_module, "CHECKPOINT_EVERY_FILES", 1)
+
+    files = []
+    for i in range(3):
+        f = tmp_path / f"wallet{i}.dat"
+        f.write_text("nothing interesting")
+        files.append(f)
+    input_file = _write_input_file(tmp_path, files)
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+    _write_checkpoint_store(checkpoint_path, input_file, [])
+    request_pause_for(str(checkpoint_path))
+
+    with patch("tools.analyze_wallets.Pool", _FakePool):
+        with pytest.raises(CheckpointPaused):
+            analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path), processes=4)
+
+    assert not output_file.exists()
+    assert checkpoint_path.exists()
+
+    conn = sqlite3.connect(str(checkpoint_path))
+    completed = conn.execute("SELECT COUNT(*) FROM completed_units").fetchone()[0]
+    conn.close()
+    assert completed == 1  # durably recorded before the pause was raised
 
 
 def test_analyze_wallets_with_no_checkpoint_path_is_unchanged(tmp_path):
