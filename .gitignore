@@ -273,6 +273,8 @@ cython_debug/
 !.pHive/epics/credential-clarity-and-unlock-ux/**
 !.pHive/epics/bulk-private-key-extraction/
 !.pHive/epics/bulk-private-key-extraction/**
+!.pHive/epics/scalable-scan-engine/
+!.pHive/epics/scalable-scan-engine/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
