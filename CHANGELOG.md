@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.53.3] - 2026-08-17
+
+### Fixed
+
+- **Critical: a balance re-check that failed (a network hiccup, a rate
+  limit, a temporary API error) could silently erase a real, already
+  -confirmed balance from a finding.** Re-scanning is routine and
+  happens often; a transient failure during one of those re-checks is
+  not the same thing as actually confirming an address is empty, and
+  must never be treated as one. A failed check now leaves whatever
+  balance was already on record untouched -- only a real, successful
+  check (including a genuine "it's empty now") updates it.
+
 ## [0.53.2] - 2026-08-17
 
 ### Fixed
