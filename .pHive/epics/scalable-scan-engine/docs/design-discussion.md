@@ -187,35 +187,64 @@ consistent with §3's reframing.
 | Pause semantics for in-flight work (a worker mid-request when pause fires) | Decide explicitly in planning: let in-flight units finish, don't abort mid-write — never leave a checkpoint in a half-written state |
 | This tool handles real private keys/wallet secrets (per `hive.config.yaml`'s own developer note) | The new store persists only progress metadata (paths, counts, status) — never key material; same discipline already followed by every existing checkpoint/cache in this repo |
 
-## 6. Open questions for you
+## 5b. check_balances investigation (requested, not assumed)
 
-> §3's scope reframing and §4.6's resource-controls requirement are
-> **confirmed** — resolved directly by the user: "if we put in a petabyte
-> system, it can scan it by doing sections with multi-processes and ensure
-> it doesn't kill the machine... over time. If I get more cores, a faster
-> machine, I should have toggles and settings and controls to let it either
-> use more resources, or run slowly at a diminished resource use." Section
-> 4.6 above captures this as a first-class requirement, not an
-> implementation footnote.
+Read `tools/check_wallet_balances.py` directly rather than deciding blind.
+Finding: **its checkpoint flush has the exact same anti-pattern that
+caused tonight's OOM crash** — `_flush_checkpoint()` (line 178-183) does
+`json.dump({"input_file": ..., "results": results}, f)`, a full rewrite of
+the *entire* `results` dict (every address checked so far, for the whole
+run) on every flush (every 20 addresses or 15 seconds), with `results`
+held fully in memory for the process lifetime. It hasn't caused a visible
+incident yet only because a single scan's address count has stayed smaller
+than a multi-terabyte drive's directory count — but real numbers from
+tonight (3,825 addresses in one wallet alone, ~14,990 findings total in
+the live db) show this is not a hypothetical scale concern once the
+analyze-stage fix (§4.2b) starts surfacing larger backlogs of
+never-checked addresses.
 
-1. **Priority order** — analyze's total lack of resume is the biggest live
-   correctness gap (a crash mid-analyze on a huge file list restarts that
-   whole stage from zero, right now, today). Should that + the shared store
-   + the resource-control settings (§4.6) be the first slice, with
-   job-level pause/resume and the concurrency-safety guard following?
-2. **Pause UX** — do you want a real "Pause" button in the UI (stop now,
-   resume later, exact same run), or is "quit the app, relaunch, it resumes
-   automatically" (already true for search/check_balances, not yet analyze)
-   sufficient?
-3. **check_balances** — leave its existing thread-pool design as-is (just
-   re-point checkpoint writes at the shared store, and expose its existing
-   `GLOBAL_MAX_WORKERS`/per-coin semaphore limits as the same kind of
-   user-facing setting from §4.6), or do you want that stage re-architected
-   too?
-4. **Resource-profile UX (§4.6)** — a simple named profile (Low/Balanced/
-   Max), a raw numeric worker-count control per stage, or both (a profile
-   picker that sets sensible per-stage defaults, with an "advanced" section
-   to override individual numbers)?
+**Verdict:** the *concurrency* design is genuinely solid and should NOT be
+redesigned — `ThreadPoolExecutor` + per-coin `Semaphore(15)` +
+`GLOBAL_MAX_WORKERS=64` is well-reasoned and already tuned against a real
+live benchmark (documented in its own comments: 15 concurrent per coin
+more than doubled throughput over 5 with zero increase in errors). What
+needs to change is exactly what §4.1 already proposes for every stage:
+move its checkpoint writes onto the shared store (incremental per-address
+persistence, not a full-dict rewrite every flush) and expose its existing
+`GLOBAL_MAX_WORKERS`/`PER_COIN_MAX_CONCURRENCY` constants as the §4.6
+resource-control settings instead of hardcoded values. This resolves
+open question 3 below with evidence rather than a guess.
+
+## 6. Decisions (resolved with the user)
+
+All open questions from the draft are now resolved:
+
+1. **Scope reframing (§3)** — confirmed. "Flat resource use regardless of
+   drive size + real multi-core use on this one machine, working through a
+   petabyte-scale drive in sections over time without killing the machine"
+   is exactly what was meant. Not distributed/multi-machine.
+2. **Resource controls (§4.6)** — confirmed as a first-class requirement,
+   not an implementation footnote: "if I get more cores, a faster machine,
+   I should have toggles and settings and controls to let it either use
+   more resources, or run slowly at a diminished resource use."
+3. **Priority order** — **store + analyze resume first.** The shared
+   checkpoint store (§4.1) and analyze's resume/parallelism fix (§4.2b) —
+   the biggest live correctness gap — ship as the first slice. Job-level
+   pause/resume (§4.3) and the concurrency-safety guard (§4.4) follow.
+4. **Pause UX** — **a real Pause button.** An intentional UI action that
+   stops a running job on demand and resumes it later from the exact same
+   point — not just relying on quit-and-relaunch.
+5. **check_balances** — investigated directly (§5b), not assumed: **leave
+   the concurrency design as-is** (it's genuinely well-tuned), but its
+   checkpoint flush has the *identical* full-dict-rewrite anti-pattern that
+   caused tonight's OOM crash and must move onto the shared store like
+   every other stage. Its existing worker/semaphore constants become
+   user-facing settings per §4.6, not a redesign of the design itself.
+6. **Resource-profile UX (§4.6)** — **both**, confirmed explicitly: a named
+   profile (Low/Balanced/Max) that sets sensible per-stage defaults, PLUS
+   an advanced section exposing the raw per-stage numeric worker-count
+   controls directly — the advanced section is required, not optional or
+   deferred.
 
 ## 7. Scale assessment
 
