@@ -22,7 +22,7 @@ def _paths(output_dir):
     }
 
 
-def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, processes=None, progress_callback=None, excludes=None):
     """
     Stage 1 -- search + analyze only. No network calls, so it's fast
     regardless of how many addresses turn up. Returns a summary (files
@@ -36,10 +36,19 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, progre
     :param index_db_path: optional -- see tools.analyze_wallets.analyze_wallets().
         None (default) skips a file already analyzed in a prior scan
         (elsewhere, at any path) from being re-analyzed here.
-    :param checkpoint_path: optional -- see tools.search_wallets.search_for_wallets().
-        Lets the (potentially very long) file-walk stage survive an app
-        quit/update/crash mid-scan by resuming from the directories
-        already checked instead of starting over.
+    :param checkpoint_path: optional -- see tools.search_wallets.search_for_wallets()
+        and tools.analyze_wallets.analyze_wallets(). Lets both the
+        (potentially very long) file-walk stage AND the analyze stage
+        survive an app quit/update/crash, each resuming from where it
+        left off instead of starting over. Threaded to search_for_wallets
+        as-is; analyze_wallets gets its own sibling checkpoint file
+        (same directory, "analyze_checkpoint.db") derived from this path,
+        so the two stages' independent per-unit checkpoints (directories
+        vs. files) never collide even though search's own file is deleted
+        the moment it finishes cleanly.
+    :param processes: optional -- see tools.analyze_wallets.analyze_wallets().
+        None (default) runs analyze sequentially, unchanged from before
+        multiprocessing support existed.
     :param progress_callback: optional callable(current, total, message).
         Forwarded to both search_for_wallets (indeterminate -- directories
         walked, no known total) and analyze_wallets (determinate -- a
@@ -65,11 +74,23 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, progre
     )
 
     print("Running wallet analysis...")
+    analyze_kwargs = {}
+    if checkpoint_path:
+        # A sibling file, not the same path search_for_wallets was given:
+        # search deletes its own checkpoint file on clean completion, and
+        # the two stages checkpoint different unit types (directories vs.
+        # files) -- keeping them physically separate avoids any chance of
+        # one stage's resume logic misreading the other's leftover state.
+        analyze_kwargs["checkpoint_path"] = str(Path(checkpoint_path).parent / "analyze_checkpoint.db")
+    if processes:
+        analyze_kwargs["processes"] = processes
+
     analyze_wallets(
         paths["search_output"],
         paths["analyze_output"],
         index_db_path=index_db_path,
         progress_callback=lambda c, t, m="": progress_callback(c, t, f"Analyzing: {m}"),
+        **analyze_kwargs,
     )
 
     with open(paths["analyze_output"]) as f:

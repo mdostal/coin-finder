@@ -184,6 +184,51 @@ def test_check_balances_requires_a_prior_find(tmp_path):
     assert called_analyze_input == str(output_dir / "checks" / "wallet_analysis.json")
 
 
+def test_find_threads_checkpoint_path_into_analyze_wallets_call(tmp_path):
+    """sse-01: analyze_wallets previously never received checkpoint_path at
+    all -- only search_for_wallets did. find() must now derive a sibling
+    checkpoint file for analyze (not reuse search's own path, which gets
+    deleted by search_for_wallets on clean completion) and thread it, and
+    processes, through."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    checkpoint_path = tmp_path / "scan_checkpoint.db"
+
+    def fake_analyze(input_file, output_file, index_db_path=None, progress_callback=None, checkpoint_path=None, processes=None):
+        with open(output_file, "w") as f:
+            json.dump({}, f)
+        fake_analyze.received = {"checkpoint_path": checkpoint_path, "processes": processes}
+
+    with patch("run_pipeline.search_for_wallets"), \
+         patch("run_pipeline.analyze_wallets", side_effect=fake_analyze), \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir), checkpoint_path=str(checkpoint_path), processes=4)
+
+    assert fake_analyze.received["checkpoint_path"] == str(tmp_path / "analyze_checkpoint.db")
+    assert fake_analyze.received["checkpoint_path"] != str(checkpoint_path)
+    assert fake_analyze.received["processes"] == 4
+
+
+def test_find_does_not_pass_checkpoint_path_or_processes_to_analyze_when_absent(tmp_path):
+    """Existing callers that never pass checkpoint_path/processes to
+    find() (every current caller) must see analyze_wallets invoked exactly
+    as before this story -- no new kwargs at all -- so any existing mock
+    with the old, narrower signature keeps working unchanged."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets"), \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})) as mock_analyze, \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir))
+
+    mock_analyze.assert_called_once()
+    assert "checkpoint_path" not in mock_analyze.call_args.kwargs
+    assert "processes" not in mock_analyze.call_args.kwargs
+
+
 def test_find_forwards_progress_callback_with_stage_prefixes(tmp_path):
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
