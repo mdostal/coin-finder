@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.53.4] - 2026-08-17
+
+### Fixed
+
+- **Bitcoin balance checks would all fail at once if the free public API
+  hit its hourly rate limit** ("Too Many Requests"), with no way to make
+  progress until the limit reset an hour later. Balance checks now
+  automatically fall back to a second, independent free provider when
+  the first one is rate-limited or unavailable, so one host's temporary
+  limit doesn't stall real recovery work.
+
 ## [0.53.3] - 2026-08-17
 
 ### Fixed
