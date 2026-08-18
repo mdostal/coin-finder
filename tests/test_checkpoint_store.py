@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 import time
 
 import pytest
@@ -241,3 +242,46 @@ def test_mark_completed_does_not_grow_process_memory_with_a_python_side_full_set
         assert len(store._pending) == 0
 
     assert store.count_completed() == 5000
+
+
+def test_concurrent_is_completed_mark_completed_and_flush_from_many_threads_is_safe(tmp_path):
+    """Real requirement, not a hypothetical: sse-03's search-walk thread
+    pool calls is_completed/mark_completed/flush directly from worker
+    threads (not just the thread that created the store), and
+    check_wallet_balances' existing ThreadPoolExecutor (sse-02) already
+    does the same for mark_completed/flush from inside check_one() once
+    CHECKPOINT_EVERY_ADDRESSES/SECONDS trips. sqlite3 connections default
+    to check_same_thread=True, so a naive store would raise
+    ProgrammingError the first time any of these is called from a thread
+    other than the one that opened the connection -- confirmed by direct
+    reproduction before this fix. This drives many real threads at once
+    and asserts zero exceptions plus an exact final count, proving the
+    lock genuinely serializes access rather than just silencing errors."""
+    store = CheckpointStore(tmp_path / "cp.db", run_key={"start_path": "/a"})
+    n_threads = 8
+    per_thread = 100
+    errors = []
+    errors_lock = threading.Lock()
+
+    def worker(idx):
+        try:
+            for i in range(per_thread):
+                unit_id = f"/a/dir-{idx}-{i}"
+                if not store.is_completed(unit_id):
+                    store.mark_completed(unit_id)
+                if i % 10 == 0:
+                    store.flush()
+                store.is_paused()
+        except Exception as e:
+            with errors_lock:
+                errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(idx,)) for idx in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    store.flush()
+
+    assert errors == []
+    assert store.count_completed() == n_threads * per_thread

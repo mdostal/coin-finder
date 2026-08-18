@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from pathlib import Path
 
 # 5s: real, not zero -- this repo had zero explicit WAL/busy-timeout on any
@@ -51,6 +52,25 @@ class CheckpointStore:
     units_table="completed_dirs", unit_column="path" specifically so
     web/app.py's raw-sqlite interrupted-scan reads (and any leftover
     checkpoint file from before this extraction) keep working unmodified.
+
+    Thread-safe by design, not just by accident: every public method that
+    touches self.conn or the in-memory pending buffer is serialized
+    through a single internal RLock (reentrant so delete()'s own call
+    into close() doesn't self-deadlock). This matters for real, not
+    hypothetically -- sqlite3 connections default to check_same_thread=
+    True, so a second thread calling any conn method at all raises
+    ProgrammingError immediately; the sse-03 search-walk thread pool
+    calls is_completed/mark_completed/flush directly from worker
+    threads, and check_wallet_balances' existing ThreadPoolExecutor
+    (sse-02) already does the same for mark_completed/flush from inside
+    check_one() once CHECKPOINT_EVERY_ADDRESSES/SECONDS trips -- both
+    would hit that exact ProgrammingError on a real multi-address run
+    without check_same_thread=False + this lock. One process's worker
+    threads sharing one connection under a lock is the supported sqlite3
+    pattern; true multi-*process* writers (e.g. analyze's
+    multiprocessing.Pool) are a different problem this does NOT solve,
+    which is exactly why analyze keeps all its store writes in the main
+    process instead (see structured-outline.md R4).
     """
 
     def __init__(
@@ -74,8 +94,16 @@ class CheckpointStore:
         self._pending = []
         self._pending_set = set()
 
+        # Reentrant -- delete() calls close() while already holding this
+        # lock itself; a plain Lock would deadlock on that nested call.
+        self._lock = threading.RLock()
+
         Path(self.checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.checkpoint_path)
+        # check_same_thread=False: this store is handed to real worker
+        # threads (see class docstring) -- every access is still funneled
+        # through self._lock below, which is what actually makes sharing
+        # one connection across threads safe, not this flag alone.
+        self.conn = sqlite3.connect(self.checkpoint_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
         self.conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
@@ -109,21 +137,23 @@ class CheckpointStore:
         self.conn.commit()
 
     def is_completed(self, unit_id):
-        if unit_id in self._pending_set:
-            return True
-        row = self.conn.execute(
-            f"SELECT 1 FROM {self.units_table} WHERE {self.unit_column} = ?", (unit_id,)
-        ).fetchone()
-        return row is not None
+        with self._lock:
+            if unit_id in self._pending_set:
+                return True
+            row = self.conn.execute(
+                f"SELECT 1 FROM {self.units_table} WHERE {self.unit_column} = ?", (unit_id,)
+            ).fetchone()
+            return row is not None
 
     def mark_completed(self, unit_id):
         """Buffers unit_id in memory -- see flush() for when it actually
         hits disk. Already-committed or already-pending units are quietly
         deduplicated rather than growing the buffer unnecessarily."""
-        if unit_id in self._pending_set:
-            return
-        self._pending.append(unit_id)
-        self._pending_set.add(unit_id)
+        with self._lock:
+            if unit_id in self._pending_set:
+                return
+            self._pending.append(unit_id)
+            self._pending_set.add(unit_id)
 
     def flush(self):
         """Commits every unit buffered since the last flush in a single
@@ -131,25 +161,28 @@ class CheckpointStore:
         was buffered since the last flush ONLY -- never to how many units
         have been completed in total, which is exactly what keeps this
         flat regardless of scan size (see class docstring)."""
-        if not self._pending:
-            return
-        self.conn.executemany(
-            f"INSERT OR IGNORE INTO {self.units_table} ({self.unit_column}) VALUES (?)",
-            [(unit_id,) for unit_id in self._pending],
-        )
-        self.conn.commit()
-        self._pending.clear()
-        self._pending_set.clear()
+        with self._lock:
+            if not self._pending:
+                return
+            self.conn.executemany(
+                f"INSERT OR IGNORE INTO {self.units_table} ({self.unit_column}) VALUES (?)",
+                [(unit_id,) for unit_id in self._pending],
+            )
+            self.conn.commit()
+            self._pending.clear()
+            self._pending_set.clear()
 
     def count_completed(self):
         """SQL COUNT(*) -- never loads all unit ids into Python, so this
         stays cheap and flat no matter how many units are completed."""
-        row = self.conn.execute(f"SELECT COUNT(*) FROM {self.units_table}").fetchone()
-        return row[0]
+        with self._lock:
+            row = self.conn.execute(f"SELECT COUNT(*) FROM {self.units_table}").fetchone()
+            return row[0]
 
     def is_paused(self):
-        row = self.conn.execute("SELECT value FROM meta WHERE key = 'paused'").fetchone()
-        return row is not None and row[0] == "1"
+        with self._lock:
+            row = self.conn.execute("SELECT value FROM meta WHERE key = 'paused'").fetchone()
+            return row is not None and row[0] == "1"
 
     def request_pause(self):
         """Sets the pause flag, durably and immediately visible to any
@@ -157,15 +190,18 @@ class CheckpointStore:
         running job's own store, checked between checkpoint flushes) --
         the mechanism a future pause route uses without needing to know
         which stage/process it's pausing."""
-        self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('paused', '1')")
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('paused', '1')")
+            self.conn.commit()
 
     def clear_pause(self):
-        self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('paused', '0')")
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('paused', '0')")
+            self.conn.commit()
 
     def close(self):
-        self.conn.close()
+        with self._lock:
+            self.conn.close()
 
     def delete(self):
         """Removes the checkpoint file (and any WAL/SHM sidecar files) on
