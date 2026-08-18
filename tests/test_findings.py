@@ -40,6 +40,40 @@ def test_record_finding_preserves_inconclusive_none_balance(tmp_path):
     assert findings[0]["balance"] is None
 
 
+def test_record_finding_does_not_let_a_failed_recheck_clobber_a_known_balance(tmp_path):
+    """
+    Regression test for a real bug hit live: a confirmed 0.3 BTC finding
+    got silently overwritten with balance=NULL when a later re-scan's
+    balance check failed (a transient API error) rather than genuinely
+    finding the address empty. balance=None means "check failed /
+    inconclusive," never "confirmed empty" -- a failed re-check must
+    leave whatever balance was already on record untouched.
+    """
+    db_path = tmp_path / "findings.db"
+    record_finding("Bitcoin", "1abc", 0.29999058, db_path=db_path)
+
+    record_finding("Bitcoin", "1abc", None, db_path=db_path)
+
+    findings = list_findings(db_path=db_path)
+    assert findings[0]["balance"] == 0.29999058
+
+
+def test_record_finding_still_records_a_genuine_zero_balance_recheck(tmp_path):
+    """
+    The fix above must not go too far the other way -- a real,
+    successful check that finds an address has since been spent (a
+    genuine 0.0, not None) still has to overwrite the old balance.
+    Only a failed/inconclusive check (None) is protected.
+    """
+    db_path = tmp_path / "findings.db"
+    record_finding("Bitcoin", "1abc", 0.5, db_path=db_path)
+
+    record_finding("Bitcoin", "1abc", 0.0, db_path=db_path)
+
+    findings = list_findings(db_path=db_path)
+    assert findings[0]["balance"] == 0.0
+
+
 def test_archive_and_unarchive(tmp_path):
     db_path = tmp_path / "findings.db"
     record_finding("Bitcoin", "1abc", 0.0, db_path=db_path)
