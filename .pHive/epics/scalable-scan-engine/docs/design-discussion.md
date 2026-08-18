@@ -144,6 +144,33 @@ while a scan is walking a mount (the check already exists — this is wiring
 it into the long-running loop, not building it from scratch) so a dead
 mount fails the job with a clear reason instead of silently stalling.
 
+**4.6 — User-facing resource controls.** Confirmed with the user: "scalable"
+means handling a petabyte-scale drive by working through it in sections
+over time without killing the machine, on whatever hardware is available
+today — and being able to turn the dial up on better hardware later. This
+is a real, first-class requirement, not an implementation detail:
+
+- Every tunable introduced above (walker thread count §4.2a, analyze worker
+  process count §4.2b, check_balances thread-pool size — already
+  configurable in code today, just not exposed) becomes a real setting in
+  the UI (`web/templates/settings.html` + a small settings-store module,
+  following the existing settings patterns already in this app), not a
+  hardcoded constant.
+- Ship with **conservative, safe-by-default** values (today's constants —
+  e.g. `GLOBAL_MAX_WORKERS = 64` for balances, single-threaded walk/analyze
+  — are reasonable floors) so a fresh install never surprises anyone with
+  high resource use.
+- A simple resource-profile control (e.g. "Low / Balanced / Max" or a raw
+  worker-count slider — exact UX is a planning-phase decision, not decided
+  here) lets the user trade speed for machine impact explicitly, and
+  changing it takes effect on the *next* job, not by editing config files.
+- This directly motivates keeping every new concurrency knob **runtime-
+  configurable and independent per stage** (walk vs. analyze vs. balance-
+  check each get their own setting) rather than one global "concurrency"
+  number — the stages have different bottlenecks (I/O vs. CPU vs.
+  network-API-rate-limited) and a single shared knob would under-serve at
+  least one of them.
+
 **What this does NOT propose:** distributed/multi-machine execution, a
 message queue, or a service split. Everything above runs as threads/
 processes within the existing single Flask app process, on one machine —
@@ -162,23 +189,33 @@ consistent with §3's reframing.
 
 ## 6. Open questions for you
 
-1. **Scope reframing (§3)** — confirm "flat resource use + real multi-core
-   use on this one machine" is what you meant, not literal distributed/
-   multi-machine scaling. (I'm assuming yes given the project's own
-   single-user profile, but flagging explicitly rather than assuming
-   silently.)
-2. **Priority order** — analyze's total lack of resume is the biggest live
+> §3's scope reframing and §4.6's resource-controls requirement are
+> **confirmed** — resolved directly by the user: "if we put in a petabyte
+> system, it can scan it by doing sections with multi-processes and ensure
+> it doesn't kill the machine... over time. If I get more cores, a faster
+> machine, I should have toggles and settings and controls to let it either
+> use more resources, or run slowly at a diminished resource use." Section
+> 4.6 above captures this as a first-class requirement, not an
+> implementation footnote.
+
+1. **Priority order** — analyze's total lack of resume is the biggest live
    correctness gap (a crash mid-analyze on a huge file list restarts that
    whole stage from zero, right now, today). Should that + the shared store
-   be the first slice, with job-level pause/resume and the concurrency-
-   safety guard following?
-3. **Pause UX** — do you want a real "Pause" button in the UI (stop now,
+   + the resource-control settings (§4.6) be the first slice, with
+   job-level pause/resume and the concurrency-safety guard following?
+2. **Pause UX** — do you want a real "Pause" button in the UI (stop now,
    resume later, exact same run), or is "quit the app, relaunch, it resumes
    automatically" (already true for search/check_balances, not yet analyze)
    sufficient?
-4. **check_balances** — leave its existing thread-pool design as-is (just
-   re-point checkpoint writes at the shared store), or do you want that
-   stage re-architected too?
+3. **check_balances** — leave its existing thread-pool design as-is (just
+   re-point checkpoint writes at the shared store, and expose its existing
+   `GLOBAL_MAX_WORKERS`/per-coin semaphore limits as the same kind of
+   user-facing setting from §4.6), or do you want that stage re-architected
+   too?
+4. **Resource-profile UX (§4.6)** — a simple named profile (Low/Balanced/
+   Max), a raw numeric worker-count control per stage, or both (a profile
+   picker that sets sensible per-stage defaults, with an "advanced" section
+   to override individual numbers)?
 
 ## 7. Scale assessment
 
