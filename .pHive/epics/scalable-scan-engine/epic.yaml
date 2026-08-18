@@ -16,7 +16,7 @@ description: >
 target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
 methodology: tdd
 version_bump: minor
-sidecar_retention: transient
+sidecar_retention: committed
 
 git_flow:
   base_branch: dev
