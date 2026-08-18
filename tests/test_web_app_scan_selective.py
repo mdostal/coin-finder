@@ -76,7 +76,9 @@ def test_check_balances_selected_records_findings(mock_check, mock_record, clien
     job_id, output_dir = _start_find_job(client, tmp_path, {"a.dat": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"})
     selected_path = str(tmp_path / "a.dat")
 
-    def fake_check(input_file, output_file, progress_callback=None):
+    def fake_check(
+        input_file, output_file, progress_callback=None, global_max_workers=None, per_coin_max_concurrency=None
+    ):
         with open(output_file, "w") as f:
             json.dump({selected_path: {"Bitcoin": {"1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2": 0.5}}}, f)
 
@@ -104,7 +106,9 @@ def test_check_balances_selected_never_touches_the_full_scans_own_output(mock_ch
     full_balances_path.write_text('{"sentinel": "do not touch"}')
     before = full_balances_path.read_text()
 
-    def fake_check(input_file, output_file, progress_callback=None):
+    def fake_check(
+        input_file, output_file, progress_callback=None, global_max_workers=None, per_coin_max_concurrency=None
+    ):
         with open(output_file, "w") as f:
             json.dump({}, f)
 

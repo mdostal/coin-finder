@@ -120,19 +120,39 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, proces
     }
 
 
-def check_balances(output_dir, progress_callback=None, checkpoint_path=None):
+def check_balances(
+    output_dir, progress_callback=None, checkpoint_path=None, global_max_workers=None, per_coin_max_concurrency=None
+):
     """
     Stage 2 -- the slow part (real network calls, one per matched
     address). Requires find() to have already run against this exact
     output_dir; reads its wallet_analysis.json as input.
 
     :param checkpoint_path: optional -- see tools.check_wallet_balances.check_wallet_balances().
+    :param global_max_workers: optional -- see
+        tools.check_wallet_balances.check_wallet_balances(). None (the
+        default) omits the kwarg entirely, so check_wallet_balances' own
+        default (today's tuned constant) applies -- zero behavior change
+        for a caller that doesn't pass this.
+    :param per_coin_max_concurrency: optional -- see
+        tools.check_wallet_balances.check_wallet_balances(). Same
+        None-omits-the-kwarg behavior as global_max_workers above.
     """
     paths = _paths(output_dir)
 
+    worker_kwargs = {}
+    if global_max_workers is not None:
+        worker_kwargs["global_max_workers"] = global_max_workers
+    if per_coin_max_concurrency is not None:
+        worker_kwargs["per_coin_max_concurrency"] = per_coin_max_concurrency
+
     print("Running wallet balance check...")
     check_wallet_balances(
-        paths["analyze_output"], paths["scan_output"], progress_callback=progress_callback, checkpoint_path=checkpoint_path
+        paths["analyze_output"],
+        paths["scan_output"],
+        progress_callback=progress_callback,
+        checkpoint_path=checkpoint_path,
+        **worker_kwargs,
     )
     inconclusive_output = os.path.join(paths["sub_dir"], "inconclusive_balances.json")
     if os.path.exists(inconclusive_output):

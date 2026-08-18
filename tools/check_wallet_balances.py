@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.wallet import WALLET_SERVICES
+from tools.checkpoint_store import CheckpointStore
 
 MAX_BALANCE_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
@@ -86,21 +87,70 @@ def _check_balance_with_retries(service, address, max_retries=MAX_BALANCE_RETRIE
     return None
 
 
-def _load_checkpoint(checkpoint_path, input_file):
-    if not checkpoint_path or not Path(checkpoint_path).exists():
-        return None
-    try:
-        with open(checkpoint_path) as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
-    if data.get("input_file") != str(input_file):
-        return None
-    return data
+def _checkpoint_unit_id(crypto_name, file_path, address, balance):
+    """
+    Encodes a confirmed (non-None) balance into CheckpointStore's single
+    opaque string primary key. CheckpointStore itself has no separate
+    "value" column -- by design, it only ever needs to know whether a unit
+    is done, never what a unit "means" (see its class docstring) -- so the
+    balance has to travel inside unit_id for a resumed run to recover it
+    without re-checking. Only ever called for a confirmed balance (see
+    check_one()): the encoded value here is always a real number, never
+    None -- inconclusive addresses are never marked completed at all, so
+    they're retried on resume exactly like a never-checked address.
+    """
+    return f"{crypto_name}|{file_path}|{address}|{json.dumps(balance)}"
+
+
+def _decode_checkpoint_unit_id(unit_id):
+    """
+    Inverse of _checkpoint_unit_id(). Splits off the balance from the
+    *last* '|' -- json.dumps() of a float/int never itself contains '|',
+    so this is unambiguous even though crypto_name/file_path/address are
+    joined with that same separator without escaping (the same accepted
+    risk already inherent to that three-way join).
+    """
+    identity, _, balance_json = unit_id.rpartition("|")
+    crypto_name, file_path, address = identity.split("|", 2)
+    return crypto_name, file_path, address, json.loads(balance_json)
+
+
+def _load_resume_state(store):
+    """
+    One-time read of every confirmed unit a prior (possibly interrupted)
+    run recorded against this same input_file -- cost proportional only
+    to how many addresses were already confirmed, exactly like the old
+    full-JSON checkpoint load this replaces. Called once at startup only,
+    never from the per-address hot path (see check_one()'s flush cadence),
+    so this does not reintroduce the growing per-flush write cost this
+    story fixes -- it's a single read, not a repeated write.
+
+    :return: (results_prepopulated, already_confirmed) where
+        results_prepopulated is {file_path: {crypto_name: {address: balance}}}
+        for every already-confirmed unit, and already_confirmed is the
+        {(file_path, crypto_name, address)} set used to skip re-checking
+        them -- the same two things the old JSON-backed checkpoint load
+        built by hand from its "results" dict.
+    """
+    results_prepopulated = {}
+    already_confirmed = set()
+    rows = store.conn.execute(f"SELECT {store.unit_column} FROM {store.units_table}").fetchall()
+    for (unit_id,) in rows:
+        crypto_name, file_path, address, balance = _decode_checkpoint_unit_id(unit_id)
+        results_prepopulated.setdefault(file_path, {}).setdefault(crypto_name, {})[address] = balance
+        already_confirmed.add((file_path, crypto_name, address))
+    return results_prepopulated, already_confirmed
 
 
 def check_wallet_balances(
-    input_file, output_file, coins_to_check=None, inconclusive_output=None, progress_callback=None, checkpoint_path=None
+    input_file,
+    output_file,
+    coins_to_check=None,
+    inconclusive_output=None,
+    progress_callback=None,
+    checkpoint_path=None,
+    global_max_workers=GLOBAL_MAX_WORKERS,
+    per_coin_max_concurrency=PER_COIN_MAX_CONCURRENCY,
 ):
     """
     Check balances of wallet addresses for specified cryptocurrencies. Retries
@@ -124,11 +174,21 @@ def check_wallet_balances(
         once per address checked. Defaults to a no-op -- every existing call
         site (CLI, tests) is unaffected by this parameter's presence.
     :param checkpoint_path: Optional -- makes a long balance check resumable
-        across an app quit/update/crash. Confirmed (non-None) balances are
-        skipped on the next run against the same input_file; addresses still
-        inconclusive after retries are retried rather than skipped, since a
-        fresh run may succeed where a stale one didn't. Removed once the
-        check finishes cleanly.
+        across an app quit/update/crash, backed by
+        tools.checkpoint_store.CheckpointStore (the same design that fixed
+        search's and analyze's checkpoint OOM risk). Confirmed (non-None)
+        balances are skipped on the next run against the same input_file;
+        addresses still inconclusive after retries are retried rather than
+        skipped, since a fresh run may succeed where a stale one didn't.
+        Removed once the check finishes cleanly.
+    :param global_max_workers: Hard cap on total worker threads regardless
+        of how many addresses are queued. Defaults to GLOBAL_MAX_WORKERS
+        (today's tuned value, 64) -- a caller that doesn't pass this sees
+        no behavior change.
+    :param per_coin_max_concurrency: Concurrent requests allowed to one
+        coin's API at once. Defaults to PER_COIN_MAX_CONCURRENCY (today's
+        tuned value, 15) -- a caller that doesn't pass this sees no
+        behavior change.
     """
     if progress_callback is None:
         progress_callback = lambda current, total, message="": None
@@ -146,17 +206,15 @@ def check_wallet_balances(
     results = {file_path: {} for file_path in wallet_data}
     inconclusive = {}
 
-    checkpoint = _load_checkpoint(checkpoint_path, input_file)
+    store = None
     already_confirmed = set()  # {(file_path, crypto_name, address)}
-    if checkpoint:
-        checkpoint_results = checkpoint.get("results", {})
-        for file_path, coins in checkpoint_results.items():
+    if checkpoint_path:
+        store = CheckpointStore(str(checkpoint_path), run_key={"input_file": str(input_file)})
+        results_prepopulated, already_confirmed = _load_resume_state(store)
+        for file_path, coins in results_prepopulated.items():
             results.setdefault(file_path, {})
             for crypto_name, addresses in coins.items():
-                for address, balance in addresses.items():
-                    if balance is not None:
-                        results[file_path].setdefault(crypto_name, {})[address] = balance
-                        already_confirmed.add((file_path, crypto_name, address))
+                results[file_path].setdefault(crypto_name, {}).update(addresses)
 
     # Every (coin, address) pair is its own task, grouped by coin only to
     # build a per-coin semaphore below -- "grouped by coin" no longer means
@@ -177,12 +235,6 @@ def check_wallet_balances(
 
     last_checkpoint_at = time.time()
 
-    def _flush_checkpoint():
-        if not checkpoint_path:
-            return
-        with open(checkpoint_path, "w") as f:
-            json.dump({"input_file": str(input_file), "results": results}, f)
-
     remaining_by_coin = {}
     for crypto_name, pairs in pairs_by_coin.items():
         remaining = [(file_path, address) for file_path, address in pairs if (file_path, crypto_name, address) not in already_confirmed]
@@ -199,7 +251,7 @@ def check_wallet_balances(
             print(f"  Skipping {crypto_name}: No valid service found.")
 
     semaphores = {
-        crypto_name: threading.Semaphore(min(PER_COIN_MAX_CONCURRENCY, len(pairs)))
+        crypto_name: threading.Semaphore(min(per_coin_max_concurrency, len(pairs)))
         for crypto_name, pairs in remaining_by_coin.items()
     }
 
@@ -217,11 +269,17 @@ def check_wallet_balances(
             progress_callback(checked_count, total_addresses, f"{crypto_name}: {address}")
             if balance is None:
                 inconclusive.setdefault(file_path, {}).setdefault(crypto_name, []).append(address)
+            elif store:
+                # Only ever mark a CONFIRMED balance completed -- an
+                # inconclusive address is deliberately never written to
+                # the store at all, so it's retried on resume exactly
+                # like a never-checked address (see _checkpoint_unit_id).
+                store.mark_completed(_checkpoint_unit_id(crypto_name, file_path, address, balance))
 
-            if checkpoint_path and (
+            if store and (
                 checked_count % CHECKPOINT_EVERY_ADDRESSES == 0 or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS
             ):
-                _flush_checkpoint()
+                store.flush()
                 last_checkpoint_at = time.time()
 
     tasks = [
@@ -232,10 +290,13 @@ def check_wallet_balances(
     ]
 
     if tasks:
-        with ThreadPoolExecutor(max_workers=min(len(tasks), GLOBAL_MAX_WORKERS)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(tasks), global_max_workers)) as executor:
             futures = [executor.submit(check_one, crypto_name, file_path, address) for crypto_name, file_path, address in tasks]
             for future in as_completed(futures):
                 future.result()  # re-raise any worker exception on the main thread
+
+    if store:
+        store.flush()
 
     with open(output_file, "w") as f:
         json.dump(results, f, indent=4)
@@ -247,8 +308,8 @@ def check_wallet_balances(
             json.dump(inconclusive, f, indent=4)
         print(f"{sum(len(a) for c in inconclusive.values() for a in c.values())} address(es) still inconclusive after retries. Saved to {inconclusive_output}.")
 
-    if checkpoint_path:
-        Path(checkpoint_path).unlink(missing_ok=True)
+    if store:
+        store.delete()
 
     return results
 

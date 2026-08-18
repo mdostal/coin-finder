@@ -1,10 +1,21 @@
 import json
+import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools.check_wallet_balances import PER_COIN_MAX_CONCURRENCY, _check_balance_with_retries, check_wallet_balances
+from tools.check_wallet_balances import (
+    GLOBAL_MAX_WORKERS,
+    PER_COIN_MAX_CONCURRENCY,
+    _check_balance_with_retries,
+    _checkpoint_unit_id,
+    _decode_checkpoint_unit_id,
+    check_wallet_balances,
+)
+from tools.checkpoint_store import CheckpointStore
 
 
 def make_service(side_effect):
@@ -331,13 +342,68 @@ def test_checkpoint_deleted_on_clean_completion(mock_load_service, mock_sleep, t
     input_file = tmp_path / "wallet_analysis.json"
     input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc"]}}))
     output_file = tmp_path / "wallet_balances.json"
-    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
 
     check_wallet_balances(
         str(input_file), str(output_file), coins_to_check=["Bitcoin"], checkpoint_path=str(checkpoint_path)
     )
 
     assert not checkpoint_path.exists()
+    assert not Path(f"{checkpoint_path}-wal").exists()
+    assert not Path(f"{checkpoint_path}-shm").exists()
+
+
+def test_checkpoint_unit_id_round_trips_crypto_file_address_and_balance():
+    unit_id = _checkpoint_unit_id("Bitcoin", "walletA.dat", "1abc", 2.5)
+
+    assert _decode_checkpoint_unit_id(unit_id) == ("Bitcoin", "walletA.dat", "1abc", 2.5)
+
+
+def test_checkpoint_unit_id_round_trips_a_zero_balance():
+    """0.0 is a real, confirmed balance -- must never be confused with the
+    None/'not yet confirmed' case on the decode side."""
+    unit_id = _checkpoint_unit_id("Bitcoin", "walletA.dat", "1abc", 0.0)
+
+    assert _decode_checkpoint_unit_id(unit_id) == ("Bitcoin", "walletA.dat", "1abc", 0.0)
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_checkpoint_is_a_sqlite_checkpoint_store_not_a_full_json_rewrite(mock_load_service, mock_sleep, tmp_path):
+    """
+    Regression test for the real bug this story fixes: the old
+    _flush_checkpoint() did a full json.dump() of the entire in-memory
+    results dict on every periodic flush. The checkpoint file on disk must
+    now be a CheckpointStore-backed sqlite db -- never JSON -- holding one
+    row per confirmed (coin, file_path, address) unit.
+    """
+    mock_load_service.return_value = make_service([1.0])
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    # Clean completion deletes the checkpoint (see
+    # test_checkpoint_deleted_on_clean_completion) -- disable that here so
+    # the on-disk format can be inspected afterwards.
+    with patch("tools.check_wallet_balances.CheckpointStore.delete", lambda self: self.close()):
+        check_wallet_balances(
+            str(input_file), str(output_file), coins_to_check=["Bitcoin"], checkpoint_path=str(checkpoint_path)
+        )
+
+    # Old format was UTF-8 JSON text; the new format is a raw sqlite file
+    # (binary, starts with the "SQLite format 3" magic header) -- neither
+    # decodes as JSON.
+    with pytest.raises((UnicodeDecodeError, json.JSONDecodeError)):
+        json.loads(checkpoint_path.read_text())
+
+    conn = sqlite3.connect(str(checkpoint_path))
+    rows = conn.execute("SELECT unit_id FROM completed_units").fetchall()
+    conn.close()
+
+    assert len(rows) == 1
+    assert _decode_checkpoint_unit_id(rows[0][0]) == ("Bitcoin", "walletA.dat", "1abc", 1.0)
 
 
 @patch("tools.check_wallet_balances.time.sleep")
@@ -348,23 +414,25 @@ def test_resume_skips_confirmed_addresses_and_retries_inconclusive_ones(mock_loa
     (app quit/update/crash) shouldn't have to re-check addresses it
     already confirmed a real balance for. Addresses still inconclusive
     after retries ARE retried on resume, since a fresh run may succeed
-    where a stale one didn't.
+    where a stale one didn't -- exactly the same behavior as before this
+    story, just backed by CheckpointStore instead of a full-dict JSON file.
     """
     input_file = tmp_path / "wallet_analysis.json"
     input_file.write_text(
         json.dumps({"walletA.dat": {"Bitcoin": ["confirmed-addr", "inconclusive-addr", "new-addr"]}})
     )
     output_file = tmp_path / "wallet_balances.json"
-    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
 
-    checkpoint_path.write_text(
-        json.dumps(
-            {
-                "input_file": str(input_file),
-                "results": {"walletA.dat": {"Bitcoin": {"confirmed-addr": 2.5, "inconclusive-addr": None}}},
-            }
-        )
-    )
+    store = CheckpointStore(str(checkpoint_path), run_key={"input_file": str(input_file)})
+    store.mark_completed(_checkpoint_unit_id("Bitcoin", "walletA.dat", "confirmed-addr", 2.5))
+    store.flush()
+    store.close()
+    # "inconclusive-addr" is deliberately NOT marked completed -- only
+    # confirmed (non-None) balances are ever recorded (see check_one()),
+    # so an address that was still inconclusive when the checkpoint was
+    # last written simply has no row at all, and is retried like any
+    # never-checked address.
 
     calls = []
 
@@ -391,18 +459,99 @@ def test_resume_skips_confirmed_addresses_and_retries_inconclusive_ones(mock_loa
 @patch("tools.check_wallet_balances.time.sleep")
 @patch("tools.check_wallet_balances.load_service")
 def test_checkpoint_ignored_for_a_different_input_file(mock_load_service, mock_sleep, tmp_path):
+    """CheckpointStore's own run-key-mismatch handling (sse-01) wipes a
+    checkpoint recorded under a different input_file -- this just proves
+    check_wallet_balances() actually keys its store on input_file, same
+    as the old JSON checkpoint's own input_file guard."""
     mock_load_service.return_value = make_service([5.0])
 
     input_file = tmp_path / "wallet_analysis.json"
     input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc"]}}))
     output_file = tmp_path / "wallet_balances.json"
-    checkpoint_path = tmp_path / "checkpoint.json"
-    checkpoint_path.write_text(
-        json.dumps({"input_file": "/some/other/input.json", "results": {"walletA.dat": {"Bitcoin": {"1abc": 999.0}}}})
-    )
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    store = CheckpointStore(str(checkpoint_path), run_key={"input_file": "/some/other/input.json"})
+    store.mark_completed(_checkpoint_unit_id("Bitcoin", "walletA.dat", "1abc", 999.0))
+    store.flush()
+    store.close()
 
     result = check_wallet_balances(
         str(input_file), str(output_file), coins_to_check=["Bitcoin"], checkpoint_path=str(checkpoint_path)
     )
 
     assert result["walletA.dat"]["Bitcoin"]["1abc"] == 5.0
+
+
+def test_worker_count_parameters_default_to_todays_tuned_constants():
+    """GLOBAL_MAX_WORKERS/PER_COIN_MAX_CONCURRENCY becoming parameters
+    must be zero behavior change for every existing caller that doesn't
+    pass them explicitly."""
+    import inspect
+
+    sig = inspect.signature(check_wallet_balances)
+    assert sig.parameters["global_max_workers"].default == GLOBAL_MAX_WORKERS == 64
+    assert sig.parameters["per_coin_max_concurrency"].default == PER_COIN_MAX_CONCURRENCY == 15
+
+
+@patch("tools.check_wallet_balances.load_service")
+def test_custom_per_coin_max_concurrency_parameter_is_honored(mock_load_service, tmp_path):
+    """Same shape as test_per_coin_concurrency_is_capped, but proving the
+    *parameter* (not just the module constant) actually bounds concurrency."""
+    custom_cap = 3
+    concurrent = 0
+    max_concurrent = 0
+    lock = threading.Lock()
+    release = threading.Event()
+    ramped_up = threading.Event()
+
+    def check_balance(address):
+        nonlocal concurrent, max_concurrent
+        with lock:
+            concurrent += 1
+            max_concurrent = max(max_concurrent, concurrent)
+            if concurrent >= custom_cap:
+                ramped_up.set()
+        release.wait(timeout=2)
+        with lock:
+            concurrent -= 1
+        return 1.0
+
+    service = MagicMock()
+    service.check_balance = MagicMock(side_effect=check_balance)
+    mock_load_service.return_value = service
+
+    addresses = [f"addr{i}" for i in range(custom_cap + 5)]
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": addresses}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    def run():
+        check_wallet_balances(
+            str(input_file), str(output_file), coins_to_check=["Bitcoin"], per_coin_max_concurrency=custom_cap
+        )
+
+    t = threading.Thread(target=run)
+    t.start()
+    assert ramped_up.wait(timeout=2), "never reached the expected custom per-coin concurrency cap"
+    release.set()
+    t.join(timeout=3)
+
+    assert max_concurrent <= custom_cap
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_custom_global_max_workers_parameter_is_passed_to_the_thread_pool(mock_load_service, mock_sleep, tmp_path):
+    mock_load_service.return_value = make_service([1.0, 1.0, 1.0])
+
+    addresses = [f"addr{i}" for i in range(3)]
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": addresses}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    with patch("tools.check_wallet_balances.ThreadPoolExecutor", wraps=ThreadPoolExecutor) as mock_pool:
+        check_wallet_balances(
+            str(input_file), str(output_file), coins_to_check=["Bitcoin"], global_max_workers=2
+        )
+
+    assert mock_pool.call_args.kwargs["max_workers"] == 2  # min(3 tasks, 2 custom) == 2

@@ -227,7 +227,9 @@ def test_check_balances_records_findings_and_flows_progress(mock_pipeline, mock_
     def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
         return {"output_dir": out_dir, "files_found": 1, "coin_counts": {"Bitcoin": 1}, "total_address_instances": 1}
 
-    def fake_check_balances(out_dir, progress_callback=None, checkpoint_path=None):
+    def fake_check_balances(
+        out_dir, progress_callback=None, checkpoint_path=None, global_max_workers=None, per_coin_max_concurrency=None
+    ):
         if progress_callback:
             progress_callback(1, 1, "checking addresses")
         checks_dir = Path(out_dir) / "checks"

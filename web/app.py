@@ -50,6 +50,7 @@ from web.auto_unlock_history import (
 )
 from web.credential_scan_cache import credential_status_index, mark_address_extracted, run_credential_scan
 from web.scan_excludes import add_exclude, list_excludes, remove_exclude
+from web.scan_settings import get_settings, resolve_check_balances_workers, set_mode, set_overrides
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
 
@@ -131,6 +132,29 @@ def create_app(host="127.0.0.1"):
                 },
             }
         )
+
+    @app.route("/api/scan-settings", methods=["GET"])
+    def api_get_scan_settings():
+        """
+        Minimal read/write contract for the resource-control settings
+        (structured-outline.md #1.6). Only the two check_balances fields
+        are actually consumed by a job dispatch route yet (sse-02) --
+        search_walk_threads/analyze_processes round-trip fine but nothing
+        reads them until sse-06.
+        """
+        return jsonify(get_settings())
+
+    @app.route("/api/scan-settings", methods=["POST"])
+    def api_set_scan_settings():
+        data = request.get_json(silent=True) or {}
+        try:
+            if "mode" in data:
+                set_mode(data["mode"])
+            if "overrides" in data:
+                set_overrides(data["overrides"])
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        return jsonify(get_settings())
 
     @app.route("/")
     def index():
@@ -1893,27 +1917,27 @@ def _find_checkpoint_path(output_dir):
 def _interrupted_balance_checks():
     """
     Same idea as _interrupted_scans() but for the balance-check stage --
-    every balance_checkpoint.json left behind by a check that never
+    every balance_checkpoint.db left behind by a check that never
     finished. Resuming is a POST to /scans/view/check-balances with the
     same output_dir, same route the "Check balances" button already uses.
+
+    A raw sqlite COUNT(*) against CheckpointStore's own schema (sse-02) --
+    only confirmed (non-None) balances are ever recorded as completed
+    units there (see tools.check_wallet_balances._checkpoint_unit_id), so
+    this count is already exactly "addresses confirmed so far", no
+    per-row balance parsing needed.
     """
     if not DEFAULT_OUTPUT_ROOT.is_dir():
         return []
     interrupted = []
-    for checkpoint_path in DEFAULT_OUTPUT_ROOT.glob("*/checks/balance_checkpoint.json"):
+    for checkpoint_path in DEFAULT_OUTPUT_ROOT.glob("*/checks/balance_checkpoint.db"):
         try:
-            with open(checkpoint_path) as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+            conn = sqlite3.connect(str(checkpoint_path))
+            confirmed = conn.execute("SELECT COUNT(*) FROM completed_units").fetchone()[0]
+            conn.close()
+        except sqlite3.Error:
             continue
         output_dir = str(checkpoint_path.parent.parent)
-        confirmed = sum(
-            1
-            for coins in data.get("results", {}).values()
-            for addresses in coins.values()
-            for balance in addresses.values()
-            if balance is not None
-        )
         interrupted.append({"output_dir": output_dir, "addresses_confirmed_so_far": confirmed})
     return interrupted
 
@@ -2025,7 +2049,7 @@ def _run_find_job(input_dir, job_id, index_db_path=None):
 
 
 def _balance_checkpoint_path(output_dir):
-    return str(Path(output_dir) / "checks" / "balance_checkpoint.json")
+    return str(Path(output_dir) / "checks" / "balance_checkpoint.db")
 
 
 def _run_check_balances_job(output_dir, job_id):
@@ -2035,11 +2059,21 @@ def _run_check_balances_job(output_dir, job_id):
     resumable across a quit/update/crash the same way the scan stage is:
     addresses already confirmed a real balance don't get re-checked when
     this same output_dir's balance check is run again.
+
+    global_max_workers/per_coin_max_concurrency are resolved fresh from
+    web.scan_settings at dispatch time (sse-02) -- "auto" mode (the
+    default) resolves to the exact same tuned constants used before these
+    were settings at all, so this is a no-op for anyone who hasn't opened
+    the settings page; a "custom" mode with a saved override changes what
+    this next job actually uses.
     """
+    global_max_workers, per_coin_max_concurrency = resolve_check_balances_workers()
     run_pipeline.check_balances(
         output_dir,
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
         checkpoint_path=_balance_checkpoint_path(output_dir),
+        global_max_workers=global_max_workers,
+        per_coin_max_concurrency=per_coin_max_concurrency,
     )
 
     balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
@@ -2079,10 +2113,13 @@ def _run_check_balances_selected_job(output_dir, selected_files, job_id):
         json.dump(subset, f)
 
     balances_path = checks_dir / "wallet_balances.json"
+    global_max_workers, per_coin_max_concurrency = resolve_check_balances_workers()
     check_wallet_balances(
         str(subset_input_path),
         str(balances_path),
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+        global_max_workers=global_max_workers,
+        per_coin_max_concurrency=per_coin_max_concurrency,
     )
 
     balances = _read_json(balances_path)
