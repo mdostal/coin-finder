@@ -1,0 +1,105 @@
+id: pns-01-scanner-and-review-ui
+epic: password-note-scanner
+title: Core scanner + candidate review UI (no vault ingestion yet)
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  Build tools/find_password_candidates.py, a new scanner parallel to
+  tools/find_seed_phrases.py -- reuse its exact file-discovery shape (no
+  filename/extension allowlist, walk every file under a path, same 10MB
+  size cap, same binary-vs-text sniff via null-byte detection on the first
+  8KB) rather than search_wallets.py's filename-driven approach, since a
+  password/credential note has no reason to have a "wallet"-shaped
+  filename.
+
+  Matching heuristic (no structural/checksum validator exists for this,
+  unlike address matching -- this is a real, honest limitation, not a gap
+  to hide): match lines containing explicit credential labels
+  (case-insensitive "password:", "pw:", "pass:", "passphrase:", "pwd:")
+  followed by a token, OR a plausible password-shaped token on a line that
+  also mentions a coin/wallet name -- reuse config/search.py's existing
+  COIN_NAMES/WALLET_KEYWORDS lists as the proximity anchor for the second
+  case, don't duplicate that list.
+
+  This story ships the scan + a review UI showing what was found (source
+  file, line context, the matched candidate) -- NOT vault ingestion, which
+  is pns-02. The user needs to see real candidates and real volume/noise
+  before anything gets wired into auto-unlock.
+
+  Never call record_finding() or anything that could make a discovered
+  password candidate look like a recovered balance -- this scanner's
+  output is candidates, never findings.
+
+acceptance_criteria:
+  - "Given a directory with a plain text file containing 'password: hunter2', when scanned, then a candidate is found with the file path, line, and matched value"
+  - "Given a directory with a plain text file containing a token near a coin name (e.g. 'bitcoin backup: correcthorsebatterystaple' on one line), when scanned, then a candidate is found via the coin-name-proximity path"
+  - "Given a directory with ordinary prose containing no credential labels or coin-name proximity, when scanned, then no candidates are found -- explicit false-positive-avoidance test, not just a happy-path test"
+  - "Given a binary file (e.g. an image) in the scan path, when scanned, then it's skipped via the same null-byte binary-detection sniff find_seed_phrases.py already uses, not read/matched against"
+  - "Given a file larger than the 10MB cap, when scanned, then it's skipped, matching find_seed_phrases.py's existing size-cap behavior"
+  - "Given a completed scan, when the results are surfaced to the user, then nothing is written to findings.db or any vault store -- this story is read-only/review-only, confirmed by an explicit test that no vault/findings write functions are called"
+  - "Given a real-world test corpus of representative note-shaped text (a mix of real credential-labeled lines and ordinary prose that happens to mention passwords/security topics without being one), when scanned, then the false-positive rate is measured and reported in the story's completion notes -- not assumed zero"
+
+steps:
+  - id: research
+    description: Confirm find_seed_phrases.py's exact file-discovery/binary-sniff implementation to reuse precisely, and config/search.py's exact COIN_NAMES/WALLET_KEYWORDS list to import rather than duplicate.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the scanner (label-based matches, coin-name-proximity matches, true-negative prose, binary-file skipping, size-cap skipping, zero writes to findings/vault stores) plus the review-route rendering.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement tools/find_password_candidates.py and the web job + review route/template.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically for false-positive rate honesty -- confirm the real test-corpus measurement was performed and documented, not skipped or assumed.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/find_seed_phrases.py
+      purpose: "Architecturally closest sibling -- reuse its file-discovery/binary-sniff shape exactly, do not rebuild it"
+    - path: config/search.py
+      purpose: "COIN_NAMES/WALLET_KEYWORDS lists reused as the proximity anchor for the coin-name-adjacent matching path -- import, don't duplicate"
+    - path: .pHive/epics/candidate-match-integrity/docs/design-discussion.md
+      purpose: "The false-positive lesson this story must apply: no structural validator exists here, so honesty about FP rate replaces checksum-based filtering"
+
+files_to_modify:
+  - file: tools/find_password_candidates.py
+    change: "New file. Scanner + heuristic matching"
+  - file: web/app.py
+    change: "New job type + review route"
+  - file: web/templates/password_scan_review.html
+    change: "New template. Candidate review UI (no ingestion action yet)"
+  - file: tests/test_find_password_candidates.py
+    change: "New file. Full scanner test coverage including the false-positive measurement"
+  - file: tests/test_web_app_password_scan.py
+    change: "New file. Route test coverage"
+
+design_decisions:
+  - decision: "Reuse find_seed_phrases.py's file-discovery shape, not search_wallets.py's"
+    rationale: "search_wallets.py is filename-driven (extension/coin-name/keyword in the FILENAME) -- a password note has no reason to be named that way; find_seed_phrases.py already walks every file with no filename gate, which is what content-based matching needs"
+  - decision: "No vault ingestion in this story"
+    rationale: "The review step must show real candidates and real volume before anything is wired into the auto-unlock pipeline -- confirmed as the right slice boundary in the vertical plan"
+
+risks:
+  - severity: medium
+    description: "Keyword-proximity heuristic has a real, previously-unmeasured false-positive rate -- no checksum/structural validator exists for this domain, unlike every other matcher in this codebase"
+    mitigation: "Explicit acceptance criterion requiring real measurement against a representative test corpus, documented plainly rather than assumed solved -- same 'no silent coverage claims' discipline as candidate-match-integrity"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md gets a new section describing this scan type once both stories ship, explicitly noting it's a best-effort heuristic, not a validated match like address/seed-phrase scanning"
+
+references:
+  - path: .pHive/epics/password-note-scanner/docs/design-discussion.md
+    relevant_excerpt: "Section 3.1-3.3 (scanner design) and section 2's candidate-match-integrity lesson analysis."

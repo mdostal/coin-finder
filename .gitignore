@@ -279,6 +279,8 @@ cython_debug/
 !.pHive/epics/scalable-scan-engine/**
 !.pHive/epics/multi-cluster-relationship-graph/
 !.pHive/epics/multi-cluster-relationship-graph/**
+!.pHive/epics/password-note-scanner/
+!.pHive/epics/password-note-scanner/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

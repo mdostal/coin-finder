@@ -1,0 +1,88 @@
+id: pns-02-confirm-and-vault-ingest
+epic: password-note-scanner
+title: Confirm-and-ingest reviewed candidates into the vault
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [pns-01-scanner-and-review-ui]
+
+description: |
+  Complete the feature: let the user select which reviewed candidates
+  (from pns-01's review UI) to actually add to the vault, then ingest them
+  via web/vault.py's add_vault_entry -- the only real integration point
+  into the existing vault/auto-unlock pipeline (confirmed via research,
+  not assumed; there is no bulk-ingestion path today, so this loops
+  add_vault_entry per selected candidate).
+
+  Naming must be deterministic and collision-safe: derive each vault
+  entry's name from a content hash of its source (e.g.
+  "note-scan-{hash-prefix}") so re-running the scanner against the same
+  files doesn't create duplicate vault entries on every run, and so two
+  different files' candidates can never silently overwrite each other
+  under the same name.
+
+  This is an explicit, human-confirmed action -- never silent auto-
+  ingestion. The user sees the reviewed list from pns-01 and picks which
+  ones to add, same as every other confirm-before-action flow already in
+  this app (bulk unlock, bulk key extraction).
+
+acceptance_criteria:
+  - "Given reviewed candidates from a scan, when the user selects a subset and confirms, then exactly those candidates (not all discovered ones) are added to the vault via add_vault_entry"
+  - "Given the same file is scanned twice and the same candidate re-confirmed, when ingested the second time, then no duplicate vault entry is created -- the deterministic content-hash naming produces the same name both times"
+  - "Given two different candidates from two different source files, when both are ingested, then they get distinct vault entry names -- no silent overwrite"
+  - "Given the confirm step, when no candidates are selected, then nothing is added and the UI handles this sensibly (disabled action or clear message), not a silent no-op that looks like it worked"
+  - "Given a real value written to a temp file for add_vault_entry, when the call completes, then the temp file is deleted (mirrors the existing vault_add route's finally-block cleanup pattern) -- no leftover plaintext credential files on disk"
+
+steps:
+  - id: research
+    description: Confirm web/app.py's existing vault_add route's exact temp-file-write/cleanup pattern to replicate precisely for the bulk case, and add_vault_entry's exact signature/behavior.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the confirm/select flow, deterministic dedup naming across repeated scans, distinct naming across different sources, and temp-file cleanup.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement the confirm route/UI and the deterministic-naming ingestion loop over add_vault_entry.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically for temp-file cleanup correctness (no leftover plaintext credentials on disk) and naming-collision safety.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/vault.py
+      purpose: "add_vault_entry(name, value_file_path, description, sm_name) is the sole integration point -- one name/value pair per call"
+    - path: web/app.py
+      purpose: "Existing vault_add route (~line 1262) is the exact temp-file-write/cleanup pattern to replicate for the bulk ingestion loop"
+
+files_to_modify:
+  - file: web/app.py
+    change: "New confirm/ingest route, looping add_vault_entry with deterministic naming"
+  - file: web/templates/password_scan_review.html
+    change: "Add selection checkboxes + confirm action (extends pns-01's review UI)"
+  - file: tests/test_web_app_password_scan.py
+    change: "Extend with confirm/ingest test coverage"
+
+design_decisions:
+  - decision: "Deterministic content-hash-based vault entry naming, not sequential/arbitrary names"
+    rationale: "Confirmed in design discussion §3.4 -- prevents duplicate entries on repeated scans and prevents silent name-collision overwrites between different sources"
+
+risks:
+  - severity: low
+    description: "Bulk-loop over add_vault_entry (a subprocess call per entry) could be slow for a large confirmed batch"
+    mitigation: "Acceptable for v1 given the confirm step is human-paced and batches are realistically small (a reviewed, human-selected subset, not raw scan output volume)"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md's password-scan section (added in pns-01) documents the confirm-before-ingest flow"
+
+references:
+  - path: .pHive/epics/password-note-scanner/docs/design-discussion.md
+    relevant_excerpt: "Section 3.4 (vault ingestion naming) and section 3.5 (never a finding)."
