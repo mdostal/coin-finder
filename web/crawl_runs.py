@@ -291,6 +291,166 @@ def find_overlap_addresses(db_path=DEFAULT_DB_PATH):
         conn.close()
 
 
+def get_cross_group_overlap(run_ids, db_path=DEFAULT_DB_PATH):
+    """
+    The run_id-set-scoped sibling of find_overlap_addresses: every address
+    discovered by 2+ of the SPECIFIC given run_ids -- not globally across
+    every saved run ever (that's find_overlap_addresses' job). This is
+    what makes an address "cross-group" for one particular combined-graph
+    view (e.g. the 3 runs a user just checked together), which can be a
+    very different answer than whether that address overlaps globally --
+    an address shared by two runs neither of which is in the current
+    selection must NOT show up here.
+
+    Empty (never an error) when fewer than two distinct run_ids are given,
+    or when none of the given runs' addresses overlap with each other.
+
+    :param run_ids: iterable of int run_id values to check for overlap
+        within. Order and duplicates don't matter -- deduplicated
+        internally, same as get_runs_graph_data.
+    :return: {address: [{"run_id", "seed_addresses", "confidence",
+        "generation"}, ...]} -- only addresses found in 2+ of the given
+        run_ids, each mapped to the real evidence (never fewer than 2
+        entries) for exactly which of the selected runs/seeds found it --
+        never a bare "overlap" label with nothing behind it.
+    """
+    run_ids = sorted({int(run_id) for run_id in run_ids})
+    if len(run_ids) < 2:
+        return {}
+
+    conn = _connect(db_path)
+    try:
+        placeholders = ",".join("?" * len(run_ids))
+        overlapping = conn.execute(
+            f"""
+            SELECT address FROM run_addresses
+            WHERE run_id IN ({placeholders})
+            GROUP BY address HAVING COUNT(DISTINCT run_id) > 1
+            """,
+            run_ids,
+        ).fetchall()
+        if not overlapping:
+            return {}
+
+        addresses = [row["address"] for row in overlapping]
+        addr_placeholders = ",".join("?" * len(addresses))
+        rows = conn.execute(
+            f"""
+            SELECT ra.address, ra.confidence, ra.generation, ra.run_id, r.seed_addresses
+            FROM run_addresses ra
+            JOIN runs r ON r.run_id = ra.run_id
+            WHERE ra.address IN ({addr_placeholders}) AND ra.run_id IN ({placeholders})
+            ORDER BY ra.address, r.created_at
+            """,
+            addresses + run_ids,
+        ).fetchall()
+
+        result = {}
+        for row in rows:
+            result.setdefault(row["address"], []).append(
+                {
+                    "run_id": row["run_id"],
+                    "seed_addresses": json.loads(row["seed_addresses"]),
+                    "confidence": row["confidence"],
+                    "generation": row["generation"],
+                }
+            )
+        return result
+    finally:
+        conn.close()
+
+
+# Same strength ordering crawl_wallet_cluster/compute_confidence_scores
+# already use for these exact tag strings (seed is the address you started
+# from -- maximally confident; co-spend is strong direct evidence;
+# output is weaker). Lower rank number wins in get_runs_graph_data's dedup.
+_CONFIDENCE_DEDUP_RANK = {"seed": 0, "co-spend": 1, "output": 2}
+
+
+def _dedup_sort_key(candidate):
+    """Lower sorts first/wins. An unrecognized or missing confidence value
+    sorts last (worst), never crashes. Generation is the tiebreak when
+    confidence ranks equal (lower generation = closer to a seed = more
+    directly connected); a missing generation also sorts last."""
+    confidence_rank = _CONFIDENCE_DEDUP_RANK.get(candidate["confidence"], len(_CONFIDENCE_DEDUP_RANK))
+    generation = candidate["generation"] if candidate["generation"] is not None else float("inf")
+    return (confidence_rank, generation)
+
+
+def get_runs_graph_data(run_ids, db_path=DEFAULT_DB_PATH):
+    """
+    The real combined-group graph dataset: every address discovered by ANY
+    of the given run_ids (deduplicated), plus every edge belonging to those
+    same runs. Deliberately NOT find_overlap_addresses -- that function is
+    globally-scoped and intersection-only (addresses found by 2+ runs out
+    of every run ever saved, discarding everything else); this returns the
+    full UNION of nodes across exactly the selected runs, which is what a
+    real combined-view graph needs to render (every node from every
+    selected group, not just where they overlap).
+
+    Dedup rule when the same address appears in run_addresses for more
+    than one selected run: keep the record with the highest-confidence
+    discovery tag -- seed beats co-spend beats output, the same evidence-
+    strength ordering already used elsewhere in this file (_COSPEND_WEIGHT
+    > _OUTPUT_WEIGHT, seed == generation 0). When confidence ties, the
+    earliest (lowest) generation wins. If both are tied too, the record
+    seen first in run_id order is kept -- deterministic, never an
+    arbitrary "whichever the SQL happened to return last."
+
+    :param run_ids: iterable of int run_id values to combine. Order and
+        duplicates don't matter -- deduplicated internally.
+    :return: {"nodes": {address: {"confidence", "generation", "balance",
+        "last_activity_timestamp", "dormant_years", "run_id"}, ...},
+        "edges": [{"run_id", "from_address", "to_address", "edge_type",
+        "txid"}, ...]}. "run_id" on a node is whichever run's record won
+        the dedup, not necessarily every run the address appeared in.
+        Empty nodes/edges (not an error) when run_ids is empty or none of
+        them have saved data.
+    """
+    run_ids = sorted({int(run_id) for run_id in run_ids})
+    if not run_ids:
+        return {"nodes": {}, "edges": []}
+
+    conn = _connect(db_path)
+    try:
+        placeholders = ",".join("?" * len(run_ids))
+        address_rows = conn.execute(
+            f"""
+            SELECT run_id, address, confidence, generation, balance, last_activity_timestamp, dormant_years
+            FROM run_addresses
+            WHERE run_id IN ({placeholders})
+            ORDER BY run_id
+            """,
+            run_ids,
+        ).fetchall()
+        edge_rows = conn.execute(
+            f"""
+            SELECT run_id, from_address, to_address, edge_type, txid
+            FROM run_edges
+            WHERE run_id IN ({placeholders})
+            """,
+            run_ids,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    nodes = {}
+    for row in address_rows:
+        candidate = {
+            "confidence": row["confidence"],
+            "generation": row["generation"],
+            "balance": row["balance"],
+            "last_activity_timestamp": row["last_activity_timestamp"],
+            "dormant_years": row["dormant_years"],
+            "run_id": row["run_id"],
+        }
+        existing = nodes.get(row["address"])
+        if existing is None or _dedup_sort_key(candidate) < _dedup_sort_key(existing):
+            nodes[row["address"]] = candidate
+
+    return {"nodes": nodes, "edges": [dict(row) for row in edge_rows]}
+
+
 def clear_all_crawl_runs(db_path=DEFAULT_DB_PATH):
     """Hard-deletes every saved crawl run -- mirrors web.findings.clear_all_findings()."""
     conn = _connect(db_path)

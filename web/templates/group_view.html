@@ -14,6 +14,63 @@ probably related (a mining wallet and its holding wallet, for example).
   </form>
 </div>
 
+{% if runs %}
+<div class="card">
+  <h3 style="margin-top:0">View a combined graph</h3>
+  <p class="subtle">Pick 2 or more saved runs below to see them combined into one graph.
+  An address independently found by more than one of the runs you pick gets a bold dashed
+  border in that graph -- a separate signal from its confidence coloring, so you can tell
+  "high confidence" and "cross-group" apart.</p>
+  <table>
+    <thead>
+      <tr><th></th><th>Seed address(es)</th><th>Addresses found</th><th>Saved</th></tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><input type="checkbox" class="run-select-checkbox" value="{{ run.run_id }}" id="run-select-{{ run.run_id }}"></td>
+        <td><label for="run-select-{{ run.run_id }}">{{ run.seed_addresses | join(", ") }}</label></td>
+        <td>{{ run.address_count }}</td>
+        <td>{{ run.created_at | int | timestamp_to_local }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <button type="button" id="view-combined-graph-btn" class="btn-secondary" disabled>View combined graph</button>
+  <p id="combined-graph-hint" class="subtle">Select at least 2 runs to combine.</p>
+</div>
+<script>
+(function () {
+  var checkboxes = Array.prototype.slice.call(document.querySelectorAll(".run-select-checkbox"));
+  var btn = document.getElementById("view-combined-graph-btn");
+  var hint = document.getElementById("combined-graph-hint");
+  if (!btn || !hint) return;
+
+  function selectedRunIds() {
+    return checkboxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+  }
+
+  function refresh() {
+    var selected = selectedRunIds();
+    btn.disabled = selected.length < 2;
+    hint.textContent = selected.length < 2
+      ? "Select at least 2 runs to combine (" + selected.length + " selected)."
+      : selected.length + " runs selected.";
+  }
+
+  checkboxes.forEach(function (cb) { cb.addEventListener("change", refresh); });
+
+  btn.addEventListener("click", function () {
+    var selected = selectedRunIds();
+    if (selected.length < 2) return;
+    window.location.href = "{{ url_for('group_view_graph') }}?run_ids=" + selected.join(",");
+  });
+
+  refresh();
+})();
+</script>
+{% endif %}
+
 {% if overlaps %}
 <table>
   <thead>
