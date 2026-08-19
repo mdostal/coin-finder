@@ -47,7 +47,7 @@ steps:
     agent: reviewer
     depends_on: [implement]
   - id: integrate
-    description: Commit tools/crawl_transaction_graph.py, tests/test_crawl_transaction_graph.py, and README.md updates. Manually run the CLI against the real found address (1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB) to sanity-check real-world output.
+    description: Commit tools/crawl_transaction_graph.py, tests/test_crawl_transaction_graph.py, and README.md updates. Manually run the CLI against the real found address ([REDACTED-REAL-ADDRESS]) to sanity-check real-world output.
     agent: developer
     depends_on: [review]
 

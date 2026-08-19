@@ -9,7 +9,7 @@ from tools.check_fork_coins import (
     render_fork_coin_report,
 )
 
-ADDRESS = "1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB"
+ADDRESS = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
 ADDRESS_2 = "1MAVqESJxwtseFhH6iTAMDsk4hTzX4hbA4"
 
 

@@ -2,7 +2,7 @@ name: wif-key-extraction-and-recovery-report
 title: WIF Key Extraction + Wallet Recoverability Report
 description: >
   Direct response to a real find: backup-wallet-1/wallet.dat's address
-  1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB holds 0.29999058 BTC and the wallet is
+  [REDACTED-REAL-ADDRESS] holds 0.29999058 BTC and the wallet is
   unencrypted, so the private key is sitting in the file's value-half
   records right now. Two new standalone tools: tools/extract_private_key.py
   extracts one address's WIF private key from an unencrypted Bitcoin Core
