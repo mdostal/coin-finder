@@ -1,7 +1,7 @@
 id: bpk-02
 epic: bulk-private-key-extraction
 title: Bulk extraction confirm/job/result flow
-status: pending
+status: shipped
 complexity: medium
 methodology: tdd
 depends_on: [bpk-01]

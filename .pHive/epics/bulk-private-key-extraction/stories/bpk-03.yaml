@@ -1,7 +1,7 @@
 id: bpk-03
 epic: bulk-private-key-extraction
 title: Backport eye-toggle mask to the single-finding extract-key result page
-status: pending
+status: shipped
 complexity: low
 methodology: tdd
 depends_on: []

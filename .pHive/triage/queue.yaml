@@ -17,8 +17,8 @@ items:
       than scope-creeping the epic already in flight.
     priority: high
     severity: null
-    state: prioritized
-    linked_epic: null
+    state: closed
+    linked_epic: bulk-private-key-extraction
     linked_story: null
     raised_at: "2026-08-17T10:45:00-05:00"
     raised_by: mathew

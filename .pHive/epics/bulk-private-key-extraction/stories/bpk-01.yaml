@@ -1,7 +1,7 @@
 id: bpk-01
 epic: bulk-private-key-extraction
 title: Extraction-state schema + candidate selection in the UI
-status: pending
+status: shipped
 complexity: low
 methodology: tdd
 depends_on: []
