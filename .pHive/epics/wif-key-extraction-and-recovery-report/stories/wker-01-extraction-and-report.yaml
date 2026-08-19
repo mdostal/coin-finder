@@ -53,7 +53,7 @@ description: |
   backup-wallet-1/wallet.dat for 16 different zero-balance addresses
   (1 initial + a 15-address random sample) -- 16/16 produced a WIF that
   round-tripped back to the exact same address. Real extraction of the
-  actual funded address (1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB) is left to a
+  actual funded address ([REDACTED-REAL-ADDRESS]) is left to a
   separate, explicit, offline run -- not part of this story's automated
   work, per the offline-gate discipline this whole project follows for real
   secret material.

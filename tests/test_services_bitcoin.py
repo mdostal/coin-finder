@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from services.bitcoin import BitcoinService
 
-ADDRESS = "1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB"
+ADDRESS = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
 
 
 def _response(status_code, chain_stats=None):

@@ -1073,6 +1073,10 @@ CRYPTO_PATTERNS = {
 }
 ```
 
+## License
+
+[MIT](LICENSE)
+
 <!-- shared:support -->
 ## Support this project
 

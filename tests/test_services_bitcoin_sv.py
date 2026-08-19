@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from services.bitcoin_sv import BitcoinSvService
 
-ADDRESS = "1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB"
+ADDRESS = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
 
 
 @patch("services.bitcoin_sv.requests.get")
