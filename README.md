@@ -958,7 +958,30 @@ Generates JSON files at each stage for traceability and easy debugging.
   WALLET_KEYWORDS = ["wallet", "crypto", "bitcoin", "ethereum", "backup"]
   ```
   ---
-  
+
+### 4. Resource profile (`web/scan_settings.py`, Settings page)
+
+- **Purpose**: Controls how much of the machine search/analyze/check-balances
+  jobs are allowed to use -- four knobs: `search_walk_threads`,
+  `analyze_processes`, `check_balances_global_workers`,
+  `check_balances_per_coin_concurrency`.
+- **Auto mode (default)**: computed live from `os.cpu_count()` at the moment
+  each job is dispatched (stdlib only -- no new dependency like `psutil`
+  for memory-aware tuning):
+  - `search_walk_threads = min(4, max(1, cpu_count() // 2))` -- directory
+    listing is I/O-bound, and deliberately capped low since more concurrent
+    walkers means more concurrent API calls against a mounted remote drive.
+  - `analyze_processes = max(1, cpu_count() - 1)` -- analyze is CPU-bound
+    regex matching, so this uses most cores, leaving one free for the app.
+  - `check_balances_global_workers` / `check_balances_per_coin_concurrency`
+    stay pinned to today's tuned constants (64 / 15) regardless of core
+    count -- they're bounded by a real external API's rate limit, not local
+    hardware, so `cpu_count()` never drives them.
+- **Custom mode**: set exact numbers for all four fields directly from the
+  Settings page; any field left blank falls back to its auto-computed
+  value. Changing a setting takes effect on the *next* job you start.
+  ---
+
 ## Environment Setup
 
 ### Required Environment Variables

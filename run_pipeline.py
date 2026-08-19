@@ -28,6 +28,7 @@ def find(
     index_db_path=None,
     checkpoint_path=None,
     processes=None,
+    walk_threads=None,
     progress_callback=None,
     excludes=None,
     mount_health_check=None,
@@ -58,6 +59,10 @@ def find(
     :param processes: optional -- see tools.analyze_wallets.analyze_wallets().
         None (default) runs analyze sequentially, unchanged from before
         multiprocessing support existed.
+    :param walk_threads: optional -- see tools.search_wallets.search_for_wallets().
+        None (default) omits the kwarg entirely, so search_for_wallets'
+        own DEFAULT_WALK_THREADS applies, unchanged from before this
+        parameter existed.
     :param progress_callback: optional callable(current, total, message).
         Forwarded to both search_for_wallets (indeterminate -- directories
         walked, no known total) and analyze_wallets (determinate -- a
@@ -80,6 +85,8 @@ def find(
     search_kwargs = {}
     if mount_health_check is not None:
         search_kwargs["mount_health_check"] = mount_health_check
+    if walk_threads:
+        search_kwargs["walk_threads"] = walk_threads
 
     print("Running wallet search...")
     search_for_wallets(

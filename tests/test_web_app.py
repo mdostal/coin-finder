@@ -79,6 +79,34 @@ def test_settings_link_present_in_top_nav_on_every_page(client):
     assert b'href="/settings"' in resp.data
 
 
+def test_settings_page_has_resource_profile_mode_toggle(client):
+    """sse-06: Auto (default) / Custom mode toggle for the resource
+    profile section."""
+    resp = client.get("/settings")
+    assert b'data-resource-mode="auto"' in resp.data
+    assert b'data-resource-mode="custom"' in resp.data
+
+
+def test_settings_page_has_all_four_resource_profile_fields_as_editable_numeric_inputs(client):
+    """sse-06 acceptance criterion: Custom mode's four fields are direct
+    editable numeric inputs, not deferred/hidden behind additional
+    clicks -- they're present in the page's DOM from the start (JS toggles
+    visibility, but the inputs themselves always exist)."""
+    resp = client.get("/settings")
+    for field in (
+        "search_walk_threads",
+        "analyze_processes",
+        "check_balances_global_workers",
+        "check_balances_per_coin_concurrency",
+    ):
+        needle = f'data-resource-field="{field}"'.encode()
+        assert needle in resp.data
+        assert f'id="resource-profile-custom-{field}"'.encode() in resp.data
+        assert f'type="number"'.encode() in resp.data
+
+    assert b'src="/static/scan_settings.js"' in resp.data
+
+
 def test_default_palette_is_archival_when_nothing_stored(client):
     """theme.js falls back to the "archival" palette (the pre-existing
     warm brass/gold default) when localStorage has no stored palette --
@@ -156,7 +184,7 @@ def test_find_job_lifecycle_reaches_done(mock_pipeline, mock_hidden, client, tmp
 @patch("web.app.scan_for_hidden_volumes")
 @patch("web.app.run_pipeline")
 def test_find_job_wires_live_progress_from_both_search_and_hidden_volume_stages(mock_pipeline, mock_hidden, client, tmp_path):
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         progress_callback(3, None, "Searching: 3 potential wallet(s) found so far — /a")
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
 
@@ -225,7 +253,7 @@ def test_check_balances_records_findings_and_flows_progress(mock_pipeline, mock_
     output_dir = tmp_path / "out"
     balances_data = {"walletA.dat": {"Bitcoin": {"1abc": 0.5}}}
 
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         return {"output_dir": out_dir, "files_found": 1, "coin_counts": {"Bitcoin": 1}, "total_address_instances": 1}
 
     def fake_check_balances(
@@ -269,7 +297,7 @@ def test_check_balances_404s_while_find_job_still_running(mock_pipeline, mock_hi
     started = threading.Event()
     release = threading.Event()
 
-    def slow_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def slow_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         started.set()
         release.wait(timeout=2)
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}

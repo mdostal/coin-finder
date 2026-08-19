@@ -229,6 +229,39 @@ def test_find_does_not_pass_checkpoint_path_or_processes_to_analyze_when_absent(
     assert "processes" not in mock_analyze.call_args.kwargs
 
 
+def test_find_threads_walk_threads_into_search_for_wallets_call(tmp_path):
+    """sse-06: find() must forward walk_threads through to
+    search_for_wallets() unchanged, the same way processes already gets
+    forwarded to analyze_wallets()."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets") as mock_search, \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})), \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir), walk_threads=5)
+
+    assert mock_search.call_args.kwargs["walk_threads"] == 5
+
+
+def test_find_does_not_pass_walk_threads_to_search_for_wallets_when_absent(tmp_path):
+    """Existing callers that never pass walk_threads to find() must see
+    search_for_wallets invoked exactly as before this story -- no new
+    kwarg at all -- so search_for_wallets' own DEFAULT_WALK_THREADS
+    default keeps applying unchanged."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets") as mock_search, \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})), \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir))
+
+    assert "walk_threads" not in mock_search.call_args.kwargs
+
+
 def test_find_forwards_progress_callback_with_stage_prefixes(tmp_path):
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"

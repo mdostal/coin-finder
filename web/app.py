@@ -51,7 +51,15 @@ from web.auto_unlock_history import (
 )
 from web.credential_scan_cache import credential_status_index, mark_address_extracted, run_credential_scan
 from web.scan_excludes import add_exclude, list_excludes, remove_exclude
-from web.scan_settings import get_settings, resolve_check_balances_workers, set_mode, set_overrides
+from web.scan_settings import (
+    get_auto_profile,
+    get_settings,
+    resolve_analyze_processes,
+    resolve_check_balances_workers,
+    resolve_search_walk_threads,
+    set_mode,
+    set_overrides,
+)
 from tools.scan_index import DEFAULT_DB_PATH as SCAN_INDEX_DB_PATH, clear_scan_index, list_scanned_files
 from web import ai_assist
 
@@ -137,13 +145,22 @@ def create_app(host="127.0.0.1"):
     @app.route("/api/scan-settings", methods=["GET"])
     def api_get_scan_settings():
         """
-        Minimal read/write contract for the resource-control settings
-        (structured-outline.md #1.6). Only the two check_balances fields
-        are actually consumed by a job dispatch route yet (sse-02) --
-        search_walk_threads/analyze_processes round-trip fine but nothing
-        reads them until sse-06.
+        Read/write contract for the resource-control settings
+        (structured-outline.md #1.6). All four fields are now consumed by
+        a job dispatch route (sse-06 generalized sse-02's check_balances-
+        only wiring) -- see _run_find_job for search_walk_threads/
+        analyze_processes, and _run_check_balances_job/
+        _run_check_balances_selected_job for the original two.
+
+        The "auto" key is additional, UI-only data -- get_settings()
+        itself (mode + overrides, the persisted shape) is unchanged, so
+        it always round-trips byte-for-byte through a POST. "auto" is the
+        live-computed, read-only "what auto mode would use on this exact
+        machine right now" for all four fields, recomputed on every GET
+        (never cached) -- see get_auto_profile()'s own docstring for why
+        that matters.
         """
-        return jsonify(get_settings())
+        return jsonify({**get_settings(), "auto": get_auto_profile()})
 
     @app.route("/api/scan-settings", methods=["POST"])
     def api_set_scan_settings():
@@ -2187,11 +2204,19 @@ def _run_find_job(input_dir, job_id, index_db_path=None):
     if mount_health_check is not None:
         find_kwargs["mount_health_check"] = mount_health_check
 
+    # sse-06: walk_threads/processes are resolved fresh from
+    # web.scan_settings at dispatch time -- "auto" mode (the default)
+    # computes live from this machine's os.cpu_count() (see
+    # get_auto_profile()), so this is a no-op change in behavior for
+    # anyone who hasn't opened the settings page; a "custom" mode with a
+    # saved override changes what this next job actually uses.
     summary = run_pipeline.find(
         input_dir,
         output_dir,
         index_db_path=index_db_path,
         checkpoint_path=_find_checkpoint_path(output_dir),
+        walk_threads=resolve_search_walk_threads(),
+        processes=resolve_analyze_processes(),
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
         excludes=[e["path"] for e in list_excludes()],
         **find_kwargs,

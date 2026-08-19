@@ -127,7 +127,7 @@ def test_check_balances_job_dispatch_uses_resolved_worker_counts(mock_pipeline, 
     mock_hidden.return_value = []
     mock_resolve.return_value = (7, 3)
 
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
 
     mock_pipeline.find.side_effect = fake_find
@@ -162,3 +162,47 @@ def test_check_balances_selected_job_dispatch_uses_resolved_worker_counts(mock_c
 
     assert mock_check.call_args.kwargs["global_max_workers"] == 11
     assert mock_check.call_args.kwargs["per_coin_max_concurrency"] == 4
+
+
+@patch("web.app.resolve_analyze_processes")
+@patch("web.app.resolve_search_walk_threads")
+@patch("web.app.scan_for_hidden_volumes")
+@patch("web.app.run_pipeline")
+def test_find_job_dispatch_uses_resolved_walk_threads_and_processes(
+    mock_pipeline, mock_hidden, mock_resolve_walk_threads, mock_resolve_processes, client, tmp_path
+):
+    """sse-06's generalization of sse-02's plumbing: a custom
+    search_walk_threads/analyze_processes value set via the settings
+    route must actually reach the next find (search+analyze) job
+    dispatch, not just round-trip through get/set."""
+    mock_hidden.return_value = []
+    mock_resolve_walk_threads.return_value = 2
+    mock_resolve_processes.return_value = 6
+    mock_pipeline.find.return_value = {"output_dir": str(tmp_path / "out"), "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
+
+    resp = client.post("/scan", data={"input_dir": str(tmp_path)}, follow_redirects=False)
+    job_id = resp.headers["Location"].rstrip("/").split("/")[-1]
+    _wait_for_done(client, job_id)
+
+    assert mock_pipeline.find.call_args.kwargs["walk_threads"] == 2
+    assert mock_pipeline.find.call_args.kwargs["processes"] == 6
+
+
+def test_get_scan_settings_route_includes_live_auto_computed_values(client):
+    """sse-06 acceptance criterion: a fresh install with no settings
+    configured must show mode=auto with live-computed values for all
+    four fields, based on the current machine's os.cpu_count() -- not
+    just the persisted mode/overrides shape."""
+    resp = client.get("/api/scan-settings")
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["mode"] == "auto"
+    auto = body["auto"]
+    assert set(auto) == {
+        "search_walk_threads",
+        "analyze_processes",
+        "check_balances_global_workers",
+        "check_balances_per_coin_concurrency",
+    }
+    assert all(isinstance(v, int) for v in auto.values())

@@ -140,7 +140,7 @@ def test_start_scan_mounts_jobs_run_concurrently_not_serially(mock_pipeline, moc
     started_by_dir = {str(mount_a): a_started, str(mount_b): b_started}
     other_by_dir = {str(mount_a): b_started, str(mount_b): a_started}
 
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         started_by_dir[input_dir].set()
         assert other_by_dir[input_dir].wait(timeout=2), "the other mount's scan never started -- mounts are being scanned serially"
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
