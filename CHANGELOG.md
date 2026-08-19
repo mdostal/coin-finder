@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-08-18
+
+### Added
+
+- **A new scan type that looks through your notes and text files for
+  passwords and credentials**, not just wallets and seed phrases. It looks
+  for lines like "password: ..." and password-shaped text sitting near a
+  mention of a coin or wallet. Every match is shown for you to review
+  first — nothing is added automatically. Check off the ones that are
+  real, and only those get added to your encrypted vault, ready to try
+  against your locked wallets from the Unlock page. Scanning the same
+  files again later won't create duplicate vault entries.
+  This is a best-effort heuristic, not a validated match like the
+  wallet/address scans — it's honest about that, both in its own review
+  page and in the README.
+
 ## [0.55.0] - 2026-08-18
 
 ### Added

@@ -172,6 +172,13 @@ while to walk. This page will refresh automatically.</p><div id="job-progress"><
       <button type="submit">Run</button>
     </form>
 
+    <form class="inline-form" method="post" action="{{ url_for('item_find_password_candidates') }}">
+      {{ m.path_input("Find password/credential notes -- directory or file", "target_path", mode="directory") }}
+      <button type="submit">Run</button>
+    </form>
+    <p class="subtle" style="margin-top:-0.5rem">Best-effort heuristic (label + coin-name proximity) --
+    review-only, nothing is added to the vault automatically.</p>
+
     <form class="inline-form" method="post" action="{{ url_for('item_stage') }}">
       {{ m.path_input("Stage a file for backup/recovery (copy only, original untouched) -- path", "file_path", mode="file") }}
       <button type="submit">Stage</button>
