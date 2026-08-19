@@ -604,6 +604,52 @@ automate (that needs your own memory, not a classifier).
 
 ---
 
+### 17. Password/Credential Note Scanner (`find_password_candidates.py`)
+
+**Standalone tool -- not part of the default pipeline run.** Scans ordinary
+text files/notes for password- or credential-shaped lines, the same way
+`find_seed_phrases.py` scans for seed phrases -- content-driven (no
+filename/extension allowlist), skipping anything over 10MB or that sniffs as
+binary before ever trying to match.
+
+- **Purpose**: Find a password/passphrase you jotted down in a notes file
+  somewhere on an old drive, so it can be saved to the vault and tried
+  against a locked wallet.
+- **How it works**: two independent heuristics, since -- unlike an address or
+  a BIP39 seed phrase -- there is no structural checksum for "this text is a
+  real password": (1) an explicit credential label (`password:`, `pw:`,
+  `pass:`, `passphrase:`, `pwd:`) followed by a value, or (2) a
+  plausible password-shaped token on a line that also mentions a coin/wallet
+  name. **This is a best-effort heuristic, not a validated match** -- it has
+  a real, non-zero false-positive rate (measured in
+  `tests/test_find_password_candidates.py`), which is why every result is
+  called a "candidate," never a "finding."
+- **Review, then confirm, then ingest -- never automatic.** The web UI's
+  password-scan review page (`/password-scan/<job_id>`) shows every
+  candidate for you to look at; nothing is added to the vault just from
+  running a scan. You then check the boxes next to the specific candidates
+  you actually want to keep and click "Add selected to vault," which calls
+  `web/vault.py`'s `add_vault_entry()` once per selected candidate (there is
+  no bulk-ingestion path). An empty selection is rejected with a clear
+  message rather than silently doing nothing.
+- **Deterministic, collision-safe naming.** Each ingested vault entry is
+  named `note-scan-{hash-prefix}`, derived from a content hash of the
+  candidate's exact source (file path, line, match type, and matched value).
+  Re-scanning the same unchanged file and re-confirming the same candidate
+  always produces the same name, so it never creates a duplicate vault
+  entry; two different candidates -- even from two different files -- always
+  hash to different names, so they can never silently overwrite each other.
+- **Usage**:
+  ```bash
+  python tools/find_password_candidates.py <start_path> <output_file>
+  ```
+**Example**:
+  ```bash
+  python tools/find_password_candidates.py /Volumes/OldDrive ./output/password_candidates.json
+  ```
+
+---
+
 ## Local Web UI (`web/app.py`)
 
 A local Flask app that ties the tools above into one browser-based flow,
@@ -647,8 +693,10 @@ still works standalone for scripting/automation.
   results page): run the standalone tools that intentionally sit outside the
   default pipeline against anything found -- a full `scan_wallet_dat.py`
   enumeration for a `.dat` file, a `crawl_transaction_graph.py` co-spend
-  cluster for one or more addresses, a `check_fork_coins.py` check, or
-  `find_seed_phrases.py`/`match_seed_phrases.py` against a directory/file.
+  cluster for one or more addresses, a `check_fork_coins.py` check,
+  `find_seed_phrases.py`/`match_seed_phrases.py`, or
+  `find_password_candidates.py` (see "Password/credential note scan" below)
+  against a directory/file.
   Same secrecy rules as the CLI tools apply here too: seed-phrase text is
   never included in a job result unless that specific phrase actually
   produced a balance (`match_seed_phrases.py`'s existing rule) -- and
@@ -692,6 +740,22 @@ still works standalone for scripting/automation.
   it? `pip install -r requirements-vault.txt`. If it isn't installed, a
   local `.env`-based fallback store is used automatically
   so the feature still works without it.
+- **Password/credential note scan** (`/item/find-password-candidates` ->
+  `/password-scan/<job_id>`) -- runs `find_password_candidates.py` in the
+  background, then shows every candidate line found (file, line number,
+  match type, matched value) for you to review. **Nothing is added to the
+  vault just from running the scan.** Check the boxes next to the specific
+  candidates you actually want to keep and click "Add selected to vault" --
+  this calls the same `add_vault_entry()` the manual "Add a password" form
+  above uses, once per selected candidate, writing each value to a local
+  temp file that's deleted immediately after. The confirm button stays
+  disabled until at least one candidate is checked, and submitting nothing
+  is rejected with a clear message rather than a silent no-op. Each ingested
+  entry is named `note-scan-{hash-prefix}`, a deterministic hash of the
+  candidate's exact source (file, line, match type, value) -- re-scanning
+  the same file and re-confirming the same candidate never creates a
+  duplicate entry, and two different candidates can never collide onto the
+  same name.
 - **Stage a file** -- copies (never moves) a found file into a local staging
   directory (`ui_output/staged/` by default) so you can gather recovery
   candidates in one place without touching the original drive. Refuses to

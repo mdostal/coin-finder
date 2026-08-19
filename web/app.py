@@ -515,6 +515,83 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("password_scan_review.html", job_id=job_id, job=job)
 
+    @app.route("/password-scan/<job_id>/confirm", methods=["POST"])
+    def password_scan_confirm(job_id):
+        """
+        pns-02: the one and only place a password-scan candidate can reach
+        the vault -- an explicit, human-confirmed selection, never a bulk
+        "add everything found" (see password_scan_review() above and
+        tools/find_password_candidates.py's module docstring for why this
+        scanner's output is only ever "candidates", reviewed by a human,
+        not auto-trusted findings).
+
+        Selected candidates arrive as "candidate" form values that are
+        integer indexes into _flatten_password_candidates(job.result
+        ["candidates"]) -- the exact same flat, ordered list
+        password_scan_review.html numbers its checkboxes from -- rather
+        than raw file/line/value text posted back from the client. That
+        way an index always resolves to the exact candidate the job
+        actually produced server-side; nothing about which candidate gets
+        ingested is trusted from client-supplied content.
+
+        Mirrors vault_add()'s existing temp-file-write-then-delete-in-a-
+        finally-block pattern exactly, once per selected candidate (add_
+        vault_entry takes one name/value pair per call -- there is no bulk
+        ingestion path).
+        """
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
+
+        candidates_by_file = ((job.get("result") or {}).get("candidates")) or {}
+        flat_candidates = _flatten_password_candidates(candidates_by_file)
+
+        selected_indexes = set()
+        for raw_index in request.form.getlist("candidate"):
+            try:
+                index = int(raw_index)
+            except ValueError:
+                continue
+            if 0 <= index < len(flat_candidates):
+                selected_indexes.add(index)
+
+        if not selected_indexes:
+            return (
+                render_template(
+                    "password_scan_review.html",
+                    job_id=job_id,
+                    job=job,
+                    error="Select at least one candidate before adding to the vault -- nothing was added.",
+                ),
+                400,
+            )
+
+        added_names = []
+        for index in sorted(selected_indexes):
+            file_path, candidate = flat_candidates[index]
+            name = f"note-scan-{_password_scan_candidate_hash(file_path, candidate)[:12]}"
+            description = (
+                f"Password-scan candidate from {file_path}:{candidate['line_number']} "
+                f"({candidate['match_type']} -- {candidate['detail']})"
+            )
+
+            # Same write-to-temp-file-then-delete-in-a-finally-block
+            # discipline as vault_add() above -- the raw value never
+            # travels as a CLI argument, and the temp file never
+            # outlives this single add_vault_entry() call.
+            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+                f.write(candidate["matched_value"])
+                value_path = f.name
+
+            try:
+                add_vault_entry(name, value_path, description=description)
+            finally:
+                Path(value_path).unlink(missing_ok=True)
+
+            added_names.append(name)
+
+        return render_template("password_scan_review.html", job_id=job_id, job=job, added=added_names)
+
     @app.route("/item-result/<job_id>")
     def item_result(job_id):
         job = get_job(job_id)
@@ -1860,6 +1937,49 @@ def _run_find_seed_phrases_job(target_path):
         lines.append(f"- {file_path}: {count} candidate(s)")
 
     return {"report": "\n".join(lines), "counts": counts}
+
+
+def _flatten_password_candidates(candidates_by_file):
+    """
+    Flattens job.result["candidates"] (a {file_path: [candidate dict, ...]}
+    dict, see tools/find_password_candidates.find_candidate_lines()) into
+    one ordered [(file_path, candidate), ...] list -- the exact order
+    password_scan_review.html numbers its per-candidate confirm checkboxes
+    in (see the template), so a submitted checkbox index always resolves
+    back to the same candidate here in password_scan_confirm().
+    """
+    flat = []
+    for file_path, file_candidates in candidates_by_file.items():
+        for candidate in file_candidates:
+            flat.append((file_path, candidate))
+    return flat
+
+
+def _password_scan_candidate_hash(file_path, candidate):
+    """
+    Deterministic content hash of a candidate's full source -- the file it
+    came from, where in it, and what actually matched -- used to build each
+    vault entry's "note-scan-{hash-prefix}" name (pns-02).
+
+    Deliberately keyed on every field that identifies *this exact*
+    candidate (not just the file): re-scanning the same unchanged file
+    reproduces byte-identical input here, so the same candidate always
+    hashes to the same name and re-confirming it is a safe no-op rather
+    than a duplicate vault entry. Different files, different lines, or
+    different matched values all change the input, so two distinct
+    candidates -- even two on the same line -- can never collide onto the
+    same name and silently overwrite each other.
+    """
+    source = "\x00".join(
+        [
+            file_path,
+            str(candidate["line_number"]),
+            candidate["match_type"],
+            candidate["detail"],
+            candidate["matched_value"],
+        ]
+    )
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
 def _run_find_password_candidates_job(target_path):
