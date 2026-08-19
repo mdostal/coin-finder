@@ -41,7 +41,7 @@ from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
-from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, get_runs_graph_data, list_crawl_runs, record_crawl_run
+from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, get_cross_group_overlap, get_runs_graph_data, list_crawl_runs, record_crawl_run
 from web.scan_history import clear_scan_history, list_scan_history, record_scan
 from web.auto_unlock_history import (
     clear_auto_unlock_history,
@@ -1019,9 +1019,9 @@ def create_app(host="127.0.0.1"):
     def group_view_graph():
         # mcrg-01: the real combined graph for 2+ saved runs at once (today
         # a saved run's graph can only ever be viewed alone, right when its
-        # job first finishes). No cross-group overlap styling yet -- same
-        # confidence/balance coloring graph.js already has, unmodified;
-        # that visual treatment is mcrg-02.
+        # job first finishes). mcrg-02 adds the cross-group overlap signal
+        # on top: which nodes were found by 2+ of THESE selected run_ids
+        # (not globally -- get_cross_group_overlap, not find_overlap_addresses).
         raw_run_ids = (request.args.get("run_ids") or "").strip()
         parts = [p.strip() for p in raw_run_ids.split(",") if p.strip()]
         if not parts:
@@ -1047,8 +1047,20 @@ def create_app(host="127.0.0.1"):
         for edge in data["edges"]:
             incoming_edge.setdefault(edge["to_address"], edge["from_address"])
 
+        # mcrg-02: which of THESE selected run_ids independently found each
+        # address -- run_id-set-scoped, not find_overlap_addresses' global
+        # answer. Every node gets a "cross_group" list (possibly empty, but
+        # always present so graph.js never has to guess between "no overlap"
+        # and "no data") of the real run/seed evidence behind it -- never a
+        # bare "overlap: true" flag with nothing to back it up.
+        cross_group = get_cross_group_overlap(run_ids)
+
         graph_nodes = {
-            address: {**info, "discovered_via": incoming_edge.get(address) if incoming_edge.get(address) in data["nodes"] else None}
+            address: {
+                **info,
+                "discovered_via": incoming_edge.get(address) if incoming_edge.get(address) in data["nodes"] else None,
+                "cross_group": cross_group.get(address, []),
+            }
             for address, info in data["nodes"].items()
         }
 

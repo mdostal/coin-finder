@@ -291,6 +291,75 @@ def find_overlap_addresses(db_path=DEFAULT_DB_PATH):
         conn.close()
 
 
+def get_cross_group_overlap(run_ids, db_path=DEFAULT_DB_PATH):
+    """
+    The run_id-set-scoped sibling of find_overlap_addresses: every address
+    discovered by 2+ of the SPECIFIC given run_ids -- not globally across
+    every saved run ever (that's find_overlap_addresses' job). This is
+    what makes an address "cross-group" for one particular combined-graph
+    view (e.g. the 3 runs a user just checked together), which can be a
+    very different answer than whether that address overlaps globally --
+    an address shared by two runs neither of which is in the current
+    selection must NOT show up here.
+
+    Empty (never an error) when fewer than two distinct run_ids are given,
+    or when none of the given runs' addresses overlap with each other.
+
+    :param run_ids: iterable of int run_id values to check for overlap
+        within. Order and duplicates don't matter -- deduplicated
+        internally, same as get_runs_graph_data.
+    :return: {address: [{"run_id", "seed_addresses", "confidence",
+        "generation"}, ...]} -- only addresses found in 2+ of the given
+        run_ids, each mapped to the real evidence (never fewer than 2
+        entries) for exactly which of the selected runs/seeds found it --
+        never a bare "overlap" label with nothing behind it.
+    """
+    run_ids = sorted({int(run_id) for run_id in run_ids})
+    if len(run_ids) < 2:
+        return {}
+
+    conn = _connect(db_path)
+    try:
+        placeholders = ",".join("?" * len(run_ids))
+        overlapping = conn.execute(
+            f"""
+            SELECT address FROM run_addresses
+            WHERE run_id IN ({placeholders})
+            GROUP BY address HAVING COUNT(DISTINCT run_id) > 1
+            """,
+            run_ids,
+        ).fetchall()
+        if not overlapping:
+            return {}
+
+        addresses = [row["address"] for row in overlapping]
+        addr_placeholders = ",".join("?" * len(addresses))
+        rows = conn.execute(
+            f"""
+            SELECT ra.address, ra.confidence, ra.generation, ra.run_id, r.seed_addresses
+            FROM run_addresses ra
+            JOIN runs r ON r.run_id = ra.run_id
+            WHERE ra.address IN ({addr_placeholders}) AND ra.run_id IN ({placeholders})
+            ORDER BY ra.address, r.created_at
+            """,
+            addresses + run_ids,
+        ).fetchall()
+
+        result = {}
+        for row in rows:
+            result.setdefault(row["address"], []).append(
+                {
+                    "run_id": row["run_id"],
+                    "seed_addresses": json.loads(row["seed_addresses"]),
+                    "confidence": row["confidence"],
+                    "generation": row["generation"],
+                }
+            )
+        return result
+    finally:
+        conn.close()
+
+
 # Same strength ordering crawl_wallet_cluster/compute_confidence_scores
 # already use for these exact tag strings (seed is the address you started
 # from -- maximally confident; co-spend is strong direct evidence;

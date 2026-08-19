@@ -5,6 +5,7 @@ from web.crawl_runs import (
     clear_all_crawl_runs,
     compute_confidence_scores,
     find_overlap_addresses,
+    get_cross_group_overlap,
     get_runs_graph_data,
     list_crawl_runs,
     list_run_edges,
@@ -400,3 +401,109 @@ def test_get_runs_graph_data_node_fields_match_run_addresses_columns(tmp_path):
         "dormant_years": 2.5,
         "run_id": run_id_a,
     }
+
+
+# --- get_cross_group_overlap: the run_id-set-scoped sibling of
+# find_overlap_addresses. find_overlap_addresses checks globally across
+# every saved run ever; this checks only within the specific set of
+# run_ids a user selected together for a combined graph.
+
+
+def test_get_cross_group_overlap_empty_with_fewer_than_two_run_ids(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1a": _address_info("seed", 0)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+
+    assert get_cross_group_overlap([], db_path=db_path) == {}
+    assert get_cross_group_overlap([run_id_a], db_path=db_path) == {}
+
+
+def test_get_cross_group_overlap_empty_when_selected_runs_share_nothing(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1a": _address_info("seed", 0)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1b": _address_info("seed", 0)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+    run_id_b = _run_id_for_seed(db_path, "1b")
+
+    assert get_cross_group_overlap([run_id_a, run_id_b], db_path=db_path) == {}
+
+
+def test_get_cross_group_overlap_finds_address_shared_by_two_selected_runs(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1shared": _address_info("co-spend", 1)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1shared": _address_info("output", 2)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+    run_id_b = _run_id_for_seed(db_path, "1b")
+
+    overlap = get_cross_group_overlap([run_id_a, run_id_b], db_path=db_path)
+
+    assert list(overlap.keys()) == ["1shared"]
+    assert len(overlap["1shared"]) == 2
+    assert {entry["run_id"] for entry in overlap["1shared"]} == {run_id_a, run_id_b}
+
+
+def test_get_cross_group_overlap_entries_carry_real_evidence_not_a_bare_label(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1shared": _address_info("co-spend", 1)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1shared": _address_info("output", 2)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+    run_id_b = _run_id_for_seed(db_path, "1b")
+
+    overlap = get_cross_group_overlap([run_id_a, run_id_b], db_path=db_path)
+
+    by_run_id = {entry["run_id"]: entry for entry in overlap["1shared"]}
+    assert by_run_id[run_id_a]["seed_addresses"] == ["1a"]
+    assert by_run_id[run_id_a]["confidence"] == "co-spend"
+    assert by_run_id[run_id_a]["generation"] == 1
+    assert by_run_id[run_id_b]["seed_addresses"] == ["1b"]
+    assert by_run_id[run_id_b]["confidence"] == "output"
+    assert by_run_id[run_id_b]["generation"] == 2
+
+
+def test_get_cross_group_overlap_ignores_overlap_from_runs_outside_the_selected_set(tmp_path):
+    """The whole point vs. find_overlap_addresses: an address shared
+    globally by two runs must NOT count as cross-group if only one of
+    those two runs is actually in the selected set."""
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1shared": _address_info("seed", 0)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1shared": _address_info("co-spend", 1)}, db_path=db_path)
+    record_crawl_run(["1c"], {"1c": _address_info("seed", 0)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+    run_id_c = _run_id_for_seed(db_path, "1c")
+
+    # "1shared" is globally overlapping (found by run A and run B), but
+    # this selection only includes run A and run C -- run B isn't part
+    # of it, so within THIS selection "1shared" was only found once.
+    overlap = get_cross_group_overlap([run_id_a, run_id_c], db_path=db_path)
+
+    assert overlap == {}
+    # Sanity check: it *is* globally overlapping, confirming this isn't
+    # simply reusing find_overlap_addresses' global result.
+    assert "1shared" in find_overlap_addresses(db_path=db_path)
+
+
+def test_get_cross_group_overlap_address_found_by_two_of_three_selected_runs(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1shared": _address_info("seed", 0)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1shared": _address_info("co-spend", 1)}, db_path=db_path)
+    record_crawl_run(["1c"], {"1c": _address_info("seed", 0)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+    run_id_b = _run_id_for_seed(db_path, "1b")
+    run_id_c = _run_id_for_seed(db_path, "1c")
+
+    overlap = get_cross_group_overlap([run_id_a, run_id_b, run_id_c], db_path=db_path)
+
+    assert list(overlap.keys()) == ["1shared"]
+    assert len(overlap["1shared"]) == 2
+
+
+def test_get_cross_group_overlap_duplicate_run_ids_in_input_do_not_fabricate_overlap(tmp_path):
+    """Passing the same run_id twice must not make a single run look like
+    it overlaps with itself."""
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1solo": _address_info("seed", 0)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+
+    overlap = get_cross_group_overlap([run_id_a, run_id_a], db_path=db_path)
+
+    assert overlap == {}
