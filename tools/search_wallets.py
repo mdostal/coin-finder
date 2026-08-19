@@ -1,16 +1,38 @@
 import os
-import sqlite3
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.search import WALLET_EXTENSIONS, WALLET_KEYWORDS, MAX_FILE_SIZE, MIN_FILE_SIZE, COIN_NAMES
+from tools.checkpoint_store import CheckpointPaused, CheckpointStore
 
 CHECKPOINT_EVERY_DIRS = 200
 CHECKPOINT_EVERY_SECONDS = 20
 PROGRESS_EVERY_SECONDS = 0.5
+
+# Deliberately conservative (structured-outline.md #1.4, risk R3):
+# directory listing is I/O-bound, so Python threads genuinely help here
+# (I/O releases the GIL) -- but this mount is already known to trip a
+# shared Google Drive API quota under too much concurrent traffic (the
+# real --checkers 32 -> repeated 403 RATE_LIMIT_EXCEEDED incident that
+# tuned web/mounts.py's own --checkers 16/--tpslimit 8 tonight). More
+# concurrent walk_threads here means more concurrent rclone API calls
+# underneath, one layer below -- so this is deliberately small (2-4) and
+# independently tunable from rclone's own --checkers/--tpslimit, never
+# multiplied against it. A real load test against a real mounted Google
+# Drive is still required before this ships to production -- not just
+# passing unit tests (see search_for_wallets' walk_threads docstring).
+DEFAULT_WALK_THREADS = 3
+
+# Sentinel put on the work queue once per worker after all real work is
+# drained (queue.join() returned) -- wakes each worker's blocking get()
+# so it can exit cleanly instead of the pool being made of daemon
+# threads nobody ever joins.
+_SHUTDOWN = object()
 
 
 def _is_excluded(candidate_path, excludes):
@@ -28,25 +50,22 @@ def _is_excluded(candidate_path, excludes):
     return False
 
 
-def _open_checkpoint_db(checkpoint_path, start_path):
+def _open_checkpoint_store(checkpoint_path, start_path):
     """
     Opens (creating if absent) the sqlite-backed completed-directories
-    index at checkpoint_path, or returns None if checkpoint_path is
-    falsy. Confirmed live on a real multi-terabyte Google Drive mount:
-    the original design held every completed directory as a full path
-    string in an in-memory Python set for the entire scan, and
-    re-serialized (json.dump of a freshly-sorted copy of the whole set)
-    on every checkpoint flush -- 34,199 directories into an 8+ hour real
-    scan, that was already a 3.85MB file being fully re-sorted and
-    rewritten every ~20 seconds, with memory use growing without bound
-    for as long as the walk ran. A drive with hundreds of thousands or
-    millions of directories -- exactly the scale this app now gets
-    pointed at -- turns that into unbounded memory growth (confirmed
-    live: a real out-of-memory event that killed the app mid-scan) and
-    ever-slower checkpoint flushes. A sqlite table with an indexed
-    membership lookup and incremental inserts keeps both memory and
-    per-flush cost flat regardless of how many directories have been
-    walked so far.
+    checkpoint at checkpoint_path, or returns None if checkpoint_path is
+    falsy. Backed by tools.checkpoint_store.CheckpointStore -- see that
+    module's docstring for the real production OOM this design fixes
+    (confirmed live on a real multi-terabyte Google Drive mount: 34,199
+    directories in, an in-memory-set-to-JSON checkpoint was already a
+    3.85MB file fully re-sorted and rewritten every ~20 seconds, with
+    memory growing without bound for the life of the scan).
+
+    units_table="completed_dirs"/unit_column="path" reproduce this
+    module's exact already-shipped schema byte-for-byte (rather than the
+    store's generic default), so web/app.py's raw-sqlite interrupted-scan
+    reads and any leftover checkpoint file from before this extraction
+    keep working unmodified.
 
     A checkpoint recorded against a DIFFERENT start_path (an unrelated
     scan's leftover file re-used at the same path) is treated as stale:
@@ -57,29 +76,57 @@ def _open_checkpoint_db(checkpoint_path, start_path):
     """
     if not checkpoint_path:
         return None
-    conn = sqlite3.connect(str(checkpoint_path))
-    conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
-    conn.execute("CREATE TABLE IF NOT EXISTS completed_dirs (path TEXT PRIMARY KEY)")
-    row = conn.execute("SELECT value FROM meta WHERE key = 'start_path'").fetchone()
-    if row is None:
-        conn.execute("INSERT INTO meta (key, value) VALUES ('start_path', ?)", (str(start_path),))
-        conn.commit()
-    elif row[0] != str(start_path):
-        conn.execute("DELETE FROM completed_dirs")
-        conn.execute("UPDATE meta SET value = ? WHERE key = 'start_path'", (str(start_path),))
-        conn.commit()
-    return conn
+    return CheckpointStore(
+        checkpoint_path,
+        run_key={"start_path": str(start_path)},
+        units_table="completed_dirs",
+        unit_column="path",
+    )
 
 
-def _is_dir_completed(conn, path):
-    return conn.execute("SELECT 1 FROM completed_dirs WHERE path = ?", (path,)).fetchone() is not None
+def _list_one_level(directory):
+    """
+    Returns (dirs, files) -- the immediate (non-recursive) contents of
+    directory -- by consuming exactly the first tuple os.walk(directory)
+    yields and discarding the generator before it would ever recurse.
+    This reuses os.walk's own, already-battle-tested error/symlink
+    handling (onerror=None: a directory that can't be listed -- e.g.
+    permission denied, or a dead mount mid-listing -- silently yields
+    nothing, exactly like today's sequential walk, rather than raising
+    and taking down a worker thread) instead of reimplementing those
+    semantics by hand on top of os.scandir.
+    """
+    walked = next(os.walk(directory), None)
+    if walked is None:
+        return [], []
+    _, dirs, files = walked
+    return dirs, files
 
 
-def _count_completed_dirs(conn):
-    return conn.execute("SELECT COUNT(*) FROM completed_dirs").fetchone()[0]
+def _match_file(file_path, file_name):
+    """
+    True if file_path/file_name matches the existing wallet-file
+    patterns -- extension, coin name, or keyword -- unchanged from the
+    sequential walk's inline logic (extracted verbatim so both the
+    matching logic itself, and the size-skip prints around it, stay
+    identical to before; only the walk driver around this changed).
+    """
+    return (
+        any(file_path.suffix.lower() == ext for ext in WALLET_EXTENSIONS)
+        or any(coin_name in file_name.lower() for coin_name in COIN_NAMES)
+        or any(keyword in file_name.lower() for keyword in WALLET_KEYWORDS)
+    )
 
 
-def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_callback=None, excludes=None):
+def search_for_wallets(
+    start_path,
+    output_file,
+    checkpoint_path=None,
+    progress_callback=None,
+    excludes=None,
+    walk_threads=DEFAULT_WALK_THREADS,
+    mount_health_check=None,
+):
     """
     Walks start_path looking for likely wallet files. A long walk over a
     huge mounted drive is exactly the kind of job that used to be thrown
@@ -87,8 +134,37 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
     notion of "already checked this directory," so any interruption meant
     starting over from nothing.
 
+    Directory listing is I/O-bound (unlike CPU-bound work, Python threads
+    genuinely parallelize this -- I/O releases the GIL), so the walk
+    itself is driven by a small, bounded pool of walk_threads worker
+    threads pulling from a shared work queue (seeded with start_path):
+    each worker claims a not-yet-completed directory, lists exactly that
+    one level, matches its files against the existing patterns unchanged,
+    and pushes any subdirectories back onto the queue for any worker
+    (including itself) to pick up next. checkpoint_path's CheckpointStore
+    is what lets multiple workers coordinate safely on "is this directory
+    already done" -- see tools.checkpoint_store.CheckpointStore, which is
+    itself internally lock-serialized so it's safe to call from any
+    worker thread, not just the one that opened it.
+
+    :param walk_threads: how many directories can be listed concurrently.
+        Defaults to DEFAULT_WALK_THREADS (2-4, deliberately conservative)
+        -- more concurrent Python-side directory reads against a mounted
+        Google Drive means more concurrent rclone API calls one layer
+        below this, which is exactly what tripped a real shared-quota
+        incident with a different concurrency knob (--checkers 32,
+        confirmed live -- see web/mounts.py's mount() docstring) tonight.
+        Deliberately independent of rclone's own --checkers/--tpslimit
+        tuning -- this is a separate knob, never multiplied against that
+        one. IMPORTANT: this default has only been unit-tested against a
+        local filesystem so far; a real load test against a real mounted
+        Google Drive (watching its mount log for new 403
+        RATE_LIMIT_EXCEEDED errors versus today's --checkers 16/
+        --tpslimit 8 baseline) is a hard requirement before this ships to
+        production, not something a test suite can verify on its own.
+
     checkpoint_path, when given, makes this resumable via a small sqlite
-    db (see _open_checkpoint_db) recording exactly which directories are
+    db (see _open_checkpoint_store) recording exactly which directories are
     already done: after every CHECKPOINT_EVERY_DIRS directories (or
     CHECKPOINT_EVERY_SECONDS, whichever comes first), directories
     completed since the last flush are committed and output_file is
@@ -110,16 +186,27 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
     :param excludes: optional list of paths -- user-configurable (see
         web/scan_excludes.py), never a built-in blocklist. A directory
         that is one of these, or nested under one, is skipped entirely
-        (pruned from os.walk, not just excluded from the results) --
-        the actual point being to avoid both wasted time AND false-
-        positive matches from paths already known not to matter.
+        (never queued for any worker, not just excluded from the
+        results) -- the actual point being to avoid both wasted time AND
+        false-positive matches from paths already known not to matter.
+    :param mount_health_check: optional callable() -> bool, checked at the
+        same points a checkpoint flush already happens (sse-05: "same
+        cadence family, no new polling loop"). None (the default) means
+        "not scanning a tracked mount" -- skipped entirely, so a
+        non-mount-backed walk never calls this at all. A caller passing a
+        real check (see web/app.py's _mount_health_check_for, wrapping
+        web/mounts.py's is_mounted()) gets this walk stopped cleanly --
+        current progress already flushed first -- the moment the drive
+        goes away mid-scan, instead of silently hanging or producing a
+        result indistinguishable from a clean finish.
     """
     if progress_callback is None:
         progress_callback = lambda current, total, message="": None
     excludes = excludes or []
+    walk_threads = max(1, walk_threads)
 
-    conn = _open_checkpoint_db(checkpoint_path, start_path)
-    dirs_walked = _count_completed_dirs(conn) if conn else 0
+    store = _open_checkpoint_store(checkpoint_path, start_path)
+    dirs_walked = store.count_completed() if store else 0
     resuming = dirs_walked > 0
 
     potential_wallets = []
@@ -129,36 +216,80 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
 
     out_f = open(output_file, "a" if resuming else "w")
 
-    pending_dirs = []
+    # Guards out_f + potential_wallets together -- a match is only ever
+    # visible in one without the other, and concurrent writers can never
+    # interleave/corrupt a line, satisfying the story's explicit
+    # concurrent-write-safety ask with a single small, rarely-contended
+    # lock (writing one line, or flushing, is fast).
+    output_lock = threading.Lock()
+    # Guards the walk's own bookkeeping counters (dirs_walked/
+    # dirs_since_checkpoint/timestamps) -- separate from output_lock so a
+    # counter update never has to wait on a slower output flush.
+    state_lock = threading.Lock()
 
     def _flush():
-        out_f.flush()
-        if conn and pending_dirs:
-            conn.executemany("INSERT OR IGNORE INTO completed_dirs (path) VALUES (?)", [(d,) for d in pending_dirs])
-            conn.commit()
-            pending_dirs.clear()
+        with output_lock:
+            out_f.flush()
+            if store:
+                store.flush()
 
-    dirs_since_checkpoint = 0
-    last_checkpoint_at = time.time()
-    last_progress_at = time.time()
+    state = {
+        "dirs_walked": dirs_walked,
+        "dirs_since_checkpoint": 0,
+        "last_checkpoint_at": time.time(),
+        "last_progress_at": time.time(),
+    }
 
-    for root, dirs, files in os.walk(start_path):
+    work_queue = queue.Queue()
+    work_queue.put(str(start_path))
+
+    errors = []
+    errors_lock = threading.Lock()
+
+    # sse-04: set only from inside the need_flush block below, right after
+    # a flush has already durably committed progress -- so by the time any
+    # worker observes this set, there is nothing left in flight that a
+    # pause could interrupt mid-write. Checked at the top of
+    # _process_directory so an item already queued (but not yet started)
+    # is simply skipped rather than processed -- it was never marked
+    # completed nor removed from the queue's future candidates, so a
+    # resumed run rediscovers it naturally by walking from start_path
+    # again, identical to how a hard crash mid-walk already behaves today.
+    paused_event = threading.Event()
+
+    # sse-05: same idea as paused_event immediately above, one failure mode
+    # later -- set only from inside the need_flush block, right after a
+    # flush has already durably committed progress, so nothing observing
+    # this afterward can lose in-flight work. Checked at the same point
+    # paused_event is, for the same reason.
+    mount_disconnected_event = threading.Event()
+
+    def _process_directory(root):
+        if paused_event.is_set() or mount_disconnected_event.is_set():
+            return
         if excludes and _is_excluded(root, excludes):
-            dirs[:] = []  # don't descend into an excluded subtree at all
-            continue
+            return  # never queued further -- whole subtree pruned, same as the sequential walk's dirs[:] = []
 
+        dirs, files = _list_one_level(root)
         if excludes:
-            dirs[:] = [d for d in dirs if not _is_excluded(str(Path(root) / d), excludes)]
+            dirs = [d for d in dirs if not _is_excluded(str(Path(root) / d), excludes)]
+        for d in dirs:
+            work_queue.put(str(Path(root) / d))
 
-        if conn and _is_dir_completed(conn, root):
-            continue
+        # A directory already marked completed (by this or an earlier
+        # run) still has its subdirectories queued above -- exactly like
+        # the sequential walk, which always continues descending into
+        # `dirs` regardless of whether `root` itself gets re-processed --
+        # but its own files are never re-matched/re-written.
+        if store and store.is_completed(root):
+            return
 
+        matches = []
         for file in files:
             file_path = Path(root) / file
             try:
                 file_size = file_path.stat().st_size
 
-                # Skip files outside the size range
                 if file_size > MAX_FILE_SIZE:
                     print(f"Skipping large file: {file_path} ({file_size / (1024 * 1024):.2f} MB)")
                     continue
@@ -166,34 +297,111 @@ def search_for_wallets(start_path, output_file, checkpoint_path=None, progress_c
                     print(f"Skipping empty or very small file: {file_path}")
                     continue
 
-                # Check if the file matches extensions or keywords
-                if any(file_path.suffix.lower() == ext for ext in WALLET_EXTENSIONS) or \
-                   any(coin_name in file.lower() for coin_name in COIN_NAMES) or \
-                   any(keyword in file.lower() for keyword in WALLET_KEYWORDS):
-                    potential_wallets.append(str(file_path))
-                    out_f.write(str(file_path) + "\n")
+                if _match_file(file_path, file):
+                    matches.append(str(file_path))
             except Exception as e:
                 print(f"Error accessing file {file_path}: {e}")
 
-        pending_dirs.append(root)
-        dirs_since_checkpoint += 1
-        dirs_walked += 1
-        if conn and (dirs_since_checkpoint >= CHECKPOINT_EVERY_DIRS or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS):
+        if matches:
+            with output_lock:
+                for match in matches:
+                    potential_wallets.append(match)
+                    out_f.write(match + "\n")
+
+        if store:
+            store.mark_completed(root)
+
+        need_flush = False
+        need_progress = False
+        with state_lock:
+            state["dirs_since_checkpoint"] += 1
+            state["dirs_walked"] += 1
+            if store and (
+                state["dirs_since_checkpoint"] >= CHECKPOINT_EVERY_DIRS
+                or time.time() - state["last_checkpoint_at"] >= CHECKPOINT_EVERY_SECONDS
+            ):
+                need_flush = True
+                state["dirs_since_checkpoint"] = 0
+                state["last_checkpoint_at"] = time.time()
+            if time.time() - state["last_progress_at"] >= PROGRESS_EVERY_SECONDS:
+                need_progress = True
+                state["last_progress_at"] = time.time()
+            dirs_walked_snapshot = state["dirs_walked"]
+
+        if need_flush:
             _flush()
-            dirs_since_checkpoint = 0
-            last_checkpoint_at = time.time()
+            # Checked at the same point the checkpoint is already flushed
+            # (sse-04: "no new polling loop") -- request_pause() is durable
+            # and immediately visible to this store's own connection, even
+            # though it was set by a completely different connection (the
+            # pause route's, opened against this same checkpoint file).
+            if store and store.is_paused():
+                paused_event.set()
+            # sse-05: same "no new polling loop" rule -- reuses this exact
+            # flush point rather than a separate timer/thread. Only ever
+            # non-None for a target under a currently-tracked mount (see
+            # web/app.py's _mount_health_check_for) -- a local,
+            # non-mounted target never pays for this call at all.
+            if mount_health_check is not None and not mount_health_check():
+                mount_disconnected_event.set()
+        if need_progress:
+            with output_lock:
+                wallets_so_far = len(potential_wallets)
+            progress_callback(dirs_walked_snapshot, None, f"{wallets_so_far} potential wallet(s) found so far — {root}")
 
-        if time.time() - last_progress_at >= PROGRESS_EVERY_SECONDS:
-            progress_callback(dirs_walked, None, f"{len(potential_wallets)} potential wallet(s) found so far — {root}")
-            last_progress_at = time.time()
+    def _worker():
+        while True:
+            item = work_queue.get()
+            try:
+                if item is _SHUTDOWN:
+                    return
+                _process_directory(item)
+            except Exception as e:
+                with errors_lock:
+                    errors.append(e)
+            finally:
+                work_queue.task_done()
 
-    progress_callback(dirs_walked, None, f"{len(potential_wallets)} potential wallet(s) found — walk complete")
+    threads = [threading.Thread(target=_worker, daemon=True) for _ in range(walk_threads)]
+    for t in threads:
+        t.start()
+
+    # Blocks until every item ever put() (including subdirectories
+    # queued by workers while processing) has had task_done() called --
+    # the standard, correct way to know a dynamically-growing queue like
+    # this one has been fully drained.
+    work_queue.join()
+
+    for _ in threads:
+        work_queue.put(_SHUTDOWN)
+    for t in threads:
+        t.join()
+
+    if errors:
+        raise errors[0]
+
     _flush()
     out_f.close()
-    if conn:
-        conn.close()
-    if checkpoint_path:
-        Path(checkpoint_path).unlink(missing_ok=True)
+
+    if mount_disconnected_event.is_set():
+        # Never delete the checkpoint here either -- same reasoning as a
+        # pause: progress already flushed above, and there IS something
+        # left to resume once the drive is reconnected.
+        print(f"Search stopped: drive disconnected. Found {len(potential_wallets)} potential wallet file(s) so far.")
+        raise RuntimeError(f"drive disconnected mid-scan -- search stopped after {state['dirs_walked']} directories")
+
+    if paused_event.is_set():
+        # Never delete the checkpoint on a pause -- there IS something
+        # left to resume, unlike clean completion. output_file already
+        # holds every real match found so far (written incrementally as
+        # each directory was processed, not buffered until the end), so
+        # nothing found before the pause is lost.
+        print(f"Search paused. Found {len(potential_wallets)} potential wallet file(s) so far.")
+        raise CheckpointPaused(f"search paused after {state['dirs_walked']} directories")
+
+    progress_callback(state["dirs_walked"], None, f"{len(potential_wallets)} potential wallet(s) found — walk complete")
+    if store:
+        store.delete()
 
     print(f"Search complete. Found {len(potential_wallets)} potential wallet files.")
     print(f"Results saved to {output_file}.")

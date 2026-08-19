@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
+import tools.search_wallets as search_wallets_module
 from web.app import create_app
 from web.jobs import list_jobs
 
@@ -139,7 +140,7 @@ def test_start_scan_mounts_jobs_run_concurrently_not_serially(mock_pipeline, moc
     started_by_dir = {str(mount_a): a_started, str(mount_b): b_started}
     other_by_dir = {str(mount_a): b_started, str(mount_b): a_started}
 
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         started_by_dir[input_dir].set()
         assert other_by_dir[input_dir].wait(timeout=2), "the other mount's scan never started -- mounts are being scanned serially"
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
@@ -176,3 +177,75 @@ def test_start_scan_mounts_skips_mount_points_that_already_have_a_running_job(mo
 
     release_first_job.set()
     _wait_for_terminal(client, running_find_jobs[0]["job_id"])
+
+
+@patch("web.app.scan_for_hidden_volumes", return_value=[])
+@patch("web.app.is_mounted")
+@patch("web.app.list_mounts")
+def test_find_job_fails_clearly_when_mount_disconnects_mid_scan(mock_list_mounts, mock_is_mounted, mock_hidden, client, tmp_path, monkeypatch):
+    """
+    sse-05: is_mounted() (web/mounts.py) previously only ever ran at
+    page-load and from the mounts-management UI -- nothing re-checked it
+    once a scan actually started walking a mount, so a drive that
+    disconnected mid-scan just silently hung or produced a result
+    indistinguishable from a clean finish. A `find` job against a target
+    under a tracked mount must now fail clearly ("drive disconnected")
+    the moment is_mounted() reports the mount is gone.
+
+    Uses a real (unmocked) run_pipeline.find()/search_for_wallets() walk
+    -- CHECKPOINT_EVERY_DIRS is forced to 1 (same trick every other real
+    checkpoint-flush test in this codebase uses) so a small, fast test
+    tree naturally hits the flush point the mount check is wired into.
+    """
+    monkeypatch.setattr(search_wallets_module, "CHECKPOINT_EVERY_DIRS", 1)
+
+    mount_point = tmp_path / "mnt" / "gdrive"
+    mount_point.mkdir(parents=True)
+    for i in range(5):
+        sub = mount_point / f"dir{i}"
+        sub.mkdir()
+        (sub / "wallet.dat").write_bytes(b"x" * 100)
+
+    mock_list_mounts.return_value = [
+        {"remote_name": "gdrive", "mount_point": str(mount_point), "started_at": 0, "is_mounted": True, "log_path": None}
+    ]
+    mock_is_mounted.return_value = False  # the drive is gone by the first health check
+
+    resp = client.post("/scan", data={"input_dir": str(mount_point)}, follow_redirects=False)
+    assert resp.status_code == 302
+    job_id = resp.headers["Location"].rstrip("/").split("/")[-1]
+
+    job = _wait_for_terminal(client, job_id)
+
+    assert job["status"] == "error"
+    assert "drive disconnected" in job["error"]
+    mock_is_mounted.assert_called_with("gdrive")
+
+
+@patch("web.app.scan_for_hidden_volumes", return_value=[])
+@patch("web.app.is_mounted")
+@patch("web.app.list_mounts", return_value=[])
+def test_find_job_never_checks_mount_health_for_a_non_mount_backed_target(mock_list_mounts, mock_is_mounted, mock_hidden, client, tmp_path, monkeypatch):
+    """
+    sse-05's explicit "zero overhead" acceptance criterion: a target NOT
+    under any currently-tracked mount point must never trigger even a
+    single is_mounted() call. Uses a real (unmocked) run_pipeline.find()/
+    search_for_wallets() walk with CHECKPOINT_EVERY_DIRS forced to 1, so
+    several real checkpoint flushes actually happen -- exactly the points
+    a health check would fire from if one were (incorrectly) wired in
+    unconditionally.
+    """
+    monkeypatch.setattr(search_wallets_module, "CHECKPOINT_EVERY_DIRS", 1)
+
+    for i in range(3):
+        sub = tmp_path / f"dir{i}"
+        sub.mkdir()
+        (sub / "wallet.dat").write_bytes(b"x" * 100)
+
+    resp = client.post("/scan", data={"input_dir": str(tmp_path)}, follow_redirects=False)
+    job_id = resp.headers["Location"].rstrip("/").split("/")[-1]
+
+    job = _wait_for_terminal(client, job_id)
+
+    assert job["status"] == "done"
+    mock_is_mounted.assert_not_called()

@@ -1,0 +1,95 @@
+id: sse-02-check-balances-store-and-first-settings
+epic: scalable-scan-engine
+title: check_balances onto the shared store + first exposed settings
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [sse-01-checkpoint-store-and-analyze-resume]
+
+description: |
+  tools/check_wallet_balances.py's checkpoint flush has the identical
+  full-dict-rewrite anti-pattern that caused the OOM crash sse-01 fixes
+  elsewhere: _flush_checkpoint() does a full json.dump of the entire
+  `results` dict on every flush (every 20 addresses or 15s), held fully in
+  memory for the run's lifetime. Confirmed by direct investigation
+  (design-discussion.md §5b) rather than assumed -- not yet a visible
+  incident only because a single scan's address count has stayed smaller
+  than a multi-terabyte drive's directory count.
+
+  Verdict from that investigation: the concurrency design (ThreadPoolExecutor
+  + per-coin Semaphore(15) + GLOBAL_MAX_WORKERS=64) is genuinely well-tuned
+  (real live benchmark documented in its own comments) and must NOT be
+  redesigned. Only the checkpoint backend changes -- re-point it at
+  CheckpointStore from sse-01 -- and its hardcoded worker/semaphore
+  constants become function parameters, wired to the first two real
+  resource-control settings (proving the settings plumbing end-to-end
+  before sse-06 generalizes it to every stage).
+
+acceptance_criteria:
+  - "Given check_wallet_balances.py runs to completion, when its checkpoint flushes fire, then no full-dict JSON rewrite occurs -- only CheckpointStore.mark_completed() calls for newly-checked (coin, file_path, address) units"
+  - "Given a checkpoint from a prior interrupted run, when check_wallet_balances.py resumes, then already-confirmed (non-None) balances are skipped exactly as today, and inconclusive (None) addresses are retried exactly as today -- behavior parity, not just format parity"
+  - "Given GLOBAL_MAX_WORKERS and PER_COIN_MAX_CONCURRENCY are now parameters, when called with no explicit value, then they default to today's exact tuned values (64 and 15) -- zero behavior change for existing callers"
+  - "Given web/scan_settings.py's new minimal settings store, when a user sets a custom check_balances worker count via a settings route, then the next check-balances job dispatch uses that value instead of the default"
+  - "Given the existing test suite for check_wallet_balances.py, when checkpoint-format assertions are updated to match CheckpointStore, then all other behavioral assertions (retry logic, semaphore bounding, results/inconclusive output files) remain unchanged and passing"
+
+steps:
+  - id: research
+    description: Re-confirm tools/check_wallet_balances.py's exact checkpoint flush call sites and web/app.py's call sites that need the new worker-count parameters threaded through (_run_check_balances_job, _run_check_balances_selected_job).
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the CheckpointStore-backed checkpoint flush (replacing the old full-dict-rewrite assertions), the new default-preserving parameters, and web/scan_settings.py's minimal get/set contract.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Re-point check_wallet_balances.py's checkpoint I/O at CheckpointStore; add worker-count parameters with today's values as defaults; build web/scan_settings.py (mode auto|custom, overrides dict) and wire its check_balances-relevant fields through web/app.py's dispatch routes.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review for behavior parity on the retry/resume logic specifically -- this is the highest-risk part of this story (must not regress inconclusive-address retry behavior).
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/check_wallet_balances.py
+      purpose: "Target of the checkpoint re-point; concurrency design stays unchanged per confirmed investigation verdict"
+    - path: tools/checkpoint_store.py
+      purpose: "Built in sse-01 -- this story's checkpoint backend"
+    - path: web/scan_settings.py
+      purpose: "New in this story -- minimal settings store, first two fields (check_balances worker counts) wired end-to-end"
+
+files_to_modify:
+  - file: tools/check_wallet_balances.py
+    change: "Replace _flush_checkpoint()'s full-dict json.dump with CheckpointStore.mark_completed() calls; make GLOBAL_MAX_WORKERS/PER_COIN_MAX_CONCURRENCY function parameters with today's values as defaults"
+  - file: web/scan_settings.py
+    change: "New file. Minimal settings store (mode, overrides dict), get/set functions, gitignored db file (web/scan_settings.db)"
+  - file: .gitignore
+    change: "Add /web/scan_settings.db"
+  - file: web/app.py
+    change: "Thread new worker-count settings into _run_check_balances_job/_run_check_balances_selected_job dispatch; minimal settings read/write route"
+  - file: tests/test_check_wallet_balances.py
+    change: "Update checkpoint-format assertions to CheckpointStore; verify default-value parity"
+  - file: tests/test_scan_settings.py
+    change: "New file. get/set contract, default values"
+
+design_decisions:
+  - decision: "Only check_balances-relevant settings ship in this story; the full profile UI (all four stages) is sse-06"
+    rationale: "Proves the settings plumbing end-to-end on the smallest possible slice before generalizing, per structured-outline.md's elicitation Q5"
+
+risks:
+  - severity: medium
+    description: "Retry/resume behavior for inconclusive (None) addresses is subtle -- a regression here would silently under-report real balances, directly conflicting with the project's own stated goal of never falsely writing off a wallet as empty"
+    mitigation: "Explicit test asserting a None-balance address IS retried on resume while a confirmed-balance address is NOT, matching the exact current behavior"
+
+references:
+  - path: .pHive/epics/scalable-scan-engine/docs/design-discussion.md
+    relevant_excerpt: |
+      §5b: the direct investigation and confirmed verdict this story
+      implements -- concurrency unchanged, checkpoint backend re-pointed.
+  - path: .pHive/epics/scalable-scan-engine/docs/structured-outline.md
+    relevant_excerpt: "Part 1.3 (check_balances design) and Part 1.6 (settings schema this story starts building)."

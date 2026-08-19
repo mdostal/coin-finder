@@ -1,0 +1,86 @@
+id: sse-06-resource-profile-ui
+epic: scalable-scan-engine
+title: Full auto-detected resource-profile UI with advanced override
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [sse-05-concurrency-safety-and-mount-health]
+
+description: |
+  Generalize sse-02's minimal settings (check_balances only) to every
+  concurrency knob introduced across this epic: search walk_threads
+  (sse-03), analyze processes (sse-01), and check_balances's two already-
+  exposed settings. Confirmed requirement: default to auto-detecting
+  machine specs (os.cpu_count(), stdlib-only, no new dependency), not a
+  user-picked named tier -- with a manual "Custom" override always
+  available, showing the same fields as direct editable numeric inputs.
+
+  This is the final realization of the user's core ask: "if I get more
+  cores, a faster machine, I should have toggles and settings and controls
+  to let it either use more resources, or run slowly at a diminished
+  resource use."
+
+acceptance_criteria:
+  - "Given a fresh install with no settings configured, when the settings page loads, then it shows mode=auto with live-computed values for search_walk_threads, analyze_processes, check_balances_global_workers, check_balances_per_coin_concurrency based on the current machine's os.cpu_count()"
+  - "Given mode=auto, when a scan/analyze/check-balances job is dispatched, then it uses the live-computed auto values, not stale cached numbers from a previous machine (relevant if the app data directory is ever copied to different hardware)"
+  - "Given a user switches to Custom mode and sets specific numbers, when a job is dispatched, then it uses exactly those custom values, and auto-detection is not consulted at all"
+  - "Given the settings UI, when Custom mode is selected, then all four fields (search_walk_threads, analyze_processes, check_balances_global_workers, check_balances_per_coin_concurrency) are shown as direct editable numeric inputs -- the required advanced/manual path, not deferred or hidden behind additional clicks"
+  - "Given check_balances_global_workers/per_coin_concurrency's auto-mode values, when computed, then they remain today's tuned constants (64, 15) unchanged -- confirmed these are network-rate-limited, not core-count-relevant, so cpu_count() must not drive them"
+
+steps:
+  - id: research
+    description: Confirm sse-02's exact web/scan_settings.py schema and UI surface to extend rather than duplicate; confirm search_wallets.py's walk_threads and analyze_wallets.py's processes parameters (from sse-01/sse-03) accept the settings-sourced values correctly.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for auto-mode computation (mocked os.cpu_count() for deterministic assertions), custom-mode override behavior, and the illustrative formula table from structured-outline.md §1.6.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Extend web/scan_settings.py with all four fields and the auto/custom mode logic; build the full settings UI section (auto display + custom override inputs); wire all four settings into their respective job-dispatch call sites in web/app.py.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review for the confirmed constraint that check_balances' two settings stay network-tuned constants in auto mode, not cpu_count()-derived, and that custom overrides fully bypass auto-detection.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/scan_settings.py
+      purpose: "Built minimally in sse-02 (check_balances fields only) -- this story extends it to all four fields and the full auto/custom mode logic"
+    - path: web/templates/settings.html
+      purpose: "Existing settings page this story adds a new resource-profile section to"
+
+files_to_modify:
+  - file: web/scan_settings.py
+    change: "Extend schema to all four fields; add auto-mode os.cpu_count()-based computation functions per the structured-outline.md §1.6 formula table"
+  - file: web/templates/settings.html
+    change: "Add the resource-profile section: auto-mode live display, Custom toggle revealing four editable numeric inputs"
+  - file: web/app.py
+    change: "Wire search_walk_threads and analyze_processes settings into their job-dispatch call sites (check_balances' two fields already wired in sse-02)"
+  - file: tests/test_scan_settings.py
+    change: "Extend for auto-mode computation (mocked cpu_count), custom overrides for all four fields"
+
+design_decisions:
+  - decision: "Auto mode is stdlib-only (os.cpu_count()), no new dependency like psutil for memory-aware tuning"
+    rationale: "This repo's dependency footprint is currently minimal (requests + python-dotenv); adding a new dependency for memory-awareness is a real option but a separate decision, not bundled into this epic without asking first -- noted explicitly in structured-outline.md §1.6"
+  - decision: "check_balances' two settings stay fixed constants in auto mode, not derived from cpu_count()"
+    rationale: "They're network-rate-limited (external API concurrency), not local-hardware-limited -- core count isn't the relevant signal, confirmed in sse-02's investigation"
+
+risks:
+  - severity: low
+    description: "Resource-profile settings ship ahead of something real for them to control"
+    mitigation: "Mitigated by slice ordering -- sse-02 already proved the check_balances half end-to-end; this story only extends to knobs (walk_threads, analyze_processes) that already exist as real parameters from sse-01/sse-03 by the time this story starts"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md's configuration section should document the new resource-profile settings and their auto-detection behavior"
+
+references:
+  - path: .pHive/epics/scalable-scan-engine/docs/structured-outline.md
+    relevant_excerpt: "Part 1.6 (full resource-control settings design, auto-detection formula table) and Elicitation Q5."

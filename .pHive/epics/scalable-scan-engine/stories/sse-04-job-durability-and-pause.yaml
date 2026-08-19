@@ -1,0 +1,98 @@
+id: sse-04-job-durability-and-pause
+epic: scalable-scan-engine
+title: Durable job registry + real Pause button
+status: pending
+complexity: high
+methodology: tdd
+depends_on: [sse-03-parallel-search-walk]
+
+description: |
+  web/jobs.py's job registry (_jobs = {}) is a plain in-memory dict, wiped
+  on every app restart -- confirmed as the exact reason tonight's dead
+  backend lost the entire 8+ hour GDrive scan, not just its progress: the
+  job's very existence disappeared, not only its state. Migrate it to a
+  sqlite-backed store (web/jobs_store.py) with the identical
+  create_job/start_job/report_progress/get_job function signatures every
+  existing web/app.py call site already uses -- zero caller changes beyond
+  the pause-specific additions in this story.
+
+  Add a real, user-triggered "Pause" button -- confirmed requirement, not
+  a "quit and it resumes" fallback. A cooperative pause signal (via
+  CheckpointStore.request_pause() from sse-01) is checked at the same
+  points each stage already flushes its checkpoint -- no new polling loop.
+  Confirmed pause semantics: let in-flight work finish, never abort
+  mid-write.
+
+acceptance_criteria:
+  - "Given the app is restarted while a job is running, when the app comes back up, then the job's existence and last-known status are still queryable via get_job() -- today this returns nothing at all after a restart"
+  - "Given every existing web/app.py call site for create_job/start_job/report_progress/get_job, when web/jobs.py delegates to jobs_store, then no call site needs to change (function signatures are identical)"
+  - "Given a running search, analyze, or check-balances job, when POST /jobs/<job_id>/pause is called, then the job's CheckpointStore receives a pause request and the job transitions to status=paused after its current in-flight unit(s) finish -- never mid-write"
+  - "Given a paused job, when it is resumed (re-dispatched with the same checkpoint_path/output_dir), then it picks up from exactly the units already marked completed -- identical mechanism to today's crash-resume, now user-triggered"
+  - "Given the UI, when a job is running, then a real Pause button is visible and functional -- not just a documented API route with no UI"
+
+steps:
+  - id: research
+    description: Enumerate every web/app.py call site using create_job/start_job/report_progress/get_job to confirm the exact signature contract that must be preserved; confirm how each job kind's checkpoint_path is accessible at pause-request time.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for jobs_store's durability across a simulated restart (new process/connection, same db file), pause/resume status transitions, and signature parity with the current in-memory web/jobs.py.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Build web/jobs_store.py; migrate web/jobs.py to delegate to it; add the pause route, paused status, and UI Pause button wired to each job's checkpoint.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically for signature-compatibility regressions across every existing call site, and confirm pause never fires mid-write in any of the three stage integrations (search/analyze/check_balances).
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/jobs.py
+      purpose: "Current in-memory registry -- create_job/start_job/report_progress/get_job signatures must be preserved exactly"
+    - path: web/app.py
+      purpose: "Every job dispatch call site (find, check-balances, crawl, unlock, etc.) -- needs the new pause route and checkpoint_path recorded per job"
+    - path: tools/checkpoint_store.py
+      purpose: "Built in sse-01 -- provides request_pause()/is_paused()/clear_pause() this story wires into the UI"
+
+files_to_modify:
+  - file: web/jobs_store.py
+    change: "New file. Sqlite-backed job registry (jobs table: job_id, kind, label, status, started_at, progress_json, result_json, error, secret, checkpoint_path). Gitignored db file (web/jobs.db)"
+  - file: .gitignore
+    change: "Add /web/jobs.db"
+  - file: web/jobs.py
+    change: "Delegate to jobs_store instead of the in-memory dict; add paused status handling"
+  - file: web/app.py
+    change: "New POST /jobs/<job_id>/pause route; record checkpoint_path per job at creation; thread pause-awareness through each stage dispatch"
+  - file: web/templates/jobs.html
+    change: "Add a Pause button/control for running jobs"
+  - file: tests/test_jobs_store.py
+    change: "New file. Durability-across-restart test, pause/resume status transitions"
+  - file: tests/test_web_app_pause.py
+    change: "New file. Pause route behavior end-to-end"
+
+design_decisions:
+  - decision: "web/jobs_store.py as a new file, not folded into web/jobs.py directly"
+    rationale: "Cleaner separation between the public in-memory-compatible API surface (jobs.py, unchanged for callers) and the storage backend (jobs_store.py, swappable) -- confirmed with user"
+
+risks:
+  - severity: low
+    description: "Job registry migration touches every existing job call site indirectly"
+    mitigation: "Preserve exact existing function signatures so no caller in web/app.py needs to change beyond the pause-specific additions"
+  - severity: medium
+    description: "Pause semantics: a worker mid-request when pause fires, across three different stage integrations with different loop shapes"
+    mitigation: "Confirmed decision applied uniformly: let in-flight units finish, never abort mid-write -- verified per-stage in review, not assumed to generalize automatically"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md and any UI-flow docs describing job status should mention the new paused state and Pause control once shipped"
+
+references:
+  - path: .pHive/epics/scalable-scan-engine/docs/structured-outline.md
+    relevant_excerpt: "Part 1.5 (job durability + pause design) and Risk R5 (pause semantics) / R6 (signature preservation)."

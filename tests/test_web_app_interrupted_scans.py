@@ -1,9 +1,10 @@
-import json
 import sqlite3
 from unittest.mock import patch
 
 import pytest
 
+from tools.check_wallet_balances import _checkpoint_unit_id
+from tools.checkpoint_store import CheckpointStore
 from web.app import create_app
 
 
@@ -65,12 +66,25 @@ def test_index_shows_no_banner_when_no_checkpoints_exist(client, tmp_path):
     assert b"interrupted scan" not in resp.data.lower()
 
 
-def _write_balance_checkpoint(output_root, scan_name, results):
+def _write_balance_checkpoint(output_root, scan_name, confirmed):
+    """
+    confirmed: [(crypto_name, file_path, address, balance), ...]. Only
+    ever-confirmed (non-None) balances are recorded as completed units by
+    tools.check_wallet_balances (sse-02) -- an inconclusive/None address
+    is never written to the store at all, so there's nothing analogous to
+    seed for that case here (it's simply absent, same as a never-checked
+    address).
+    """
     checks_dir = output_root / scan_name / "checks"
     checks_dir.mkdir(parents=True)
-    (checks_dir / "balance_checkpoint.json").write_text(
-        json.dumps({"input_file": str(checks_dir / "wallet_analysis.json"), "results": results})
+    store = CheckpointStore(
+        str(checks_dir / "balance_checkpoint.db"),
+        run_key={"input_file": str(checks_dir / "wallet_analysis.json")},
     )
+    for crypto_name, file_path, address, balance in confirmed:
+        store.mark_completed(_checkpoint_unit_id(crypto_name, file_path, address, balance))
+    store.flush()
+    store.close()
 
 
 def test_index_shows_interrupted_balance_check_with_resume_action(client, tmp_path):
@@ -78,7 +92,7 @@ def test_index_shows_interrupted_balance_check_with_resume_action(client, tmp_pa
     _write_balance_checkpoint(
         output_root,
         "old-drive",
-        {"walletA.dat": {"Bitcoin": {"1abc": 0.5, "1def": None}}},
+        [("Bitcoin", "walletA.dat", "1abc", 0.5)],
     )
 
     with patch("web.app.DEFAULT_OUTPUT_ROOT", output_root):

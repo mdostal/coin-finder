@@ -1,7 +1,11 @@
 import json
+import sqlite3
 from unittest.mock import patch
 
-from tools.analyze_wallets import analyze_wallet_file, analyze_wallets
+import pytest
+
+from tools.analyze_wallets import _analyze_one_file, analyze_wallet_file, analyze_wallets
+from tools.checkpoint_store import CheckpointStore
 from tools.scan_index import is_known
 
 # Tonight's real garbage: Rust mangled-symbol strings from a prior scan's
@@ -152,3 +156,391 @@ def test_analyze_wallets_reports_progress_for_a_dedup_cache_hit_too(tmp_path):
     )
 
     assert calls == [(1, 1, str(wallet_b))]
+
+
+# ---------------------------------------------------------------------------
+# sse-01: checkpoint_path (resume) + processes (multiprocessing.Pool)
+# ---------------------------------------------------------------------------
+
+
+class _FakePool:
+    """
+    Stands in for multiprocessing.Pool in tests -- per this repo's TDD
+    conventions, real worker *processes* aren't needed to prove
+    analyze_wallets()'s own dispatch/resume/checkpoint/scan_index
+    orchestration logic is correct; only tests explicitly proving real
+    multiprocessing works (see test_analyze_wallets_with_real_multiprocessing_pool_matches_sequential_result
+    below) spin up a genuine Pool. Runs the worker function synchronously,
+    in-process, so tests stay deterministic and fast.
+    """
+
+    instances = []
+
+    def __init__(self, processes):
+        self.processes = processes
+        self.entered = False
+        self.exited = False
+        self.exited_with_exc = None
+        _FakePool.instances.append(self)
+
+    def __enter__(self):
+        self.entered = True
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.exited = True
+        self.exited_with_exc = exc_type
+        return False  # never swallow the exception
+
+    def imap_unordered(self, fn, iterable):
+        for item in iterable:
+            yield fn(item)
+
+
+class _RaisingFakePool(_FakePool):
+    def imap_unordered(self, fn, iterable):
+        for item in iterable:
+            yield fn(item)  # first item raises via a poisoned analyze_wallet_file
+
+
+def _write_checkpoint_store(checkpoint_path, input_file, completed_files):
+    store = CheckpointStore(checkpoint_path, run_key={"input_file": str(input_file)})
+    for file_path in completed_files:
+        store.mark_completed(str(file_path))
+    store.flush()
+    store.close()
+
+
+def test_analyze_wallets_resumes_by_skipping_already_completed_files(tmp_path):
+    already_done = tmp_path / "already_done.dat"
+    already_done.write_text("nothing checked again")
+    new_file = tmp_path / "new_file.dat"
+    new_file.write_text("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+    input_file = _write_input_file(tmp_path, [already_done, new_file])
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+    _write_checkpoint_store(checkpoint_path, input_file, [already_done])
+
+    with patch("tools.analyze_wallets.analyze_wallet_file") as mock_analyze_file:
+        mock_analyze_file.return_value = {"Bitcoin": ["1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"]}
+        analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
+
+    mock_analyze_file.assert_called_once_with(str(new_file))
+    result = json.loads(output_file.read_text())
+    assert str(already_done) not in result
+    assert result[str(new_file)] == {"Bitcoin": ["1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"]}
+
+
+def test_analyze_wallets_deletes_checkpoint_on_clean_completion(tmp_path):
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_text("nothing interesting")
+    input_file = _write_input_file(tmp_path, [wallet_file])
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+
+    analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
+
+    assert not checkpoint_path.exists()
+
+
+def test_analyze_wallets_stops_cleanly_when_paused(tmp_path, monkeypatch):
+    """
+    sse-04 confirmed pause semantics: let in-flight work finish, never
+    abort mid-write. CHECKPOINT_EVERY_FILES is forced to 1 so a small,
+    fast test naturally hits a flush -- the point pause is checked --
+    after the very first file. The checkpoint is pre-marked paused via
+    request_pause_for, the exact run-key-agnostic mechanism a real pause
+    route uses, so analyze_wallets() itself is what notices and stops.
+    """
+    import tools.analyze_wallets as analyze_wallets_module
+    from tools.checkpoint_store import CheckpointPaused, request_pause_for
+
+    monkeypatch.setattr(analyze_wallets_module, "CHECKPOINT_EVERY_FILES", 1)
+
+    files = []
+    for i in range(3):
+        f = tmp_path / f"wallet{i}.dat"
+        f.write_text("nothing interesting")
+        files.append(f)
+    input_file = _write_input_file(tmp_path, files)
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+    _write_checkpoint_store(checkpoint_path, input_file, [])
+    request_pause_for(str(checkpoint_path))
+
+    with patch("tools.analyze_wallets.analyze_wallet_file") as mock_analyze_file:
+        mock_analyze_file.return_value = {}
+        with pytest.raises(CheckpointPaused):
+            analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
+
+    # Only the first file -- already in flight when the pause request was
+    # noticed at the checkpoint flush right after it -- was analyzed.
+    mock_analyze_file.assert_called_once_with(str(files[0]))
+    # No output written -- writing it now would make it look like this
+    # run's results are complete when they aren't (see paused branch's
+    # comment in analyze_wallets()).
+    assert not output_file.exists()
+    assert checkpoint_path.exists()  # never deleted on a pause
+
+
+def test_analyze_wallets_resumes_after_being_paused(tmp_path, monkeypatch):
+    import tools.analyze_wallets as analyze_wallets_module
+    from tools.checkpoint_store import CheckpointPaused, clear_pause_for, request_pause_for
+
+    monkeypatch.setattr(analyze_wallets_module, "CHECKPOINT_EVERY_FILES", 1)
+
+    files = []
+    for i in range(3):
+        f = tmp_path / f"wallet{i}.dat"
+        f.write_text("nothing interesting")
+        files.append(f)
+    input_file = _write_input_file(tmp_path, files)
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+    _write_checkpoint_store(checkpoint_path, input_file, [])
+    request_pause_for(str(checkpoint_path))
+
+    with patch("tools.analyze_wallets.analyze_wallet_file") as mock_analyze_file:
+        mock_analyze_file.return_value = {}
+        with pytest.raises(CheckpointPaused):
+            analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
+
+        clear_pause_for(str(checkpoint_path))
+        analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path))
+
+    # file[0] (before the pause) + file[1], file[2] (after resume) -- never
+    # re-analyzed, identical to today's crash-resume semantics.
+    assert mock_analyze_file.call_count == 3
+    assert not checkpoint_path.exists()
+    assert output_file.exists()
+
+
+def test_analyze_wallets_parallel_stops_cleanly_when_paused(tmp_path, monkeypatch):
+    """Same confirmed pause semantics, exercised through the
+    multiprocessing.Pool path (processes > 1) via _FakePool -- proves the
+    pause check inside _analyze_wallets_parallel's own collection loop
+    works the same way as the sequential path's."""
+    import tools.analyze_wallets as analyze_wallets_module
+    from tools.checkpoint_store import CheckpointPaused, request_pause_for
+
+    monkeypatch.setattr(analyze_wallets_module, "CHECKPOINT_EVERY_FILES", 1)
+
+    files = []
+    for i in range(3):
+        f = tmp_path / f"wallet{i}.dat"
+        f.write_text("nothing interesting")
+        files.append(f)
+    input_file = _write_input_file(tmp_path, files)
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+    _write_checkpoint_store(checkpoint_path, input_file, [])
+    request_pause_for(str(checkpoint_path))
+
+    with patch("tools.analyze_wallets.Pool", _FakePool):
+        with pytest.raises(CheckpointPaused):
+            analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path), processes=4)
+
+    assert not output_file.exists()
+    assert checkpoint_path.exists()
+
+    conn = sqlite3.connect(str(checkpoint_path))
+    completed = conn.execute("SELECT COUNT(*) FROM completed_units").fetchone()[0]
+    conn.close()
+    assert completed == 1  # durably recorded before the pause was raised
+
+
+def test_analyze_wallets_with_no_checkpoint_path_is_unchanged(tmp_path):
+    """checkpoint_path=None (the default) must be a complete no-op --
+    byte-identical to pre-resume behavior."""
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_text("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+    input_file = _write_input_file(tmp_path, [wallet_file])
+    output_file = tmp_path / "analysis.json"
+
+    analyze_wallets(str(input_file), str(output_file))
+
+    result = json.loads(output_file.read_text())
+    assert str(wallet_file) in result
+
+
+def test_analyze_wallet_one_file_worker_never_touches_scan_index(tmp_path):
+    """The critical constraint: worker processes must never read or write
+    scan_index.db -- only the main process does, so multiprocessing never
+    introduces concurrent writers to it. _analyze_one_file is the exact
+    function dispatched to multiprocessing.Pool workers; calling it
+    directly (as a worker process would) must not touch scan_index.py at
+    all."""
+    wallet_file = tmp_path / "wallet.dat"
+    wallet_file.write_text("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+
+    with patch("tools.analyze_wallets.record_scanned_file") as mock_record, \
+         patch("tools.analyze_wallets.is_known") as mock_is_known:
+        file_path, results = _analyze_one_file(str(wallet_file))
+
+    mock_record.assert_not_called()
+    mock_is_known.assert_not_called()
+    assert file_path == str(wallet_file)
+    assert results.get("Bitcoin") == ["1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"]
+
+
+@patch("tools.analyze_wallets.Pool", _FakePool)
+def test_analyze_wallets_with_processes_greater_than_one_uses_a_pool(tmp_path):
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_text("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_text("nothing interesting here")
+    input_file = _write_input_file(tmp_path, [wallet_a, wallet_b])
+    output_file = tmp_path / "analysis.json"
+    _FakePool.instances.clear()
+
+    analyze_wallets(str(input_file), str(output_file), processes=4)
+
+    assert len(_FakePool.instances) == 1
+    pool = _FakePool.instances[0]
+    assert pool.processes == 4
+    assert pool.entered and pool.exited
+    result = json.loads(output_file.read_text())
+    assert "Bitcoin" in result[str(wallet_a)]
+    assert str(wallet_b) not in result
+
+
+@patch("tools.analyze_wallets.Pool", _FakePool)
+def test_analyze_wallets_with_processes_matches_sequential_result(tmp_path):
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_text("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_text("nothing interesting here")
+    wallet_c = tmp_path / "c.dat"
+    wallet_c.write_text("0x71C7656EC7ab88b098defB751B7401B5f6d8976")
+
+    sequential_output = tmp_path / "sequential.json"
+    analyze_wallets(
+        str(_write_input_file(tmp_path, [wallet_a, wallet_b, wallet_c])),
+        str(sequential_output),
+    )
+
+    parallel_output = tmp_path / "parallel.json"
+    analyze_wallets(
+        str(_write_input_file(tmp_path, [wallet_a, wallet_b, wallet_c])),
+        str(parallel_output),
+        processes=3,
+    )
+
+    assert json.loads(sequential_output.read_text()) == json.loads(parallel_output.read_text())
+
+
+@patch("tools.analyze_wallets.Pool", _FakePool)
+def test_analyze_wallets_processes_dispatches_only_files_needing_fresh_analysis(tmp_path):
+    """A resumed or dedup-cached file is never dispatched to the pool at
+    all -- filtered out up front in the main process, exactly like the
+    sequential path."""
+    already_done = tmp_path / "already_done.dat"
+    already_done.write_text("skip me")
+    new_file = tmp_path / "new_file.dat"
+    new_file.write_text("nothing to find")
+    input_file = _write_input_file(tmp_path, [already_done, new_file])
+    output_file = tmp_path / "analysis.json"
+    checkpoint_path = tmp_path / "analyze_checkpoint.db"
+    _write_checkpoint_store(checkpoint_path, input_file, [already_done])
+    _FakePool.instances.clear()
+
+    with patch("tools.analyze_wallets.analyze_wallet_file") as mock_analyze_file:
+        mock_analyze_file.return_value = {}
+        analyze_wallets(str(input_file), str(output_file), checkpoint_path=str(checkpoint_path), processes=2)
+
+    mock_analyze_file.assert_called_once_with(str(new_file))
+
+
+@patch("tools.analyze_wallets.Pool", _FakePool)
+def test_analyze_wallets_processes_reports_progress_for_every_file_exactly_once(tmp_path):
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_text("a")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_text("b")
+    input_file = _write_input_file(tmp_path, [wallet_a, wallet_b])
+    output_file = tmp_path / "analysis.json"
+
+    calls = []
+    analyze_wallets(
+        str(input_file),
+        str(output_file),
+        processes=2,
+        progress_callback=lambda c, t, m="": calls.append((c, t, m)),
+    )
+
+    assert len(calls) == 2
+    assert [c[0] for c in calls] == [1, 2]  # a strictly increasing count
+    assert all(t == 2 for _, t, _ in calls)
+    assert {m for _, _, m in calls} == {str(wallet_a), str(wallet_b)}
+
+
+@patch("tools.analyze_wallets.Pool", _FakePool)
+def test_analyze_wallets_processes_writes_scan_index_only_from_the_main_process(tmp_path):
+    """Zero-concurrent-writers guarantee: record_scanned_file is called
+    exactly once per newly-analyzed file, and only from analyze_wallets()'s
+    own main-process result loop -- never from inside the (fake, but
+    interface-faithful) pool's worker call."""
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_text("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_text("nothing interesting here")
+    input_file = _write_input_file(tmp_path, [wallet_a, wallet_b])
+    output_file = tmp_path / "analysis.json"
+    index_db_path = tmp_path / "scan_index.db"
+
+    with patch("tools.analyze_wallets.record_scanned_file") as mock_record:
+        analyze_wallets(str(input_file), str(output_file), index_db_path=index_db_path, processes=2)
+
+    assert mock_record.call_count == 2
+    called_paths = {call.args[1] for call in mock_record.call_args_list}
+    assert called_paths == {str(wallet_a), str(wallet_b)}
+
+
+def test_analyze_wallets_worker_exception_propagates_and_pool_is_still_cleaned_up(tmp_path):
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_text("boom")
+    input_file = _write_input_file(tmp_path, [wallet_a])
+    output_file = tmp_path / "analysis.json"
+    _FakePool.instances.clear()
+
+    with patch("tools.analyze_wallets.Pool", _RaisingFakePool), \
+         patch("tools.analyze_wallets.analyze_wallet_file", side_effect=RuntimeError("worker blew up")):
+        try:
+            analyze_wallets(str(input_file), str(output_file), processes=2)
+            raised = False
+        except RuntimeError:
+            raised = True
+
+    assert raised
+    assert len(_FakePool.instances) == 1
+    pool = _FakePool.instances[0]
+    # mirrors check_wallet_balances.py's future.result() re-raise pattern:
+    # the exception surfaces to the caller, but the pool's own context
+    # manager still ran its cleanup (__exit__) rather than being left
+    # hanging/corrupted.
+    assert pool.exited
+    assert pool.exited_with_exc is RuntimeError
+
+
+def test_analyze_wallets_with_real_multiprocessing_pool_matches_sequential_result(tmp_path):
+    """One real (non-mocked) end-to-end proof that multiprocessing.Pool
+    parallelism actually works -- pickling a plain file path string to a
+    module-level worker function, real separate processes -- not just
+    that the fake-pool-driven orchestration tests above are internally
+    consistent."""
+    wallet_a = tmp_path / "a.dat"
+    wallet_a.write_text("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+    wallet_b = tmp_path / "b.dat"
+    wallet_b.write_text("0x71C7656EC7ab88b098defB751B7401B5f6d8976")
+
+    sequential_output = tmp_path / "sequential.json"
+    analyze_wallets(str(_write_input_file(tmp_path, [wallet_a, wallet_b])), str(sequential_output))
+
+    real_pool_output = tmp_path / "real_pool.json"
+    analyze_wallets(
+        str(_write_input_file(tmp_path, [wallet_a, wallet_b])),
+        str(real_pool_output),
+        processes=2,
+    )
+
+    assert json.loads(sequential_output.read_text()) == json.loads(real_pool_output.read_text())
