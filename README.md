@@ -769,6 +769,26 @@ this app is a separate, later effort outside this project's own scope.
   in one click, to focus on what still needs attention) matters a lot more
   than any single scan's transient result page. Inconclusive balances are
   always shown as "inconclusive," never silently as if they were zero.
+- **Group view / combined relationship graph** (`/findings/group-view`) --
+  every `crawl_transaction_graph.py` crawl run from "On-demand actions" is
+  saved (`web/crawl_runs.db`), not just shown once and discarded. This page
+  surfaces two related but distinct signals: a table of every address
+  discovered by more than one saved crawl *ever* (`find_overlap_addresses`
+  -- e.g. a mining wallet and its holding wallet, found independently by
+  two separate crawls), and, above it, a checkbox per saved run plus a
+  "View combined graph" button -- pick 2 or more and it opens
+  `/findings/group-view/graph?run_ids=...`, the union of every address
+  those specific runs discovered rendered as one Cytoscape graph (reusing
+  the same graph rendering as a single crawl's result page). Within that
+  combined graph, an address independently found by 2+ of *just the runs
+  you picked* (a narrower, selection-scoped question than the table above
+  it) gets a bold dashed border -- a visual channel kept deliberately
+  separate from the existing confidence/balance fill color, so "high
+  confidence" and "cross-group" stay two independently readable signals on
+  the same node instead of one conflated color. Hovering or clicking such
+  a node shows exactly which runs and seed addresses found it, the same
+  "never a bare label without the real evidence" convention the rest of
+  this app's confidence scoring already follows.
 
 ---
 

@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-08-18
+
+### Added
+
+- **See multiple relationship-graph investigations combined into one
+  graph.** On the group-view page, select 2 or more saved crawl runs and
+  open a combined graph showing every address across all of them. Any
+  address independently found by more than one of the runs you selected
+  gets a distinct bold border, separate from its usual confidence/balance
+  color, so real cross-investigation overlaps stand out at a glance.
+  Hovering or clicking an overlap address shows exactly which runs and
+  seed addresses found it.
+
 ## [0.54.0] - 2026-08-18
 
 ### Added

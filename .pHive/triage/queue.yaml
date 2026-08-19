@@ -42,8 +42,8 @@ items:
       this directly or needs new aggregation logic first.
     priority: high
     severity: null
-    state: prioritized
-    linked_epic: null
+    state: plan-ready
+    linked_epic: multi-cluster-relationship-graph
     linked_story: null
     raised_at: "2026-08-17T10:40:00-05:00"
     raised_by: mathew
