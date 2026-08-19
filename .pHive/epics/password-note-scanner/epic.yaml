@@ -1,0 +1,47 @@
+name: password-note-scanner
+title: Password / Note Scanner
+description: >
+  A new default scan type, parallel to the existing wallet-file and
+  seed-phrase scans, that walks plain-text files/notes looking for
+  password-shaped or credential-labeled strings (e.g. "password:", "pw:",
+  a plausible token near a coin/wallet name) to surface candidate
+  passwords for review, then optionally ingest into the existing vault /
+  auto-unlock pipeline -- so the user isn't stuck manually compiling a
+  password list by hand from notes scattered across the machine.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [scanning, heuristic-matching, vault-integration]
+  roster: [researcher, technical-writer]
+  per_tag_reasoning:
+    scanning: "New file-discovery + content-matching scanner, parallel to find_seed_phrases.py"
+    heuristic-matching: "No structural validator available (unlike address checksums) -- genuinely fuzzy signal, real false-positive-rate consideration"
+    vault-integration: "Only integration point is add_vault_entry -- confirmed via research, not assumed"
+  confidence: medium
+  gate_decisions:
+    collaborative_review: skipped_solo_project
+    hv_planning: medium_scope_lightweight
+    structured_outline: not_required_medium_scope
+  note: >
+    Personal, solo-maintained repo -- orchestrator-direct planning, user as
+    sole reviewer. Confidence marked medium (not high) because the core
+    matching heuristic has no offline-verifiable structural check to fall
+    back on, unlike every other matcher in this codebase -- flagged
+    explicitly in the design discussion, not glossed over.
+
+stories:
+  - id: pns-01-scanner-and-review-ui
+    title: Core scanner + candidate review UI (no vault ingestion yet)
+    complexity: medium
+    depends_on: []
+  - id: pns-02-confirm-and-vault-ingest
+    title: Confirm-and-ingest reviewed candidates into the vault
+    complexity: medium
+    depends_on: [pns-01-scanner-and-review-ui]

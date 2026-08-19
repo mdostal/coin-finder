@@ -87,8 +87,8 @@ items:
       auto-unlock matching pipeline once discovered.
     priority: high
     severity: null
-    state: prioritized
-    linked_epic: null
+    state: plan-ready
+    linked_epic: password-note-scanner
     linked_story: null
     raised_at: "2026-08-17T10:50:00-05:00"
     raised_by: mathew
