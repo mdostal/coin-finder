@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-08-18
+
+### Added
+
+- **Scans and balance checks now scale to genuinely huge drives** (real
+  test: a 93GB, 1.8-million-file local drive scanned start to finish in
+  136 seconds with flat, low memory use throughout). Every pipeline stage
+  (search, analyze, balance-check) now shares one memory-safe checkpoint
+  design instead of three different, partly-fragile ones. File analysis
+  now uses multiple CPU cores at once instead of one file at a time, and
+  the folder search itself now reads multiple directories concurrently.
+- **A real Pause button.** Any running scan or balance check can now be
+  paused from the Jobs page and resumed later from exactly where it left
+  off, instead of only being able to quit the whole app to stop something.
+- **Scans and balance checks now survive an app restart or crash without
+  losing track of the job itself** — previously a crash mid-scan lost the
+  job entirely, not just its progress.
+- **New resource-profile settings**, auto-detected from your machine's
+  CPU by default (visible on the Settings page), with a Custom mode to
+  set exact worker counts by hand for every stage.
+- Starting two balance-check jobs against the same results at the same
+  time is now blocked (mirrors the existing protection already in place
+  for scans), and a drive that disconnects mid-scan now fails with a
+  clear message instead of silently stalling or producing incomplete
+  results.
+
 ## [0.53.6] - 2026-08-18
 
 ### Fixed
