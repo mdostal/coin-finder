@@ -19,7 +19,7 @@ coverage_by_story:
       manual code comparison against the validated diagnostic script, then fixed. Noting this
       as a real gap in the fixture's coverage, not swept under the rug.
 real_world_validation:
-  target: /Users/mdostal/wallets/Bitcoin/wallets/backup-wallet-1/wallet.dat (real file, not a fixture)
+  target: [REDACTED-REAL-LOCAL-PATH] (real file, not a fixture)
   full_scan_result: "1016 unique addresses found (1009 from key records + 7 from name records), 0 encrypted, plus correctly-categorized non-address record types (1000 pool, 900 keymeta, etc.) -- confirms this wallet was previously only 0.7% covered (7 of 1016 addresses ever checked)."
   bounded_balance_check: "Ran --limit 30 live against the real file; completed correctly, respected and reported the limit. Full 1016-address sweep intentionally not run in this session (time/rate-limit cost) -- left for the user or a background run."
 bugs_filed: 0

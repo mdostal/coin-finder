@@ -98,7 +98,7 @@ VERIFICATION PLAN:
     real Blockstream response, verified live) and a mocked BitcoinService --
     no real network calls in the test suite
   Manual: run the real CLI against the actual found address
-    (1GcWwQTb4giriXRmEjdizaXnyy5ABpKCpB) to confirm real-world output is sane
+    ([REDACTED-REAL-ADDRESS]) to confirm real-world output is sane
     -- this is the only way to validate the heuristic against real transaction
     shapes (including the observed 100+-output transactions)
   Not verifying: coins other than Bitcoin (out of scope, see Dependencies)
