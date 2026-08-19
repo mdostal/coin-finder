@@ -1,0 +1,98 @@
+id: mcrg-01-combined-graph-data-and-route
+epic: multi-cluster-relationship-graph
+title: Combined graph data query + route (no overlap styling yet)
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  Add get_runs_graph_data(run_ids) to web/crawl_runs.py: given a list of
+  run_ids, return the full combined node set (every address from
+  run_addresses across those runs, deduplicated -- when an address appears
+  in multiple selected runs, keep the highest-confidence/earliest-
+  generation record) plus the full edge set (every row from run_edges
+  filtered to those run_ids). This is deliberately NOT a reuse of
+  find_overlap_addresses() -- that function only returns addresses found
+  by 2+ runs GLOBALLY and discards everything else; a real combined graph
+  needs every node from every selected group, not just the intersection.
+
+  Add a new route (GET /findings/group-view/graph?run_ids=1,2,3) that
+  calls this query and renders a new template reusing web/static/graph.js's
+  existing Cytoscape setup as-is for this story (confidence/balance
+  coloring only -- the cross-group overlap visual treatment is mcrg-02).
+
+  Working state after this story: a user who knows the URL (or is given a
+  direct link) can select 2+ saved runs and see them combined in one real
+  graph. The UI entry point (multi-select on the group-view table) is
+  mcrg-02, not this story.
+
+acceptance_criteria:
+  - "Given 2+ saved crawl runs with some overlapping addresses, when get_runs_graph_data([run_id_a, run_id_b]) is called, then the returned node set includes every address from BOTH runs (not just the intersection) with no duplicates"
+  - "Given the same address appears in both selected runs with different confidence/generation values, when deduplicated, then the highest-confidence (or earliest-generation, whichever the implementation picks -- document the tiebreak explicitly) record wins, not an arbitrary one"
+  - "Given run_edges rows exist for the selected runs, when get_runs_graph_data is called, then the returned edge set includes only edges belonging to the selected run_ids, not edges from unselected runs"
+  - "Given a run_id list with only one run, when get_runs_graph_data is called, then it behaves correctly as the single-run case (no crash, no accidental cross-run leakage)"
+  - "Given the new /findings/group-view/graph route with real run_ids as query params, when requested, then it renders a working Cytoscape graph showing all nodes/edges from the combined query -- manually verified against the 3 largest real saved runs (200 addresses each) combined, not just a small synthetic test tree"
+  - "Given an invalid or empty run_ids param, when the route is requested, then it fails clearly (400 or a clear error page), not a silent empty graph or a crash"
+
+steps:
+  - id: research
+    description: Confirm the exact run_addresses/run_edges schema and existing find_overlap_addresses query structure to write get_runs_graph_data consistently with established SQL-first conventions in this file.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for get_runs_graph_data (combined node set correctness, dedup tiebreak, edge filtering, single-run case) and the new route (valid run_ids render correctly, invalid/empty run_ids fail clearly).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement get_runs_graph_data in web/crawl_runs.py and the new route + template in web/app.py, reusing graph.js's existing Cytoscape setup unchanged for this story.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review for correct dedup semantics and confirm the real 3-largest-runs-combined manual scale check was actually performed, not skipped.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/crawl_runs.py
+      purpose: "find_overlap_addresses() (line ~245) is the existing global-overlap query to NOT reuse directly -- new run_id-scoped query logic goes here instead, following the same SQL-first, indexed-query convention"
+    - path: web/static/graph.js
+      purpose: "Existing working Cytoscape rendering (confidence/balance coloring, concentric layout, tooltips) -- reused as-is for this story, extended in mcrg-02"
+    - path: web/app.py
+      purpose: "Existing GET /item-result/<job_id> route is the closest existing pattern for a graph-rendering route, though it reads live job data, not a persisted run_id -- this story's route is genuinely new"
+
+files_to_modify:
+  - file: web/crawl_runs.py
+    change: "Add get_runs_graph_data(run_ids) function"
+  - file: web/app.py
+    change: "Add GET /findings/group-view/graph route"
+  - file: web/templates/group_view_graph.html
+    change: "New template, reusing graph.js's Cytoscape setup"
+  - file: tests/test_crawl_runs.py
+    change: "Add get_runs_graph_data test coverage"
+  - file: tests/test_web_app_group_view_graph.py
+    change: "New file. Route test coverage"
+
+design_decisions:
+  - decision: "New query function, not a reuse/adaptation of find_overlap_addresses"
+    rationale: "find_overlap_addresses is globally-scoped and intersection-only by design (built for the overlap table) -- a real combined graph needs every node from every selected group; conflating the two would silently drop non-overlapping nodes"
+
+risks:
+  - severity: medium
+    description: "Combining the 3 largest real runs (200 nodes each, up to 600 combined) may stress rendering differently than the single-run case the layout was tuned for"
+    mitigation: "Explicit manual scale check against the real 3 largest saved runs required as part of this story's acceptance criteria -- not assumed safe by extrapolation from the 200-node single-run case"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md's relationship-graph section should mention the new combined-view capability once both stories ship"
+
+references:
+  - path: .pHive/epics/multi-cluster-relationship-graph/docs/design-discussion.md
+    relevant_excerpt: "Section 3.1 (query design) and 3.3 (route design)."
+  - path: .pHive/epics/group-view-graph/docs/design-discussion.md
+    relevant_excerpt: "Section 4 -- the original scoping decision that deferred a real graph view to this follow-up epic."

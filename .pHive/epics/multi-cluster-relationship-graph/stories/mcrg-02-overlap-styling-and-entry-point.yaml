@@ -1,0 +1,94 @@
+id: mcrg-02-overlap-styling-and-entry-point
+epic: multi-cluster-relationship-graph
+title: Cross-group overlap styling + table-view entry point
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [mcrg-01-combined-graph-data-and-route]
+
+description: |
+  Complete the feature: add cross-group overlap detection and visual
+  styling on top of mcrg-01's combined graph, and wire a real UI entry
+  point so this is reachable without knowing a URL.
+
+  A node is "cross-group" when it appears in run_addresses for more than
+  one of the SELECTED run_ids (not globally across every saved run --
+  that's find_overlap_addresses' job, this is a run_id-set-scoped sibling
+  of the same idea). Render this as a second, independent visual channel
+  from the existing confidence/balance fill-color logic -- e.g. a bold or
+  dashed border -- so a viewer can read confidence and cross-group-overlap
+  as two separate signals, never conflated into one color. Clicking/
+  hovering a cross-group node shows which runs/seeds found it, following
+  this project's established "never a bare label, always show the raw
+  evidence" convention (same discipline compute_confidence_scores already
+  follows).
+
+  Add a multi-select (checkboxes per run) + "View combined graph" action
+  to web/templates/group_view.html (the existing overlap table page) that
+  navigates to mcrg-01's route with the selected run_ids -- the natural,
+  already-established place a user would discover this feature from.
+
+acceptance_criteria:
+  - "Given a combined graph with an address present in 2 of the selected runs, when rendered, then that node shows a visually distinct border/treatment separate from its confidence-based fill color -- both signals visible simultaneously, never merged into one"
+  - "Given a combined graph with NO cross-group addresses among the selected runs, when rendered, then no node gets the overlap treatment -- it's not falsely applied"
+  - "Given a cross-group node, when clicked/hovered, then the tooltip shows which specific runs/seeds found it -- not just a generic 'overlap' label with no evidence"
+  - "Given the group-view table page, when a user checks 2+ runs and clicks 'View combined graph', then they land on mcrg-01's route with exactly those run_ids -- the full path from discovery to combined graph works without knowing any URL"
+  - "Given only 1 run is checked, when 'View combined graph' is clicked (or the button's disabled state), then the UI handles this sensibly (either disabled until 2+ selected, or a clear message) rather than silently doing nothing or erroring"
+
+steps:
+  - id: research
+    description: Confirm graph.js's exact colorFor() and tooltip rendering functions to extend them correctly (adding overlap border logic and multi-run tooltip data) rather than duplicating the file, per the design discussion's explicit "extend, don't fork" decision.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the overlap-detection logic (run_id-set-scoped, not global), the visual-treatment application, and the group_view.html multi-select + navigation behavior.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Add overlap detection to mcrg-01's query/route layer, extend graph.js's coloring/tooltip functions for the overlap border + multi-run evidence, and add the multi-select entry point to group_view.html.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically that confidence-color and overlap-border remain visually independent (never conflated) and that the tooltip always shows real evidence, never a bare label.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/static/graph.js
+      purpose: "colorFor() (lines ~10-15) and the tooltip logic (lines ~83-121) are extended here, not duplicated -- per the design discussion's explicit decision"
+    - path: web/templates/group_view.html
+      purpose: "Existing overlap table -- gets the new multi-select + combined-graph entry point added"
+
+files_to_modify:
+  - file: web/static/graph.js
+    change: "Extend colorFor()/tooltip logic with overlap-border treatment and multi-run evidence display"
+  - file: web/crawl_runs.py
+    change: "Add run_id-set-scoped overlap detection (sibling of find_overlap_addresses, not a modification of it)"
+  - file: web/templates/group_view.html
+    change: "Add multi-select checkboxes per run + 'View combined graph' action"
+  - file: tests/test_crawl_runs.py
+    change: "Add run_id-set-scoped overlap detection test coverage"
+  - file: tests/test_web_app_group_view.py
+    change: "Add multi-select + navigation test coverage"
+
+design_decisions:
+  - decision: "Overlap treatment is a border/shape change, never a color change to the existing confidence fill"
+    rationale: "Confirmed in design discussion §3.2 -- conflating the two signals into one color channel would make the graph unreadable (can't tell if a node is high-confidence, cross-group, or both)"
+
+risks:
+  - severity: low
+    description: "Extending graph.js risks accidentally regressing the existing single-group graph view (item_result.html) if the shared functions aren't kept backward compatible"
+    mitigation: "Explicit test coverage confirming the single-group path (no overlap data present) renders identically to before this story"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md's relationship-graph section documents the full combined-view + overlap-highlighting capability once this ships"
+
+references:
+  - path: .pHive/epics/multi-cluster-relationship-graph/docs/design-discussion.md
+    relevant_excerpt: "Section 3.2 (overlap as independent visual signal), 3.4 (entry point), 3.5 (tooltip convention)."

@@ -1,0 +1,45 @@
+name: multi-cluster-relationship-graph
+title: Multi-Cluster Relationship Graph
+description: >
+  Let the user select multiple saved crawl runs (relationship-graph
+  "groups") and view them combined in one real Cytoscape graph, with
+  cross-group overlap addresses (a wallet related in more than one
+  investigation) visually distinguished as a second, independent signal
+  from the existing confidence/balance coloring. Follow-up to
+  group-view-graph, which deliberately scoped a real graph view out in
+  favor of a table, pending this exact ask.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [visualization, data-modeling, ux]
+  roster: [researcher, technical-writer]
+  per_tag_reasoning:
+    visualization: "Cytoscape graph rendering, new visual encoding for cross-group overlap"
+    data-modeling: "New SQL-first query over existing crawl_runs.db schema"
+    ux: "New entry point + interaction (multi-select runs, combined view)"
+  confidence: high
+  gate_decisions:
+    collaborative_review: skipped_solo_project
+    hv_planning: medium_scope_lightweight
+    structured_outline: not_required_medium_scope
+  note: >
+    Personal, solo-maintained repo -- orchestrator-direct planning, user as
+    sole reviewer. Medium scope: design discussion + lightweight vertical
+    plan, no structured outline required.
+
+stories:
+  - id: mcrg-01-combined-graph-data-and-route
+    title: Combined graph data query + route (no overlap styling yet)
+    complexity: medium
+    depends_on: []
+  - id: mcrg-02-overlap-styling-and-entry-point
+    title: Cross-group overlap styling + table-view entry point
+    complexity: medium
+    depends_on: [mcrg-01-combined-graph-data-and-route]
