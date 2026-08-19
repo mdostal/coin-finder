@@ -24,7 +24,7 @@ regression_check:
 
 real_world_validation:
   target: [REDACTED-REAL-ADDRESS] (the real found 0.3 BTC address)
-  result: "Discovered bc1qfx2ms6kdwnx24jllnt8r76raz3250srdsdlmvt via co-spend clustering -- confirmed real, holds 0.0179 BTC unspent."
+  result: "Discovered [REDACTED-REAL-ADDRESS] via co-spend clustering -- confirmed real, holds 0.0179 BTC unspent."
 
 bugs_filed: 0
 notable_findings:
