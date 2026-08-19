@@ -119,7 +119,13 @@ def _match_file(file_path, file_name):
 
 
 def search_for_wallets(
-    start_path, output_file, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=DEFAULT_WALK_THREADS
+    start_path,
+    output_file,
+    checkpoint_path=None,
+    progress_callback=None,
+    excludes=None,
+    walk_threads=DEFAULT_WALK_THREADS,
+    mount_health_check=None,
 ):
     """
     Walks start_path looking for likely wallet files. A long walk over a
@@ -183,6 +189,16 @@ def search_for_wallets(
         (never queued for any worker, not just excluded from the
         results) -- the actual point being to avoid both wasted time AND
         false-positive matches from paths already known not to matter.
+    :param mount_health_check: optional callable() -> bool, checked at the
+        same points a checkpoint flush already happens (sse-05: "same
+        cadence family, no new polling loop"). None (the default) means
+        "not scanning a tracked mount" -- skipped entirely, so a
+        non-mount-backed walk never calls this at all. A caller passing a
+        real check (see web/app.py's _mount_health_check_for, wrapping
+        web/mounts.py's is_mounted()) gets this walk stopped cleanly --
+        current progress already flushed first -- the moment the drive
+        goes away mid-scan, instead of silently hanging or producing a
+        result indistinguishable from a clean finish.
     """
     if progress_callback is None:
         progress_callback = lambda current, total, message="": None
@@ -241,8 +257,15 @@ def search_for_wallets(
     # again, identical to how a hard crash mid-walk already behaves today.
     paused_event = threading.Event()
 
+    # sse-05: same idea as paused_event immediately above, one failure mode
+    # later -- set only from inside the need_flush block, right after a
+    # flush has already durably committed progress, so nothing observing
+    # this afterward can lose in-flight work. Checked at the same point
+    # paused_event is, for the same reason.
+    mount_disconnected_event = threading.Event()
+
     def _process_directory(root):
-        if paused_event.is_set():
+        if paused_event.is_set() or mount_disconnected_event.is_set():
             return
         if excludes and _is_excluded(root, excludes):
             return  # never queued further -- whole subtree pruned, same as the sequential walk's dirs[:] = []
@@ -314,6 +337,13 @@ def search_for_wallets(
             # pause route's, opened against this same checkpoint file).
             if store and store.is_paused():
                 paused_event.set()
+            # sse-05: same "no new polling loop" rule -- reuses this exact
+            # flush point rather than a separate timer/thread. Only ever
+            # non-None for a target under a currently-tracked mount (see
+            # web/app.py's _mount_health_check_for) -- a local,
+            # non-mounted target never pays for this call at all.
+            if mount_health_check is not None and not mount_health_check():
+                mount_disconnected_event.set()
         if need_progress:
             with output_lock:
                 wallets_so_far = len(potential_wallets)
@@ -352,6 +382,13 @@ def search_for_wallets(
 
     _flush()
     out_f.close()
+
+    if mount_disconnected_event.is_set():
+        # Never delete the checkpoint here either -- same reasoning as a
+        # pause: progress already flushed above, and there IS something
+        # left to resume once the drive is reconnected.
+        print(f"Search stopped: drive disconnected. Found {len(potential_wallets)} potential wallet file(s) so far.")
+        raise RuntimeError(f"drive disconnected mid-scan -- search stopped after {state['dirs_walked']} directories")
 
     if paused_event.is_set():
         # Never delete the checkpoint on a pause -- there IS something

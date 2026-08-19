@@ -153,6 +153,72 @@ def test_search_for_wallets_resumes_after_being_paused(tmp_path, monkeypatch):
     assert not checkpoint_path.exists()  # cleaned up on the eventual clean completion
 
 
+def test_search_for_wallets_stops_cleanly_when_mount_disconnects(tmp_path, monkeypatch):
+    """
+    sse-05: a dead/crashed mount must fail the scan clearly (flushing
+    whatever progress already exists first), never hang or finish looking
+    like a clean, complete result. CHECKPOINT_EVERY_DIRS is forced to 1
+    for the same reason test_search_for_wallets_stops_cleanly_when_paused
+    forces it -- a small, fast test tree naturally hits the flush point
+    (the same point the mount check fires) after the very first directory.
+    mount_health_check simulates is_mounted() flipping to False partway
+    through, exactly like a real drive disconnecting mid-scan.
+    """
+    import tools.search_wallets as search_wallets_module
+
+    monkeypatch.setattr(search_wallets_module, "CHECKPOINT_EVERY_DIRS", 1)
+
+    for i in range(5):
+        sub = tmp_path / f"dir{i}"
+        sub.mkdir()
+        (sub / "wallet.dat").write_bytes(b"x" * 100)
+
+    output_file = tmp_path / "out.txt"
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    with pytest.raises(RuntimeError, match="drive disconnected"):
+        search_for_wallets(
+            str(tmp_path),
+            str(output_file),
+            checkpoint_path=str(checkpoint_path),
+            walk_threads=1,
+            mount_health_check=lambda: False,
+        )
+
+    # Never deleted -- there IS something left to resume, same as a pause.
+    assert checkpoint_path.exists()
+
+    conn = sqlite3.connect(str(checkpoint_path))
+    completed = conn.execute("SELECT COUNT(*) FROM completed_dirs").fetchone()[0]
+    conn.close()
+    # Exactly the root directory -- the flush that noticed the dead mount
+    # committed durably (mark_completed + flush already happened) BEFORE
+    # the walk stopped queueing/processing anything further.
+    assert completed == 1
+
+
+def test_search_for_wallets_never_checks_mount_health_when_none(tmp_path):
+    """
+    sse-05's explicit "zero overhead" acceptance criterion: a caller that
+    doesn't pass mount_health_check at all (every non-mount-backed target)
+    must never have it invoked -- proven here by a target-directory tree
+    big enough to trigger several real checkpoint flushes, with no crash
+    or hang, using the real default (None).
+    """
+    for i in range(3):
+        sub = tmp_path / f"dir{i}"
+        sub.mkdir()
+        (sub / "wallet.dat").write_bytes(b"x" * 100)
+
+    output_file = tmp_path / "out.txt"
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    results = search_for_wallets(str(tmp_path), str(output_file), checkpoint_path=str(checkpoint_path), walk_threads=1)
+
+    assert len(results) == 3
+    assert not checkpoint_path.exists()  # cleaned up on the eventual clean completion
+
+
 def test_search_for_wallets_reports_indeterminate_progress(tmp_path, monkeypatch):
     """
     Throttled to PROGRESS_EVERY_SECONDS in real use -- forced to 0 here so

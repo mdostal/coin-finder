@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from web.app import create_app
+from web.jobs import list_jobs
 
 
 @pytest.fixture
@@ -285,6 +286,66 @@ def test_check_balances_404s_while_find_job_still_running(mock_pipeline, mock_hi
 
     release.set()
     _wait_for_done(client, job_id)
+
+
+@patch("web.app.scan_for_hidden_volumes", return_value=[])
+@patch("web.app.run_pipeline")
+def test_check_balances_returns_existing_job_instead_of_duplicating_when_already_running(mock_pipeline, mock_hidden, client, tmp_path):
+    """
+    sse-05: mirrors
+    test_start_scan_returns_existing_job_instead_of_duplicating_when_already_running
+    (tests/test_web_app_scan_mounts.py) for the same class of bug, one
+    stage later -- nothing stopped two check-balances jobs from racing
+    against the same output_dir, last-writer-wins clobbering the same
+    checkpoint file and checks/wallet_balances.json. A second request for
+    an output_dir that already has a running check-balances job must
+    redirect to that same job, not start a duplicate.
+    """
+    mock_pipeline.find.return_value = {
+        "output_dir": str(tmp_path / "out"),
+        "files_found": 1,
+        "coin_counts": {"Bitcoin": 1},
+        "total_address_instances": 1,
+    }
+
+    find_resp = client.post("/scan", data={"input_dir": str(tmp_path)}, follow_redirects=False)
+    find_job_id = find_resp.headers["Location"].rstrip("/").split("/")[-1]
+    find_job = _wait_for_done(client, find_job_id)
+    assert find_job["status"] == "done"
+
+    release_first_job = threading.Event()
+
+    def _blocking_check_balances(*args, **kwargs):
+        release_first_job.wait(timeout=5)
+        return {}
+
+    mock_pipeline.check_balances.side_effect = _blocking_check_balances
+
+    first_resp = client.post(f"/scan/{find_job_id}/check-balances", follow_redirects=False)
+    assert first_resp.status_code == 302
+    first_balances_job_id = first_resp.headers["Location"].rsplit("/", 1)[-1]
+
+    second_resp = client.post(f"/scan/{find_job_id}/check-balances", follow_redirects=False)
+    assert second_resp.status_code == 302
+    second_balances_job_id = second_resp.headers["Location"].rsplit("/", 1)[-1]
+
+    assert second_balances_job_id == first_balances_job_id
+
+    # Filtered on checkpoint_path (not just kind/status) -- the jobs
+    # registry is a real, ambient sqlite db shared across the whole test
+    # session, same reason the mirrored find-job test filters on its own
+    # unique target: other tests' leftover "running" jobs must never make
+    # this assertion pass or fail by coincidence.
+    target_checkpoint_path = str(Path(tmp_path / "out") / "checks" / "balance_checkpoint.db")
+    running_balance_jobs = [
+        j
+        for j in list_jobs()
+        if j["kind"] == "check-balances" and j.get("checkpoint_path") == target_checkpoint_path and j["status"] == "running"
+    ]
+    assert len(running_balance_jobs) == 1
+
+    release_first_job.set()
+    _wait_for_done(client, first_balances_job_id)
 
 
 def test_flatten_balance_dict_produces_table_rows():

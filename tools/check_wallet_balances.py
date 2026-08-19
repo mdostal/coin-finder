@@ -151,6 +151,7 @@ def check_wallet_balances(
     checkpoint_path=None,
     global_max_workers=GLOBAL_MAX_WORKERS,
     per_coin_max_concurrency=PER_COIN_MAX_CONCURRENCY,
+    mount_health_check=None,
 ):
     """
     Check balances of wallet addresses for specified cryptocurrencies. Retries
@@ -189,6 +190,13 @@ def check_wallet_balances(
         coin's API at once. Defaults to PER_COIN_MAX_CONCURRENCY (today's
         tuned value, 15) -- a caller that doesn't pass this sees no
         behavior change.
+    :param mount_health_check: optional callable() -> bool, checked at the
+        same points a checkpoint flush already happens (sse-05: same
+        cadence family as search_for_wallets' own mount_health_check, no
+        new polling loop). None (the default) means "not mount-backed" --
+        skipped entirely. When it returns False, whatever progress exists
+        is flushed and this raises a clear error instead of finishing
+        looking indistinguishable from a clean run.
     """
     if progress_callback is None:
         progress_callback = lambda current, total, message="": None
@@ -266,10 +274,15 @@ def check_wallet_balances(
     # in-flight work finish."
     paused_event = threading.Event()
 
+    # sse-05: same idea as paused_event immediately above, one failure mode
+    # later -- set only from inside check_one()'s own flush block, right
+    # after store.flush() has already durably committed progress.
+    mount_disconnected_event = threading.Event()
+
     def check_one(crypto_name, file_path, address):
         nonlocal checked_count, last_checkpoint_at
 
-        if paused_event.is_set():
+        if paused_event.is_set() or mount_disconnected_event.is_set():
             return
 
         service = services[crypto_name]
@@ -297,6 +310,11 @@ def check_wallet_balances(
                 last_checkpoint_at = time.time()
                 if store.is_paused():
                     paused_event.set()
+                # sse-05: same "no new polling loop" rule as search_for_wallets --
+                # reuses this exact flush point. Only ever non-None for a
+                # target under a currently-tracked mount.
+                if mount_health_check is not None and not mount_health_check():
+                    mount_disconnected_event.set()
 
     tasks = [
         (crypto_name, file_path, address)
@@ -313,6 +331,14 @@ def check_wallet_balances(
 
     if store:
         store.flush()
+
+    if mount_disconnected_event.is_set():
+        # Same "never delete the checkpoint" reasoning as a pause -- there
+        # is something left to resume once the drive is reconnected, and
+        # every confirmed balance up to this point is already durable in
+        # the checkpoint store (flushed just above).
+        print(f"Balance check stopped: drive disconnected. {checked_count}/{total_addresses} address(es) confirmed so far.")
+        raise RuntimeError(f"drive disconnected mid-scan -- balance check stopped after {checked_count}/{total_addresses} address(es) confirmed")
 
     if paused_event.is_set():
         # No output_file/inconclusive_output write on a pause, and the

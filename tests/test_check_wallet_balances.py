@@ -562,6 +562,79 @@ def test_resumes_after_being_paused(mock_load_service, mock_sleep, tmp_path, mon
 
 @patch("tools.check_wallet_balances.time.sleep")
 @patch("tools.check_wallet_balances.load_service")
+def test_stops_cleanly_when_mount_disconnects(mock_load_service, mock_sleep, tmp_path, monkeypatch):
+    """
+    sse-05: mirrors test_pauses_cleanly_without_starting_new_requests for
+    the same failure mode one layer over -- a dead/crashed mount must fail
+    the balance check clearly (flushing whatever's already confirmed
+    first), never hang or finish looking like a clean, complete result.
+    per_coin_max_concurrency=1/global_max_workers=1 + CHECKPOINT_EVERY_ADDRESSES=1
+    makes this deterministic, same as the pause test.
+    """
+    import tools.check_wallet_balances as check_wallet_balances_module
+
+    monkeypatch.setattr(check_wallet_balances_module, "CHECKPOINT_EVERY_ADDRESSES", 1)
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["addr1", "addr2", "addr3"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    calls = []
+
+    def check_balance(address):
+        calls.append(address)
+        return 1.0
+
+    mock_load_service.return_value = make_service(check_balance)
+
+    with pytest.raises(RuntimeError, match="drive disconnected"):
+        check_wallet_balances(
+            str(input_file),
+            str(output_file),
+            coins_to_check=["Bitcoin"],
+            checkpoint_path=str(checkpoint_path),
+            per_coin_max_concurrency=1,
+            global_max_workers=1,
+            mount_health_check=lambda: False,
+        )
+
+    assert calls == ["addr1"]  # only the already-in-flight address ran
+    assert checkpoint_path.exists()  # never deleted -- there's something to resume
+    assert not output_file.exists()  # no partial output written
+
+    conn = sqlite3.connect(str(checkpoint_path))
+    completed = conn.execute("SELECT COUNT(*) FROM completed_units").fetchone()[0]
+    conn.close()
+    assert completed == 1  # durably recorded before the failure was raised
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_never_checks_mount_health_when_none(mock_load_service, mock_sleep, tmp_path, monkeypatch):
+    """
+    sse-05's explicit "zero overhead" acceptance criterion: the real
+    default (mount_health_check=None, what every non-mount-backed caller
+    gets) must complete a multi-address, multi-flush check normally with
+    no crash or hang.
+    """
+    import tools.check_wallet_balances as check_wallet_balances_module
+
+    monkeypatch.setattr(check_wallet_balances_module, "CHECKPOINT_EVERY_ADDRESSES", 1)
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["addr1", "addr2", "addr3"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    mock_load_service.return_value = make_service(lambda address: 1.0)
+
+    result = check_wallet_balances(str(input_file), str(output_file), coins_to_check=["Bitcoin"], per_coin_max_concurrency=1, global_max_workers=1)
+
+    assert result["walletA.dat"]["Bitcoin"] == {"addr1": 1.0, "addr2": 1.0, "addr3": 1.0}
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
 def test_checkpoint_ignored_for_a_different_input_file(mock_load_service, mock_sleep, tmp_path):
     """CheckpointStore's own run-key-mismatch handling (sse-01) wipes a
     checkpoint recorded under a different input_file -- this just proves

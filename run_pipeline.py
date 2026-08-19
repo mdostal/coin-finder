@@ -22,7 +22,16 @@ def _paths(output_dir):
     }
 
 
-def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, processes=None, progress_callback=None, excludes=None):
+def find(
+    input_dir,
+    output_dir,
+    index_db_path=None,
+    checkpoint_path=None,
+    processes=None,
+    progress_callback=None,
+    excludes=None,
+    mount_health_check=None,
+):
     """
     Stage 1 -- search + analyze only. No network calls, so it's fast
     regardless of how many addresses turn up. Returns a summary (files
@@ -55,6 +64,10 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, proces
         known file count), each with its own stage prefix so a caller
         showing one progress bar can tell which sub-stage is running.
     :param excludes: optional list of paths -- see tools.search_wallets.search_for_wallets().
+    :param mount_health_check: optional -- see
+        tools.search_wallets.search_for_wallets(). None (the default)
+        omits the kwarg entirely, so an existing caller/mock with the
+        narrower pre-sse-05 signature keeps working unchanged.
     :return: {"output_dir", "files_found", "coin_counts", "total_address_instances"}
     """
     if progress_callback is None:
@@ -64,6 +77,10 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, proces
     paths = _paths(output_dir)
     Path(paths["sub_dir"]).mkdir(parents=True, exist_ok=True)
 
+    search_kwargs = {}
+    if mount_health_check is not None:
+        search_kwargs["mount_health_check"] = mount_health_check
+
     print("Running wallet search...")
     search_for_wallets(
         input_dir,
@@ -71,6 +88,7 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, proces
         checkpoint_path=checkpoint_path,
         progress_callback=lambda c, t, m="": progress_callback(c, t, f"Searching: {m}"),
         excludes=excludes,
+        **search_kwargs,
     )
 
     print("Running wallet analysis...")
@@ -121,7 +139,12 @@ def find(input_dir, output_dir, index_db_path=None, checkpoint_path=None, proces
 
 
 def check_balances(
-    output_dir, progress_callback=None, checkpoint_path=None, global_max_workers=None, per_coin_max_concurrency=None
+    output_dir,
+    progress_callback=None,
+    checkpoint_path=None,
+    global_max_workers=None,
+    per_coin_max_concurrency=None,
+    mount_health_check=None,
 ):
     """
     Stage 2 -- the slow part (real network calls, one per matched
@@ -137,6 +160,11 @@ def check_balances(
     :param per_coin_max_concurrency: optional -- see
         tools.check_wallet_balances.check_wallet_balances(). Same
         None-omits-the-kwarg behavior as global_max_workers above.
+    :param mount_health_check: optional -- see
+        tools.check_wallet_balances.check_wallet_balances(). Same
+        None-omits-the-kwarg behavior as global_max_workers above -- an
+        existing caller/mock with the narrower pre-sse-05 signature keeps
+        working unchanged.
     """
     paths = _paths(output_dir)
 
@@ -145,6 +173,8 @@ def check_balances(
         worker_kwargs["global_max_workers"] = global_max_workers
     if per_coin_max_concurrency is not None:
         worker_kwargs["per_coin_max_concurrency"] = per_coin_max_concurrency
+    if mount_health_check is not None:
+        worker_kwargs["mount_health_check"] = mount_health_check
 
     print("Running wallet balance check...")
     check_wallet_balances(

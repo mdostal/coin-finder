@@ -209,6 +209,31 @@ def create_app(host="127.0.0.1"):
                 return job["job_id"]
         return None
 
+    def _running_check_balances_job_for(output_dir):
+        # Mirrors _running_find_job_for immediately above, for the same
+        # class of bug one stage later: nothing stopped two check-balances
+        # jobs from racing against the same output_dir, last-writer-wins
+        # clobbering the same checkpoint file and checks/wallet_balances.json.
+        # Matched on the checkpoint path itself, not job["label"] --
+        # unlike a `find` job's label (always == its target directory), a
+        # check-balances job's label varies by dispatch route (the
+        # original scan's input_dir from scan_check_balances, vs. the
+        # output_dir itself from scans_view_check_balances) and isn't a
+        # reliable proxy for "same output_dir" -- checkpoint_path (derived
+        # straight from output_dir by _balance_checkpoint_path) is the
+        # actual shared resource this guard exists to protect, so it's
+        # what gets compared. Only ever set for the two "whole scan"
+        # check-balances routes (scan_check_balances/
+        # scans_view_check_balances) -- the check-balances-selected
+        # variant writes to its own isolated output_dir/selections/<job_id>/
+        # and never sets checkpoint_path at all, so it can never collide
+        # here and isn't guarded.
+        target_checkpoint_path = _balance_checkpoint_path(output_dir)
+        for job in list_jobs():
+            if job.get("kind") == "check-balances" and job.get("checkpoint_path") == target_checkpoint_path and job.get("status") == "running":
+                return job["job_id"]
+        return None
+
     @app.route("/scan", methods=["POST"])
     def start_scan():
         input_dir = (request.form.get("input_dir") or "").strip()
@@ -284,8 +309,12 @@ def create_app(host="127.0.0.1"):
             abort(404)
 
         output_dir = job["result"]["output_dir"]
+        existing_balances_job_id = _running_check_balances_job_for(output_dir)
+        if existing_balances_job_id:
+            return redirect(url_for("scan_balances_status", job_id=existing_balances_job_id))
+
         balances_job_id = create_job(kind="check-balances", label=job["label"], checkpoint_path=_balance_checkpoint_path(output_dir))
-        start_job(balances_job_id, _run_check_balances_job, output_dir, balances_job_id)
+        start_job(balances_job_id, _run_check_balances_job, output_dir, balances_job_id, job["label"])
         return redirect(url_for("scan_balances_status", job_id=balances_job_id))
 
     @app.route("/scan/<job_id>/check-balances-selected", methods=["POST"])
@@ -300,7 +329,7 @@ def create_app(host="127.0.0.1"):
 
         output_dir = job["result"]["output_dir"]
         balances_job_id = create_job(kind="check-balances", label=f"{len(selected_files)} selected file(s)")
-        start_job(balances_job_id, _run_check_balances_selected_job, output_dir, selected_files, balances_job_id)
+        start_job(balances_job_id, _run_check_balances_selected_job, output_dir, selected_files, balances_job_id, job["label"])
         return redirect(url_for("scan_balances_status", job_id=balances_job_id))
 
     @app.route("/scans")
@@ -331,6 +360,10 @@ def create_app(host="127.0.0.1"):
         output_dir = (request.form.get("output_dir") or "").strip()
         if not output_dir or not Path(output_dir).is_dir():
             abort(404)
+
+        existing_balances_job_id = _running_check_balances_job_for(output_dir)
+        if existing_balances_job_id:
+            return redirect(url_for("scan_balances_status", job_id=existing_balances_job_id))
 
         balances_job_id = create_job(kind="check-balances", label=output_dir, checkpoint_path=_balance_checkpoint_path(output_dir))
         start_job(balances_job_id, _run_check_balances_job, output_dir, balances_job_id)
@@ -1366,7 +1399,7 @@ def create_app(host="127.0.0.1"):
         if job["kind"] == "check-balances":
             output_dir = str(Path(checkpoint_path).parent.parent)
             new_job_id = create_job(kind="check-balances", label=job["label"], checkpoint_path=checkpoint_path)
-            start_job(new_job_id, _run_check_balances_job, output_dir, new_job_id)
+            start_job(new_job_id, _run_check_balances_job, output_dir, new_job_id, job["label"])
             return redirect(url_for("scan_balances_status", job_id=new_job_id))
 
         abort(400)
@@ -1981,6 +2014,34 @@ def _find_checkpoint_path(output_dir):
     return str(Path(output_dir) / "checks" / "scan_checkpoint.db")
 
 
+def _mount_health_check_for(target_path):
+    """
+    sse-05: returns a callable () -> bool that re-checks web/mounts.py's
+    is_mounted() for whichever tracked mount target_path lives under, or
+    None if target_path isn't under any currently-tracked mount point at
+    all. Callers (search_for_wallets/check_wallet_balances, threaded
+    through here via run_pipeline.find()/check_balances()) must treat
+    None as "skip the health check entirely" -- that's what makes a
+    local, non-mounted target's scan loop pay zero added overhead: it
+    never calls is_mounted(), not even once, let alone periodically.
+
+    is_mounted() itself takes a remote_name, not a path (see
+    web/mounts.py) -- list_mounts() is what maps a mount_point back to
+    its remote_name, so that lookup happens once, here, at dispatch time,
+    rather than on every periodic check.
+    """
+    if not target_path:
+        return None
+
+    target = Path(target_path).resolve()
+    for entry in list_mounts():
+        mount_point = Path(entry["mount_point"]).resolve()
+        if target == mount_point or mount_point in target.parents:
+            remote_name = entry["remote_name"]
+            return lambda: is_mounted(remote_name)
+    return None
+
+
 def _job_checkpoint_paths(job):
     """
     Every checkpoint file a pause/resume action for this job should touch.
@@ -2114,6 +2175,18 @@ def _run_find_job(input_dir, job_id, index_db_path=None):
     """
     output_dir = str(DEFAULT_OUTPUT_ROOT / Path(input_dir).name)
     Path(output_dir, "checks").mkdir(parents=True, exist_ok=True)
+
+    # sse-05: only ever adds the kwarg when input_dir is genuinely under a
+    # currently-tracked mount -- see _mount_health_check_for. Omitted
+    # entirely (not passed as None) for a local, non-mounted input_dir, so
+    # search_for_wallets' own default (skip the check entirely) applies
+    # and any existing mock with the narrower pre-sse-05 signature keeps
+    # working unchanged.
+    find_kwargs = {}
+    mount_health_check = _mount_health_check_for(input_dir)
+    if mount_health_check is not None:
+        find_kwargs["mount_health_check"] = mount_health_check
+
     summary = run_pipeline.find(
         input_dir,
         output_dir,
@@ -2121,6 +2194,7 @@ def _run_find_job(input_dir, job_id, index_db_path=None):
         checkpoint_path=_find_checkpoint_path(output_dir),
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
         excludes=[e["path"] for e in list_excludes()],
+        **find_kwargs,
     )
 
     hidden_volumes = scan_for_hidden_volumes(
@@ -2146,7 +2220,7 @@ def _balance_checkpoint_path(output_dir):
     return str(Path(output_dir) / "checks" / "balance_checkpoint.db")
 
 
-def _run_check_balances_job(output_dir, job_id):
+def _run_check_balances_job(output_dir, job_id, target_path=None):
     """
     Stage 2 -- the slow part (real network calls). Requires _run_find_job
     to have already populated output_dir. checkpoint_path makes this
@@ -2160,14 +2234,29 @@ def _run_check_balances_job(output_dir, job_id):
     were settings at all, so this is a no-op for anyone who hasn't opened
     the settings page; a "custom" mode with a saved override changes what
     this next job actually uses.
+
+    :param target_path: sse-05 -- the original scan's input_dir, when the
+        caller has it (scan_check_balances does; scans_view_check_balances,
+        with only output_dir known, does not and passes nothing), used to
+        decide whether this check-balances run needs a periodic mount
+        health check at all -- see _mount_health_check_for. output_dir
+        itself is never a useful value here: it always lives under
+        DEFAULT_OUTPUT_ROOT, never under a mount.
     """
     global_max_workers, per_coin_max_concurrency = resolve_check_balances_workers()
+
+    check_balances_kwargs = {}
+    mount_health_check = _mount_health_check_for(target_path)
+    if mount_health_check is not None:
+        check_balances_kwargs["mount_health_check"] = mount_health_check
+
     run_pipeline.check_balances(
         output_dir,
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
         checkpoint_path=_balance_checkpoint_path(output_dir),
         global_max_workers=global_max_workers,
         per_coin_max_concurrency=per_coin_max_concurrency,
+        **check_balances_kwargs,
     )
 
     balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
@@ -2181,7 +2270,7 @@ def _run_check_balances_job(output_dir, job_id):
     return {"output_dir": output_dir}
 
 
-def _run_check_balances_selected_job(output_dir, selected_files, job_id):
+def _run_check_balances_selected_job(output_dir, selected_files, job_id, target_path=None):
     """
     Same finding-recording step as _run_check_balances_job, but scoped to
     a chosen subset of files -- and, critically, writing to an isolated
@@ -2194,6 +2283,9 @@ def _run_check_balances_selected_job(output_dir, selected_files, job_id):
     both are about correlating across the whole scan, which a hand-picked
     subset doesn't need, and skipping keeps a "just check these files" run
     fast.
+
+    :param target_path: sse-05 -- see _run_check_balances_job's own
+        docstring for this same parameter.
     """
     full_analysis = _read_json(Path(output_dir) / "checks" / "wallet_analysis.json") or {}
     subset = {path: full_analysis[path] for path in selected_files if path in full_analysis}
@@ -2208,12 +2300,19 @@ def _run_check_balances_selected_job(output_dir, selected_files, job_id):
 
     balances_path = checks_dir / "wallet_balances.json"
     global_max_workers, per_coin_max_concurrency = resolve_check_balances_workers()
+
+    check_kwargs = {}
+    mount_health_check = _mount_health_check_for(target_path)
+    if mount_health_check is not None:
+        check_kwargs["mount_health_check"] = mount_health_check
+
     check_wallet_balances(
         str(subset_input_path),
         str(balances_path),
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
         global_max_workers=global_max_workers,
         per_coin_max_concurrency=per_coin_max_concurrency,
+        **check_kwargs,
     )
 
     balances = _read_json(balances_path)
