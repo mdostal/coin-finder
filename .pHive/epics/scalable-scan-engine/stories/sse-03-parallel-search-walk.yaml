@@ -1,0 +1,82 @@
+id: sse-03-parallel-search-walk
+epic: scalable-scan-engine
+title: Parallelize the search (directory walk) stage
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [sse-02-check-balances-store-and-first-settings]
+
+description: |
+  Today's search_wallets.py walks directories fully sequentially via
+  os.walk -- one directory at a time -- even though directory listing is
+  I/O-bound (real Python threading benefit: I/O releases the GIL). This is
+  the "multi-reading" half of the user's explicit ask, distinct from
+  analyze's multiprocessing (sse-01, CPU-bound) and rclone's own
+  `--checkers`/`--tpslimit` (already tuned tonight, operates one layer
+  below this).
+
+  Replace the single-threaded os.walk with a bounded thread pool of
+  walkers claiming not-yet-completed subtrees from a shared work queue,
+  built on CheckpointStore (sse-01) for safe coordination across workers.
+
+  Real, confirmed risk (design-discussion §5, risk R3): more concurrent
+  Python-side directory reads against a mounted Google Drive means more
+  concurrent rclone API calls underneath -- exactly what tripped the
+  shared-client quota with --checkers 32 earlier tonight. Default worker
+  count must be conservative (2-4), and this MUST be load-tested against a
+  real mounted drive before landing -- not shipped on faith.
+
+acceptance_criteria:
+  - "Given a local test directory tree, when search_for_wallets runs with walk_threads > 1, then all files are found (identical result set to the sequential walk of the same tree)"
+  - "Given an interrupted parallel walk (simulated: stop after N directories), when resumed with the same checkpoint_path, then already-completed directories are not re-walked by any worker"
+  - "Given excludes are configured, when a parallel walk runs, then excluded directories and their subtrees are never queued for any worker -- identical behavior to the sequential exclude logic today"
+  - "Given multiple worker threads find matching wallet files concurrently, when they write to output_file, then no writes are lost or interleaved-corrupted (a stress test with many concurrent matches asserts every match appears exactly once in the output)"
+  - "Given a real mounted Google Drive test target, when the walk runs with the new default worker count, then no new rclone 403 quota errors appear in the mount log versus the current --checkers 16/--tpslimit 8 baseline (manual/documented verification, not just a unit test -- this is the load test called out as a hard requirement)"
+
+steps:
+  - id: research
+    description: Confirm search_wallets.py's exact current exclude-matching and file-matching logic (to preserve unchanged) and CheckpointStore's exact API from sse-01 for subtree-claiming coordination.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the thread-pool walk (result parity with sequential, resume correctness, exclude correctness, concurrent-write safety on output_file).
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement the work-queue thread-pool walk in search_wallets.py, preserving existing match/exclude logic unchanged; wire walk_threads as a parameter defaulting to the sse-02 settings pattern.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically for the concurrent-write-safety and quota-risk concerns; confirm the real mount load test was actually run and documented, not skipped.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/search_wallets.py
+      purpose: "Target of the walk parallelization -- match/exclude logic (_is_excluded, WALLET_EXTENSIONS/KEYWORDS matching) stays unchanged, only the walk driver changes"
+    - path: web/mounts.py
+      purpose: "rclone tuning (--checkers 16 --tpslimit 8) this story's default worker count must not undermine -- read the tuning rationale comment before choosing a default"
+
+files_to_modify:
+  - file: tools/search_wallets.py
+    change: "Replace sequential os.walk with a bounded thread-pool work-queue walk over CheckpointStore-tracked subtrees; add walk_threads parameter"
+  - file: tests/test_search_wallets.py
+    change: "Add parallel-walk test coverage alongside existing sequential tests"
+
+design_decisions:
+  - decision: "Default worker count conservative (2-4), independently tunable from rclone's own --checkers/--tpslimit"
+    rationale: "Confirmed real interaction risk with tonight's rclone quota incident -- this is not a hypothetical, it already happened once with a different concurrency knob on the same mount"
+
+risks:
+  - severity: medium
+    description: "Search-walk thread pool concurrency directly interacts with the rclone quota incident from tonight"
+    mitigation: "Conservative default (2-4 threads), explicit load test against a real Google Drive mount required before this story is considered done -- not just passing unit tests"
+
+references:
+  - path: .pHive/epics/scalable-scan-engine/docs/structured-outline.md
+    relevant_excerpt: "Part 1.4 (search walk parallelism design) and Risk R3 (rclone-quota interaction)."

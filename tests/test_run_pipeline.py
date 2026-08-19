@@ -184,6 +184,84 @@ def test_check_balances_requires_a_prior_find(tmp_path):
     assert called_analyze_input == str(output_dir / "checks" / "wallet_analysis.json")
 
 
+def test_find_threads_checkpoint_path_into_analyze_wallets_call(tmp_path):
+    """sse-01: analyze_wallets previously never received checkpoint_path at
+    all -- only search_for_wallets did. find() must now derive a sibling
+    checkpoint file for analyze (not reuse search's own path, which gets
+    deleted by search_for_wallets on clean completion) and thread it, and
+    processes, through."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    checkpoint_path = tmp_path / "scan_checkpoint.db"
+
+    def fake_analyze(input_file, output_file, index_db_path=None, progress_callback=None, checkpoint_path=None, processes=None):
+        with open(output_file, "w") as f:
+            json.dump({}, f)
+        fake_analyze.received = {"checkpoint_path": checkpoint_path, "processes": processes}
+
+    with patch("run_pipeline.search_for_wallets"), \
+         patch("run_pipeline.analyze_wallets", side_effect=fake_analyze), \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir), checkpoint_path=str(checkpoint_path), processes=4)
+
+    assert fake_analyze.received["checkpoint_path"] == str(tmp_path / "analyze_checkpoint.db")
+    assert fake_analyze.received["checkpoint_path"] != str(checkpoint_path)
+    assert fake_analyze.received["processes"] == 4
+
+
+def test_find_does_not_pass_checkpoint_path_or_processes_to_analyze_when_absent(tmp_path):
+    """Existing callers that never pass checkpoint_path/processes to
+    find() (every current caller) must see analyze_wallets invoked exactly
+    as before this story -- no new kwargs at all -- so any existing mock
+    with the old, narrower signature keeps working unchanged."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets"), \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})) as mock_analyze, \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir))
+
+    mock_analyze.assert_called_once()
+    assert "checkpoint_path" not in mock_analyze.call_args.kwargs
+    assert "processes" not in mock_analyze.call_args.kwargs
+
+
+def test_find_threads_walk_threads_into_search_for_wallets_call(tmp_path):
+    """sse-06: find() must forward walk_threads through to
+    search_for_wallets() unchanged, the same way processes already gets
+    forwarded to analyze_wallets()."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets") as mock_search, \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})), \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir), walk_threads=5)
+
+    assert mock_search.call_args.kwargs["walk_threads"] == 5
+
+
+def test_find_does_not_pass_walk_threads_to_search_for_wallets_when_absent(tmp_path):
+    """Existing callers that never pass walk_threads to find() must see
+    search_for_wallets invoked exactly as before this story -- no new
+    kwarg at all -- so search_for_wallets' own DEFAULT_WALK_THREADS
+    default keeps applying unchanged."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets") as mock_search, \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})), \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir))
+
+    assert "walk_threads" not in mock_search.call_args.kwargs
+
+
 def test_find_forwards_progress_callback_with_stage_prefixes(tmp_path):
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
@@ -201,3 +279,72 @@ def test_find_forwards_progress_callback_with_stage_prefixes(tmp_path):
         run_pipeline.find(str(input_dir), str(output_dir), progress_callback=lambda c, t, m="": calls.append((c, t, m)))
 
     assert calls[0] == (3, None, "Searching: 3 potential wallet(s) found so far — /a")
+
+
+def test_find_does_not_pass_mount_health_check_to_search_when_absent(tmp_path):
+    """
+    sse-05: existing callers that never pass mount_health_check to find()
+    (every current caller) must see search_for_wallets invoked exactly as
+    before this story -- no new kwarg at all -- so any existing mock with
+    the narrower pre-sse-05 signature keeps working unchanged."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+
+    with patch("run_pipeline.search_for_wallets") as mock_search, \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})), \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir))
+
+    mock_search.assert_called_once()
+    assert "mount_health_check" not in mock_search.call_args.kwargs
+
+
+def test_find_threads_mount_health_check_into_search_call_when_given(tmp_path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    sentinel = lambda: True
+
+    with patch("run_pipeline.search_for_wallets") as mock_search, \
+         patch("run_pipeline.analyze_wallets", side_effect=_fake_analyze({})), \
+         patch("run_pipeline.check_wallet_balances"):
+        run_pipeline.find(str(input_dir), str(output_dir), mount_health_check=sentinel)
+
+    assert mock_search.call_args.kwargs["mount_health_check"] is sentinel
+
+
+def test_check_balances_does_not_pass_mount_health_check_when_absent(tmp_path):
+    """Mirrors test_find_does_not_pass_mount_health_check_to_search_when_absent
+    for check_balances()/check_wallet_balances()."""
+    output_dir = tmp_path / "output"
+    (output_dir / "checks").mkdir(parents=True)
+
+    with patch("run_pipeline.check_wallet_balances") as mock_check, \
+         patch("run_pipeline.filter_wallet_balances"), \
+         patch("run_pipeline.build_relationship_graph", return_value={"nodes": {}, "edges": {}, "signals": {}}), \
+         patch("run_pipeline.render_graph_report", return_value=""):
+        mock_check.side_effect = lambda input_file, output_file, progress_callback=None, checkpoint_path=None: open(
+            output_file, "w"
+        ).write("{}")
+
+        run_pipeline.check_balances(str(output_dir))
+
+    mock_check.assert_called_once()
+    assert "mount_health_check" not in mock_check.call_args.kwargs
+
+
+def test_check_balances_threads_mount_health_check_into_check_wallet_balances_call(tmp_path):
+    output_dir = tmp_path / "output"
+    (output_dir / "checks").mkdir(parents=True)
+    sentinel = lambda: True
+
+    with patch("run_pipeline.check_wallet_balances") as mock_check, \
+         patch("run_pipeline.filter_wallet_balances"), \
+         patch("run_pipeline.build_relationship_graph", return_value={"nodes": {}, "edges": {}, "signals": {}}), \
+         patch("run_pipeline.render_graph_report", return_value=""):
+        mock_check.side_effect = lambda input_file, output_file, **k: open(output_file, "w").write("{}")
+
+        run_pipeline.check_balances(str(output_dir), mount_health_check=sentinel)
+
+    assert mock_check.call_args.kwargs["mount_health_check"] is sentinel

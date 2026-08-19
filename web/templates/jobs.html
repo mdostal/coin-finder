@@ -11,7 +11,7 @@ away from wherever you started it.</p>
 <div class="card">
   {% if jobs %}
   <table>
-    <thead><tr><th>Kind</th><th>Target</th><th>Status</th><th>Started</th><th></th></tr></thead>
+    <thead><tr><th>Kind</th><th>Target</th><th>Status</th><th>Started</th><th></th><th></th></tr></thead>
     <tbody>
       {% for job in jobs %}
       <tr>
@@ -20,6 +20,17 @@ away from wherever you started it.</p>
         <td>{{ m.status_pill(job.status) }}</td>
         <td>{{ job.started_at | int | timestamp_to_local }}</td>
         <td><a href="{{ url_for(status_endpoint(job.kind), job_id=job.job_id) }}">View</a></td>
+        <td>
+          {% if job.status == "running" and job.checkpoint_path %}
+          <form method="post" action="{{ url_for('pause_job_route', job_id=job.job_id) }}" style="display:inline">
+            <button type="submit" class="btn-secondary">Pause</button>
+          </form>
+          {% elif job.status == "paused" %}
+          <form method="post" action="{{ url_for('resume_job_route', job_id=job.job_id) }}" style="display:inline">
+            <button type="submit" class="btn-secondary">Resume</button>
+          </form>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

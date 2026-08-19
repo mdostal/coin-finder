@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from web.app import create_app
+from web.jobs import list_jobs
 
 
 @pytest.fixture
@@ -76,6 +77,34 @@ def test_settings_page_also_ships_the_theme_toggle_relocated(client):
 def test_settings_link_present_in_top_nav_on_every_page(client):
     resp = client.get("/")
     assert b'href="/settings"' in resp.data
+
+
+def test_settings_page_has_resource_profile_mode_toggle(client):
+    """sse-06: Auto (default) / Custom mode toggle for the resource
+    profile section."""
+    resp = client.get("/settings")
+    assert b'data-resource-mode="auto"' in resp.data
+    assert b'data-resource-mode="custom"' in resp.data
+
+
+def test_settings_page_has_all_four_resource_profile_fields_as_editable_numeric_inputs(client):
+    """sse-06 acceptance criterion: Custom mode's four fields are direct
+    editable numeric inputs, not deferred/hidden behind additional
+    clicks -- they're present in the page's DOM from the start (JS toggles
+    visibility, but the inputs themselves always exist)."""
+    resp = client.get("/settings")
+    for field in (
+        "search_walk_threads",
+        "analyze_processes",
+        "check_balances_global_workers",
+        "check_balances_per_coin_concurrency",
+    ):
+        needle = f'data-resource-field="{field}"'.encode()
+        assert needle in resp.data
+        assert f'id="resource-profile-custom-{field}"'.encode() in resp.data
+        assert f'type="number"'.encode() in resp.data
+
+    assert b'src="/static/scan_settings.js"' in resp.data
 
 
 def test_default_palette_is_archival_when_nothing_stored(client):
@@ -155,7 +184,7 @@ def test_find_job_lifecycle_reaches_done(mock_pipeline, mock_hidden, client, tmp
 @patch("web.app.scan_for_hidden_volumes")
 @patch("web.app.run_pipeline")
 def test_find_job_wires_live_progress_from_both_search_and_hidden_volume_stages(mock_pipeline, mock_hidden, client, tmp_path):
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         progress_callback(3, None, "Searching: 3 potential wallet(s) found so far — /a")
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
 
@@ -224,10 +253,12 @@ def test_check_balances_records_findings_and_flows_progress(mock_pipeline, mock_
     output_dir = tmp_path / "out"
     balances_data = {"walletA.dat": {"Bitcoin": {"1abc": 0.5}}}
 
-    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def fake_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         return {"output_dir": out_dir, "files_found": 1, "coin_counts": {"Bitcoin": 1}, "total_address_instances": 1}
 
-    def fake_check_balances(out_dir, progress_callback=None, checkpoint_path=None):
+    def fake_check_balances(
+        out_dir, progress_callback=None, checkpoint_path=None, global_max_workers=None, per_coin_max_concurrency=None
+    ):
         if progress_callback:
             progress_callback(1, 1, "checking addresses")
         checks_dir = Path(out_dir) / "checks"
@@ -266,7 +297,7 @@ def test_check_balances_404s_while_find_job_still_running(mock_pipeline, mock_hi
     started = threading.Event()
     release = threading.Event()
 
-    def slow_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None):
+    def slow_find(input_dir, out_dir, index_db_path=None, checkpoint_path=None, progress_callback=None, excludes=None, walk_threads=None, processes=None):
         started.set()
         release.wait(timeout=2)
         return {"output_dir": out_dir, "files_found": 0, "coin_counts": {}, "total_address_instances": 0}
@@ -283,6 +314,66 @@ def test_check_balances_404s_while_find_job_still_running(mock_pipeline, mock_hi
 
     release.set()
     _wait_for_done(client, job_id)
+
+
+@patch("web.app.scan_for_hidden_volumes", return_value=[])
+@patch("web.app.run_pipeline")
+def test_check_balances_returns_existing_job_instead_of_duplicating_when_already_running(mock_pipeline, mock_hidden, client, tmp_path):
+    """
+    sse-05: mirrors
+    test_start_scan_returns_existing_job_instead_of_duplicating_when_already_running
+    (tests/test_web_app_scan_mounts.py) for the same class of bug, one
+    stage later -- nothing stopped two check-balances jobs from racing
+    against the same output_dir, last-writer-wins clobbering the same
+    checkpoint file and checks/wallet_balances.json. A second request for
+    an output_dir that already has a running check-balances job must
+    redirect to that same job, not start a duplicate.
+    """
+    mock_pipeline.find.return_value = {
+        "output_dir": str(tmp_path / "out"),
+        "files_found": 1,
+        "coin_counts": {"Bitcoin": 1},
+        "total_address_instances": 1,
+    }
+
+    find_resp = client.post("/scan", data={"input_dir": str(tmp_path)}, follow_redirects=False)
+    find_job_id = find_resp.headers["Location"].rstrip("/").split("/")[-1]
+    find_job = _wait_for_done(client, find_job_id)
+    assert find_job["status"] == "done"
+
+    release_first_job = threading.Event()
+
+    def _blocking_check_balances(*args, **kwargs):
+        release_first_job.wait(timeout=5)
+        return {}
+
+    mock_pipeline.check_balances.side_effect = _blocking_check_balances
+
+    first_resp = client.post(f"/scan/{find_job_id}/check-balances", follow_redirects=False)
+    assert first_resp.status_code == 302
+    first_balances_job_id = first_resp.headers["Location"].rsplit("/", 1)[-1]
+
+    second_resp = client.post(f"/scan/{find_job_id}/check-balances", follow_redirects=False)
+    assert second_resp.status_code == 302
+    second_balances_job_id = second_resp.headers["Location"].rsplit("/", 1)[-1]
+
+    assert second_balances_job_id == first_balances_job_id
+
+    # Filtered on checkpoint_path (not just kind/status) -- the jobs
+    # registry is a real, ambient sqlite db shared across the whole test
+    # session, same reason the mirrored find-job test filters on its own
+    # unique target: other tests' leftover "running" jobs must never make
+    # this assertion pass or fail by coincidence.
+    target_checkpoint_path = str(Path(tmp_path / "out") / "checks" / "balance_checkpoint.db")
+    running_balance_jobs = [
+        j
+        for j in list_jobs()
+        if j["kind"] == "check-balances" and j.get("checkpoint_path") == target_checkpoint_path and j["status"] == "running"
+    ]
+    assert len(running_balance_jobs) == 1
+
+    release_first_job.set()
+    _wait_for_done(client, first_balances_job_id)
 
 
 def test_flatten_balance_dict_produces_table_rows():

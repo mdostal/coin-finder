@@ -17,6 +17,8 @@
 /web/scan_index.db
 /web/scan_history.db
 /web/auto_unlock_history.db
+/web/jobs.db
+/web/scan_settings.db
 
 # Portunus-unavailable fallback vault (plaintext local store) -- never commit
 /web/vault_fallback.env
@@ -273,6 +275,8 @@ cython_debug/
 !.pHive/epics/credential-clarity-and-unlock-ux/**
 !.pHive/epics/bulk-private-key-extraction/
 !.pHive/epics/bulk-private-key-extraction/**
+!.pHive/epics/scalable-scan-engine/
+!.pHive/epics/scalable-scan-engine/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

@@ -2,9 +2,10 @@
 {% block title %}coin-finder -- settings{% endblock %}
 {% block content %}
 <h2>Settings</h2>
-<p>Appearance only -- nothing here touches scanning, keys, or findings data.
-Choices apply immediately across the whole app and persist on this
-machine (localStorage), not synced anywhere.</p>
+<p>Appearance choices below apply immediately across the whole app and
+persist on this machine (localStorage), not synced anywhere. The resource
+profile section further down is the one setting here that actually
+changes scan behavior.</p>
 
 <div class="card">
   <h3>Light / dark</h3>
@@ -34,4 +35,57 @@ machine (localStorage), not synced anywhere.</p>
     {% endfor %}
   </div>
 </div>
+
+<div class="card" id="resource-profile-card">
+  <h3>Resource profile</h3>
+  <p class="subtle">Controls how much of this machine scan/analyze/check-balances
+  jobs are allowed to use. "Auto" (the default) detects sensible values from
+  this machine's CPU core count each time a job starts -- got a faster
+  machine, or a slower one? Auto adapts on its own, no action needed.
+  "Custom" lets you set exact numbers instead.</p>
+
+  <div class="resource-profile-mode-toggle" role="group" aria-label="Resource profile mode">
+    <button type="button" id="resource-profile-mode-auto" class="btn-secondary" data-resource-mode="auto" aria-pressed="false">Auto</button>
+    <button type="button" id="resource-profile-mode-custom" class="btn-secondary" data-resource-mode="custom" aria-pressed="false">Custom</button>
+  </div>
+
+  <div id="resource-profile-auto-display" hidden>
+    <p class="subtle">Live values for this machine right now:</p>
+    <dl class="resource-profile-field-list">
+      <dt>Search walk threads</dt>
+      <dd id="resource-profile-auto-search_walk_threads">--</dd>
+      <dt>Analyze processes</dt>
+      <dd id="resource-profile-auto-analyze_processes">--</dd>
+      <dt>Check-balances global workers</dt>
+      <dd id="resource-profile-auto-check_balances_global_workers">--</dd>
+      <dt>Check-balances per-coin concurrency</dt>
+      <dd id="resource-profile-auto-check_balances_per_coin_concurrency">--</dd>
+    </dl>
+    <p class="subtle">The last two are pinned to today's tuned values regardless
+    of this machine's core count -- they're bounded by a real external API's
+    rate limit, not local hardware.</p>
+  </div>
+
+  <div id="resource-profile-custom-fields" hidden>
+    <div class="resource-profile-field">
+      <label for="resource-profile-custom-search_walk_threads">Search walk threads</label>
+      <input type="number" min="1" id="resource-profile-custom-search_walk_threads" data-resource-field="search_walk_threads">
+    </div>
+    <div class="resource-profile-field">
+      <label for="resource-profile-custom-analyze_processes">Analyze processes</label>
+      <input type="number" min="1" id="resource-profile-custom-analyze_processes" data-resource-field="analyze_processes">
+    </div>
+    <div class="resource-profile-field">
+      <label for="resource-profile-custom-check_balances_global_workers">Check-balances global workers</label>
+      <input type="number" min="1" id="resource-profile-custom-check_balances_global_workers" data-resource-field="check_balances_global_workers">
+    </div>
+    <div class="resource-profile-field">
+      <label for="resource-profile-custom-check_balances_per_coin_concurrency">Check-balances per-coin concurrency</label>
+      <input type="number" min="1" id="resource-profile-custom-check_balances_per_coin_concurrency" data-resource-field="check_balances_per_coin_concurrency">
+    </div>
+  </div>
+
+  <p id="resource-profile-status" class="subtle" role="status"></p>
+</div>
+<script src="{{ url_for('static', filename='scan_settings.js') }}"></script>
 {% endblock %}

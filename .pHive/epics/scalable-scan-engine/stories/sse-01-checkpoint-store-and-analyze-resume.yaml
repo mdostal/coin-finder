@@ -1,0 +1,159 @@
+id: sse-01-checkpoint-store-and-analyze-resume
+epic: scalable-scan-engine
+title: Shared checkpoint store + analyze resume/parallelism
+status: pending
+complexity: high
+methodology: tdd
+depends_on: []
+
+description: |
+  Extract a generic, reusable sqlite-backed checkpoint store from
+  tools/search_wallets.py's already-shipped design (v0.53.6, tonight), then
+  wire tools/analyze_wallets.py onto it with real per-file resume AND real
+  multiprocessing.Pool parallelism. This is the foundation every other
+  story in this epic builds on, and it closes the single biggest live
+  correctness gap in the pipeline today: analyze has ZERO resume support,
+  so a crash mid-analyze on a huge file list restarts that entire stage
+  from zero.
+
+  Analyze is CPU-bound (regex matching over file content) -- Python
+  threads provide no real parallelism here (GIL). multiprocessing.Pool is
+  the first genuine multi-core use in this pipeline, directly serving the
+  user's confirmed requirement: "if I get more cores, a faster machine, I
+  should have toggles... to let it use more resources."
+
+  Critical constraint: tools/scan_index.py (the existing content-hash dedup
+  cache analyze already uses) must NOT get concurrent writers from worker
+  processes -- keep all scan_index.py writes in the main process, workers
+  only return analysis results.
+
+acceptance_criteria:
+  - "Given a checkpoint_path, when search_wallets.py's tests run unchanged, then all existing behavior (resume, fresh-start, different-start-path reset, clean-completion deletion) still passes via the extracted CheckpointStore"
+  - "Given analyze_wallets.py is interrupted mid-run (simulated: kill after N files), when it's re-invoked with the same checkpoint_path, then already-analyzed files are skipped and only remaining files are processed"
+  - "Given a multi-file input, when analyze_wallets.py runs with analyze_processes > 1, then multiple files are analyzed concurrently via multiprocessing.Pool, and results are identical to the sequential result for the same input"
+  - "Given a single worker's analysis raises an exception on one file, when the pool is running, then that failure is captured and surfaced without killing the whole pool (mirrors check_wallet_balances.py's existing future.result() re-raise pattern)"
+  - "Given scan_index.py's dedup cache, when analyze runs with multiprocessing, then all record_scanned_file() writes happen only in the main process -- a test asserts zero concurrent writers reach scan_index.db"
+  - "Given a CheckpointStore instance, when 100k+ units are marked completed, then memory use and per-flush write cost stay flat (a regression test bounds this, e.g. asserting flush() time doesn't grow with prior completed-unit count)"
+
+steps:
+  - id: research
+    description: Confirm exact current behavior of search_wallets.py's inline checkpoint helpers (_open_checkpoint_db, _is_dir_completed, _count_completed_dirs) to extract byte-for-byte equivalent behavior into the new shared module, and confirm analyze_wallets.py's exact current signature/call sites in run_pipeline.py and web/app.py before adding the new parameter.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests for tools/checkpoint_store.py (CheckpointStore
+      class: is_completed, mark_completed, flush, count_completed,
+      is_paused/request_pause/clear_pause, run-key mismatch reset,
+      WAL mode + busy_timeout configured) and for analyze_wallets.py's new
+      checkpoint_path parameter (resume, multiprocessing correctness,
+      worker-exception handling, scan_index.py single-writer guarantee).
+      Do NOT read implementation code -- tests define expected behavior
+      from the acceptance criteria and design-discussion.md/structured-outline.md.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: |
+      Implement tools/checkpoint_store.py. Refactor search_wallets.py to
+      use it (behavior-preserving). Add checkpoint_path + processes
+      parameters to analyze_wallets.py with multiprocessing.Pool, module-
+      level picklable worker function, main-process-only scan_index.py
+      writes. Thread checkpoint_path into run_pipeline.py's find() call to
+      analyze_wallets (currently only passed to search_for_wallets).
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review for correctness, convention compliance, and specifically verify no scan_index.py concurrent-writer regression and no memory-growth regression versus the fixed pattern.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack:
+    languages: [python]
+    frameworks: [flask]
+  key_files:
+    - path: tools/search_wallets.py
+      purpose: "Source of the already-working sqlite checkpoint design (v0.53.6) to extract into the new shared module -- behavior-preserving refactor, not a rewrite"
+    - path: tools/analyze_wallets.py
+      purpose: "Target of the resume + multiprocessing fix -- today has zero checkpoint_path parameter at all"
+    - path: tools/scan_index.py
+      purpose: "Existing content-hash dedup cache analyze already uses -- must stay single-writer (main process only) once multiprocessing is added"
+    - path: run_pipeline.py
+      purpose: "find() threads checkpoint_path into search_for_wallets today but NOT analyze_wallets -- needs updating to pass it through to both"
+
+files_to_modify:
+  - file: tools/checkpoint_store.py
+    change: "New file. Generic CheckpointStore class (sqlite, WAL, busy_timeout, run-key validation, pause signal)"
+  - file: tools/search_wallets.py
+    change: "Replace inline _open_checkpoint_db/_is_dir_completed/_count_completed_dirs with CheckpointStore usage -- behavior-preserving"
+  - file: tools/analyze_wallets.py
+    change: "Add checkpoint_path and processes parameters; multiprocessing.Pool; main-process-only scan_index.py writes"
+  - file: run_pipeline.py
+    change: "Thread checkpoint_path into the analyze_wallets() call inside find()"
+  - file: tests/test_checkpoint_store.py
+    change: "New file. Full contract test suite for CheckpointStore"
+  - file: tests/test_search_wallets.py
+    change: "Verify unchanged behavior after the refactor (should require zero test changes if the extraction is truly behavior-preserving)"
+  - file: tests/test_analyze_wallets.py
+    change: "Extend for resume + multiprocessing (mock Pool for deterministic tests, per existing test conventions in this repo)"
+
+code_examples:
+  - title: "Current sqlite checkpoint pattern to extract (tools/search_wallets.py)"
+    file: tools/search_wallets.py
+    snippet: |
+      def _open_checkpoint_db(checkpoint_path, start_path):
+          if not checkpoint_path:
+              return None
+          conn = sqlite3.connect(str(checkpoint_path))
+          conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+          conn.execute("CREATE TABLE IF NOT EXISTS completed_dirs (path TEXT PRIMARY KEY)")
+          row = conn.execute("SELECT value FROM meta WHERE key = 'start_path'").fetchone()
+          if row is None:
+              conn.execute("INSERT INTO meta (key, value) VALUES ('start_path', ?)", (str(start_path),))
+              conn.commit()
+          elif row[0] != str(start_path):
+              conn.execute("DELETE FROM completed_dirs")
+              conn.execute("UPDATE meta SET value = ? WHERE key = 'start_path'", (str(start_path),))
+              conn.commit()
+          return conn
+  - title: "Existing worker-exception re-raise pattern to mirror (tools/check_wallet_balances.py)"
+    file: tools/check_wallet_balances.py
+    snippet: |
+      with ThreadPoolExecutor(max_workers=min(len(tasks), GLOBAL_MAX_WORKERS)) as executor:
+          futures = [executor.submit(check_one, crypto_name, file_path, address) for ...]
+          for future in as_completed(futures):
+              future.result()  # re-raise any worker exception on the main thread
+
+design_decisions:
+  - decision: "CheckpointStore lives at tools/checkpoint_store.py, not web/"
+    rationale: "Reusable by both standalone tool scripts (python3 tools/search_wallets.py CLI usage) and the web app, matching how every other tools/*.py module already works -- confirmed with user"
+  - decision: "scan_index.py writes stay in the main process only during analyze's multiprocessing"
+    rationale: "Avoids introducing concurrent multi-process writers to scan_index.db entirely, rather than adding new WAL/locking there too -- smaller, safer change"
+
+risks:
+  - severity: high
+    description: "Rewriting the checkpoint I/O on a tool that had 2 real incidents tonight risks a new, different bug"
+    mitigation: "New dedicated test file (test_checkpoint_store.py) with a real multi-thousand-unit test proving flat memory/flush-cost; search_wallets.py's existing test suite must pass unchanged as a regression guard"
+  - severity: high
+    description: "multiprocessing.Pool worker crash/exception handling, pickling edge cases (non-UTF8 paths, very large individual files)"
+    mitigation: "Explicit per-worker-result exception capture, mirroring check_wallet_balances.py's existing future.result() pattern; a single bad file must not kill the whole pool"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md's pipeline-stage description and any checkpoint-format references need updating once this ships; no migration note needed for in-flight old-format checkpoints per structured-outline.md's confirmed precedent (abandoned, not migrated)"
+
+references:
+  - path: .pHive/epics/scalable-scan-engine/docs/structured-outline.md
+    relevant_excerpt: |
+      Part 1.1 (CheckpointStore design) and Part 1.2 (analyze resume +
+      multiprocessing design) -- the full technical approach this story
+      implements.
+  - path: .pHive/epics/scalable-scan-engine/docs/design-discussion.md
+    relevant_excerpt: |
+      Ground-truth research findings on analyze_wallets.py's current zero
+      resume support, and the confirmed priority decision ("store + analyze
+      resume first").

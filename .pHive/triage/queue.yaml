@@ -181,3 +181,27 @@ items:
     linked_story: null
     raised_at: "2026-08-17T14:30:00-05:00"
     raised_by: mathew
+  - id: crawl-checkpoint-store-migration
+    title: Migrate crawl_transaction_graph.py's checkpoint onto the shared CheckpointStore
+    description: >
+      Deliberately deferred out of the scalable-scan-engine epic (6
+      stories: sse-01 through sse-06) as explicitly lowest priority in
+      that epic's structured outline -- tools/crawl_transaction_graph.py's
+      crawl_wallet_cluster() has its own working, two-phase JSON checkpoint
+      (per-generation for BFS discovery, per-address for the balance pass)
+      with no live incident against it. Once sse-01 ships
+      tools/checkpoint_store.py (the generic sqlite-backed store extracted
+      from search_wallets.py and reused by analyze/check_balances), this
+      is a small follow-on: re-point crawl's checkpoint flush at the same
+      shared store purely for format consistency across the whole
+      pipeline, not for any correctness fix. Not scope-creeped into the
+      current epic per this session's established pattern of recording
+      new/deferred asks to backlog rather than expanding an epic already
+      in flight.
+    priority: low
+    severity: null
+    state: prioritized
+    linked_epic: null
+    linked_story: null
+    raised_at: "2026-08-18T23:59:00-05:00"
+    raised_by: mathew
