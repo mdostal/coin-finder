@@ -5,6 +5,7 @@ from web.crawl_runs import (
     clear_all_crawl_runs,
     compute_confidence_scores,
     find_overlap_addresses,
+    get_runs_graph_data,
     list_crawl_runs,
     list_run_edges,
     record_crawl_run,
@@ -273,3 +274,129 @@ def test_compute_confidence_scores_labels_are_derived_from_score_not_arbitrary(t
     scores = compute_confidence_scores(["1known"], db_path=db_path)
 
     assert scores[0]["confidence_label"] in ("High", "Medium", "Low")
+
+
+def _run_id_for_seed(db_path, seed_address):
+    runs = list_crawl_runs(db_path=db_path)
+    return next(r["run_id"] for r in runs if r["seed_addresses"] == [seed_address])
+
+
+def test_get_runs_graph_data_empty_run_ids_returns_empty_without_crash(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    assert get_runs_graph_data([], db_path=db_path) == {"nodes": {}, "edges": []}
+
+
+def test_get_runs_graph_data_combines_every_node_from_both_runs_not_just_intersection(tmp_path):
+    """The whole point of this function vs. find_overlap_addresses: the
+    union of nodes across the selected runs, not the intersection."""
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1a": _address_info("seed", 0)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1b": _address_info("seed", 0)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+    run_id_b = _run_id_for_seed(db_path, "1b")
+
+    data = get_runs_graph_data([run_id_a, run_id_b], db_path=db_path)
+
+    assert set(data["nodes"].keys()) == {"1a", "1b"}
+
+
+def test_get_runs_graph_data_dedup_has_no_duplicates_when_address_shared(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1shared": _address_info("co-spend", 1)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1shared": _address_info("co-spend", 1)}, db_path=db_path)
+    run_ids = [r["run_id"] for r in list_crawl_runs(db_path=db_path)]
+
+    data = get_runs_graph_data(run_ids, db_path=db_path)
+
+    assert list(data["nodes"].keys()) == ["1shared"]
+
+
+def test_get_runs_graph_data_dedup_keeps_higher_confidence_record(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1shared": _address_info("output", 3)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1shared": _address_info("co-spend", 1)}, db_path=db_path)
+    run_ids = [r["run_id"] for r in list_crawl_runs(db_path=db_path)]
+
+    data = get_runs_graph_data(run_ids, db_path=db_path)
+
+    assert data["nodes"]["1shared"]["confidence"] == "co-spend"
+
+
+def test_get_runs_graph_data_dedup_keeps_seed_over_cospend_regardless_of_generation(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1shared": _address_info("co-spend", 0)}, db_path=db_path)
+    record_crawl_run(["1shared"], {"1shared": _address_info("seed", 0)}, db_path=db_path)
+    run_ids = [r["run_id"] for r in list_crawl_runs(db_path=db_path)]
+
+    data = get_runs_graph_data(run_ids, db_path=db_path)
+
+    assert data["nodes"]["1shared"]["confidence"] == "seed"
+
+
+def test_get_runs_graph_data_dedup_breaks_confidence_tie_by_earliest_generation(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1shared": _address_info("co-spend", 4)}, db_path=db_path)
+    record_crawl_run(["1b"], {"1shared": _address_info("co-spend", 1)}, db_path=db_path)
+    run_ids = [r["run_id"] for r in list_crawl_runs(db_path=db_path)]
+
+    data = get_runs_graph_data(run_ids, db_path=db_path)
+
+    assert data["nodes"]["1shared"]["generation"] == 1
+
+
+def test_get_runs_graph_data_filters_edges_to_only_the_selected_runs(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(
+        ["1a"],
+        {"1a": _address_info("seed", 0), "1a2": _address_info()},
+        edges=[{"from": "1a", "to": "1a2", "type": "co-spend", "txid": "tx-a"}],
+        db_path=db_path,
+    )
+    record_crawl_run(
+        ["1b"],
+        {"1b": _address_info("seed", 0), "1b2": _address_info()},
+        edges=[{"from": "1b", "to": "1b2", "type": "output", "txid": "tx-b"}],
+        db_path=db_path,
+    )
+    record_crawl_run(
+        ["1c"],
+        {"1c": _address_info("seed", 0), "1c2": _address_info()},
+        edges=[{"from": "1c", "to": "1c2", "type": "output", "txid": "tx-c"}],
+        db_path=db_path,
+    )
+    run_id_a = _run_id_for_seed(db_path, "1a")
+    run_id_b = _run_id_for_seed(db_path, "1b")
+
+    data = get_runs_graph_data([run_id_a, run_id_b], db_path=db_path)
+
+    txids = {edge["txid"] for edge in data["edges"]}
+    assert txids == {"tx-a", "tx-b"}
+
+
+def test_get_runs_graph_data_single_run_case_no_crash_no_cross_run_leakage(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], SAMPLE_RESULTS, db_path=db_path)
+    record_crawl_run(["1b"], {"1other": _address_info("seed", 0)}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+
+    data = get_runs_graph_data([run_id_a], db_path=db_path)
+
+    assert set(data["nodes"].keys()) == set(SAMPLE_RESULTS.keys())
+    assert "1other" not in data["nodes"]
+
+
+def test_get_runs_graph_data_node_fields_match_run_addresses_columns(tmp_path):
+    db_path = tmp_path / "crawl_runs.db"
+    record_crawl_run(["1a"], {"1a": {"confidence": "seed", "generation": 0, "balance": 0.75, "last_activity_timestamp": 123, "dormant_years": 2.5}}, db_path=db_path)
+    run_id_a = _run_id_for_seed(db_path, "1a")
+
+    data = get_runs_graph_data([run_id_a], db_path=db_path)
+
+    assert data["nodes"]["1a"] == {
+        "confidence": "seed",
+        "generation": 0,
+        "balance": 0.75,
+        "last_activity_timestamp": 123,
+        "dormant_years": 2.5,
+        "run_id": run_id_a,
+    }

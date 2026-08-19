@@ -41,7 +41,7 @@ from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
 from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
-from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, list_crawl_runs, record_crawl_run
+from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, get_runs_graph_data, list_crawl_runs, record_crawl_run
 from web.scan_history import clear_scan_history, list_scan_history, record_scan
 from web.auto_unlock_history import (
     clear_auto_unlock_history,
@@ -1015,6 +1015,52 @@ def create_app(host="127.0.0.1"):
         clear_all_crawl_runs()
         return redirect(url_for("group_view_page"))
 
+    @app.route("/findings/group-view/graph")
+    def group_view_graph():
+        # mcrg-01: the real combined graph for 2+ saved runs at once (today
+        # a saved run's graph can only ever be viewed alone, right when its
+        # job first finishes). No cross-group overlap styling yet -- same
+        # confidence/balance coloring graph.js already has, unmodified;
+        # that visual treatment is mcrg-02.
+        raw_run_ids = (request.args.get("run_ids") or "").strip()
+        parts = [p.strip() for p in raw_run_ids.split(",") if p.strip()]
+        if not parts:
+            return render_template("group_view_graph.html", error="Select at least one saved crawl run (run_ids is missing or empty).", run_ids=[]), 400
+        try:
+            run_ids = [int(p) for p in parts]
+        except ValueError:
+            return render_template("group_view_graph.html", error=f"run_ids must be a comma-separated list of integers, got: {raw_run_ids!r}", run_ids=[]), 400
+
+        data = get_runs_graph_data(run_ids)
+        if not data["nodes"]:
+            return render_template("group_view_graph.html", error=f"No saved crawl run data found for run_ids: {run_ids}.", run_ids=run_ids), 400
+
+        # graph.js's existing contract is one JSON blob keyed by address,
+        # each entry carrying at most one "discovered_via" edge (the
+        # single-run crawl-result shape it was built against) -- reused
+        # unchanged for this story, so the full run_edges set gets folded
+        # down to one inbound edge per node the same way. A dangling edge
+        # whose source fell out of the combined node set (e.g. it hit the
+        # per-run 200-address cap) is dropped rather than handed to
+        # Cytoscape as a reference to a node that doesn't exist.
+        incoming_edge = {}
+        for edge in data["edges"]:
+            incoming_edge.setdefault(edge["to_address"], edge["from_address"])
+
+        graph_nodes = {
+            address: {**info, "discovered_via": incoming_edge.get(address) if incoming_edge.get(address) in data["nodes"] else None}
+            for address, info in data["nodes"].items()
+        }
+
+        return render_template(
+            "group_view_graph.html",
+            error=None,
+            run_ids=run_ids,
+            nodes=graph_nodes,
+            node_count=len(graph_nodes),
+            edge_count=len(data["edges"]),
+        )
+
     @app.route("/item/stage", methods=["POST"])
     def item_stage():
         file_path = (request.form.get("file_path") or "").strip()
@@ -1533,6 +1579,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "findings_clear_all": "findings",
     "group_view_page": "findings",
     "group_view_clear": "findings",
+    "group_view_graph": "findings",
     "findings_related": "findings",
     # About -- update mechanics + network transparency.
     "network_page": "about",

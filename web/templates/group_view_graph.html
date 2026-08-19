@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- combined graph{% endblock %}
+{% block content %}
+<h2>Combined graph</h2>
+
+{% if error %}
+<div class="banner error">{{ error }}</div>
+<p><a class="back-link" href="{{ url_for('group_view_page') }}">&laquo; back to group view</a></p>
+{% else %}
+<p>Combining {{ run_ids | length }} saved crawl run(s) (run_id{{ 's' if run_ids | length != 1 }}
+{{ run_ids | join(", ") }}) into one graph -- {{ node_count }} address(es), {{ edge_count }} edge(s).
+Node coloring and layout are exactly the same as a single saved run's graph; cross-group overlap
+highlighting isn't shown yet.</p>
+
+<div class="card">
+  <h3 style="margin-top:0">Combined cluster graph</h3>
+  <div id="cy" style="width:100%;height:600px;border:1px solid var(--border);"></div>
+  <p class="subtle">Ring distance = hops from each run's seed address(es); a line connects each address to
+  the one that led to it. Scroll/pinch to zoom, drag to pan, hover a node for detail, click to copy
+  its address.</p>
+</div>
+<script type="application/json" id="graph-data">{{ nodes | tojson }}</script>
+<script src="{{ url_for('static', filename='vendor/cytoscape.min.js') }}"></script>
+<script src="{{ url_for('static', filename='graph.js') }}"></script>
+
+<p><a class="back-link" href="{{ url_for('group_view_page') }}">&laquo; back to group view</a></p>
+{% endif %}
+{% endblock %}
