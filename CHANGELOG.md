@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-08-19
+
+### Added
+
+- **Upload your own wordlist and try it against a locked wallet.** A new
+  page lets you pick a wallet and upload a password list of your own —
+  runs through the same offline-only cracking tool already in the app,
+  and if it finds the real password, shows it to you exactly once. If a
+  password is found, one click adds it to your encrypted vault along with
+  real details about how it was found (which wordlist, when, and against
+  which wallet) so you're not stuck retyping it or trying to remember
+  where it came from later. No wordlist is ever downloaded or bundled by
+  this app — you always bring your own.
+
 ## [0.56.0] - 2026-08-18
 
 ### Added
