@@ -1,0 +1,70 @@
+id: ccsm-01-migrate-crawl-checkpoint
+epic: crawl-checkpoint-store-migration
+title: Re-point crawl_wallet_cluster()'s checkpoint at the shared store
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  tools/crawl_transaction_graph.py's crawl_wallet_cluster() has its own
+  bespoke two-phase JSON checkpoint (per-generation for BFS discovery,
+  per-address for the balance/dormancy pass), separate from the generic
+  tools/checkpoint_store.py built in the scalable-scan-engine epic and
+  already reused by search_wallets.py, analyze_wallets.py, and
+  check_wallet_balances.py. Re-point crawl's checkpoint flush at the same
+  shared store for format consistency across the whole pipeline.
+
+  This is explicitly NOT a correctness fix -- the existing JSON checkpoint
+  has no live incident against it (crawl runs are much smaller in scale
+  than a multi-terabyte drive walk). Preserve crawl_wallet_cluster()'s
+  existing two-phase resume semantics exactly (BFS phase resumes per-
+  generation, not per-node; balance/dormancy phase resumes per-address)
+  -- the shared store's generic unit-completion model needs to represent
+  both phases correctly, not collapse them into one.
+
+acceptance_criteria:
+  - "Given an interrupted BFS discovery phase, when crawl_wallet_cluster() resumes with the same checkpoint_path, then it resumes from the last completed generation, not from scratch and not from an incorrect per-node granularity"
+  - "Given an interrupted balance/dormancy pass, when crawl_wallet_cluster() resumes, then already-checked addresses are skipped, matching today's exact resume behavior"
+  - "Given a clean, successful completion, when crawl_wallet_cluster() finishes, then the checkpoint file is removed, matching today's exact behavior"
+  - "Given the existing test suite for crawl_wallet_cluster() (tests/test_crawl_transaction_graph.py), when checkpoint-format assertions are updated to the shared store, then all other behavioral assertions (discovery correctness, confidence scoring, edge tracking) remain unchanged and passing"
+
+steps:
+  - id: implement
+    description: Re-point crawl_wallet_cluster()'s checkpoint flush at tools/checkpoint_store.py's CheckpointStore, preserving the exact two-phase resume semantics (per-generation BFS, per-address balance pass). Update tests/test_crawl_transaction_graph.py's checkpoint-format assertions accordingly.
+    agent: developer
+  - id: review
+    description: Review specifically that the two-phase resume granularity is preserved exactly (not collapsed into a single phase), matching today's behavior.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/crawl_transaction_graph.py
+      purpose: "crawl_wallet_cluster()'s existing two-phase JSON checkpoint -- migrate its flush/resume onto the shared store, preserve exact resume semantics"
+    - path: tools/checkpoint_store.py
+      purpose: "The shared store built in scalable-scan-engine -- already reused by 3 other stages, this is the 4th"
+
+files_to_modify:
+  - file: tools/crawl_transaction_graph.py
+    change: "Re-point checkpoint flush/resume at CheckpointStore, preserving two-phase (per-generation BFS, per-address balance) resume semantics"
+  - file: tests/test_crawl_transaction_graph.py
+    change: "Update checkpoint-format assertions to the shared store"
+
+design_decisions:
+  - decision: "Single low-complexity story, no design discussion or H/V plan"
+    rationale: "Explicitly small, well-understood scope per the triage item's own framing -- proportional planning effort, not a rigid one-size-fits-all ceremony"
+
+risks:
+  - severity: low
+    description: "Collapsing the two distinct resume phases (per-generation vs per-address) into one undifferentiated unit-completion model would silently change resume granularity"
+    mitigation: "Explicit acceptance criteria for both phases' resume behavior separately, not just checkpoint-format parity"
+
+references:
+  - path: tools/checkpoint_store.py
+    relevant_excerpt: "The shared CheckpointStore class this story migrates crawl_wallet_cluster() onto -- same API already used by 3 other pipeline stages."

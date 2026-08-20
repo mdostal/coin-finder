@@ -1,10 +1,22 @@
 import json
 import os
+import sqlite3
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from tools.checkpoint_store import CheckpointStore
 from tools.crawl_transaction_graph import (
+    _BFS_DONE_UNIT_ID,
+    _balance_unit_id,
+    _crawl_checkpoint_key,
+    _decode_balance_unit_id,
+    _edge_unit_id,
+    _generation_done_unit_id,
+    _node_unit_id,
     compute_last_activity_timestamp,
     crawl_wallet_cluster,
     dormancy_years,
@@ -373,11 +385,55 @@ def test_crawl_accepts_multiple_seeds_mixing_disk_and_held_addresses(mock_fetch,
 def test_crawl_deletes_checkpoint_on_clean_completion(mock_fetch, mock_service_cls, tmp_path):
     mock_fetch.return_value = []
     mock_service_cls.return_value.check_balance.return_value = 0.0
-    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
 
     crawl_wallet_cluster([SEED], max_generations=1, checkpoint_path=str(checkpoint_path))
 
     assert not checkpoint_path.exists()
+    assert not Path(f"{checkpoint_path}-wal").exists()
+    assert not Path(f"{checkpoint_path}-shm").exists()
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_checkpoint_is_a_sqlite_checkpoint_store_not_a_full_json_rewrite(mock_fetch, mock_service_cls, tmp_path):
+    """
+    Regression test for the format-consistency ask this story implements:
+    crawl_wallet_cluster()'s checkpoint used to be a bespoke full-dict
+    JSON rewrite on every flush. It must now be a CheckpointStore-backed
+    sqlite db -- same as search_wallets/analyze_wallets/check_wallet_
+    balances -- holding one row per completed unit, not one giant blob.
+    """
+    mock_fetch.return_value = []
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    # Clean completion deletes the checkpoint (see
+    # test_crawl_deletes_checkpoint_on_clean_completion) -- disable that
+    # here so the on-disk format can be inspected afterwards. Force the
+    # periodic balance-phase flush to fire on the very first (and only)
+    # address, same trick test_check_wallet_balances.py's equivalent test
+    # uses, so the balance| unit is actually committed to disk rather
+    # than sitting in the in-memory pending buffer.
+    with patch("tools.crawl_transaction_graph.CheckpointStore.delete", lambda self: self.close()), patch(
+        "tools.crawl_transaction_graph.CHECKPOINT_EVERY_ADDRESSES", 1
+    ):
+        crawl_wallet_cluster([SEED], max_generations=1, checkpoint_path=str(checkpoint_path))
+
+    # Old format was UTF-8 JSON text; the new format is a raw sqlite file
+    # (binary, starts with the "SQLite format 3" magic header) -- neither
+    # decodes as JSON.
+    with pytest.raises((UnicodeDecodeError, json.JSONDecodeError)):
+        json.loads(checkpoint_path.read_text())
+
+    conn = sqlite3.connect(str(checkpoint_path))
+    rows = [row[0] for row in conn.execute("SELECT unit_id FROM completed_units").fetchall()]
+    conn.close()
+
+    assert _BFS_DONE_UNIT_ID in rows
+    balance_rows = [row for row in rows if row.startswith("balance|")]
+    assert len(balance_rows) == 1
+    assert _decode_balance_unit_id(balance_rows[0]) == (SEED, 0.0, None, None)
 
 
 @patch("tools.crawl_transaction_graph.BitcoinService")
@@ -387,30 +443,29 @@ def test_crawl_resumes_balance_pass_skipping_already_confirmed_addresses(mock_fe
     Regression test for the real ask: a crawl killed mid-run (app quit/
     update/crash) shouldn't re-check addresses whose balance was already
     confirmed. BFS discovery is already complete in this checkpoint
-    (bfs_done=True) -- only the balance/dormancy pass should run, and
+    (bfs-done marked) -- only the balance/dormancy pass should run, and
     only for the address not yet finalized.
     """
     mock_fetch.return_value = []
     checked = []
     mock_service_cls.return_value.check_balance.side_effect = lambda addr: checked.append(addr) or 9.0
-    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
 
-    key = {"seed_addresses": [COSPEND, SEED], "max_generations": 1, "max_addresses": 200}
-    checkpoint_path.write_text(
-        json.dumps(
-            {
-                "key": key,
-                "discovered": {
-                    SEED: {"confidence": "seed", "generation": 0, "discovered_via": None, "balance": 2.5, "last_activity_timestamp": None, "dormant_years": None},
-                    COSPEND: {"confidence": "seed", "generation": 0, "discovered_via": None},
-                },
-                "frontier": [],
-                "generation": 2,
-                "bfs_done": True,
-                "edges": [],
-            }
-        )
+    store = CheckpointStore(
+        str(checkpoint_path), run_key=_crawl_checkpoint_key([SEED, COSPEND], max_generations=1, max_addresses=200)
     )
+    # Both SEED and COSPEND are seeds here (generation 0), so no node|
+    # units are needed for them -- crawl_wallet_cluster() always rebuilds
+    # seed entries straight from the seed_addresses argument, same as a
+    # from-scratch run. Only SEED's balance was already confirmed.
+    store.mark_completed(_generation_done_unit_id(1))
+    store.mark_completed(_BFS_DONE_UNIT_ID)
+    store.mark_completed(_balance_unit_id(SEED, 2.5, None, None))
+    store.flush()
+    store.close()
+    # COSPEND is deliberately left with no balance| unit -- only a
+    # confirmed balance is ever recorded, so it's retried on resume like
+    # any never-checked address.
 
     result = crawl_wallet_cluster([SEED, COSPEND], max_generations=1, checkpoint_path=str(checkpoint_path))
 
@@ -424,9 +479,9 @@ def test_crawl_resumes_balance_pass_skipping_already_confirmed_addresses(mock_fe
 @patch("tools.crawl_transaction_graph.fetch_address_transactions")
 def test_crawl_resumes_bfs_from_the_checkpointed_generation(mock_fetch, mock_service_cls, tmp_path):
     """
-    A checkpoint from generation 2 (BFS not yet done) should resume BFS
-    at generation 2 with the saved frontier, not restart from generation
-    1 -- the whole point of per-generation checkpointing.
+    A checkpoint recording generation 1 as done (BFS not yet done) should
+    resume BFS at generation 2 with the saved frontier, not restart from
+    generation 1 -- the whole point of per-generation checkpointing.
     """
     grandchild = "1GrandChild00000000000000000000"
     # only discoverable if generation 1 (SEED's own frontier expansion)
@@ -442,24 +497,19 @@ def test_crawl_resumes_bfs_from_the_checkpointed_generation(mock_fetch, mock_ser
 
     mock_fetch.side_effect = fetch
     mock_service_cls.return_value.check_balance.return_value = 0.0
-    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint_path = tmp_path / "checkpoint.db"
 
-    key = {"seed_addresses": [SEED], "max_generations": 2, "max_addresses": 200}
-    checkpoint_path.write_text(
-        json.dumps(
-            {
-                "key": key,
-                "discovered": {
-                    SEED: {"confidence": "seed", "generation": 0, "discovered_via": None},
-                    COSPEND: {"confidence": "co-spend", "generation": 1, "discovered_via": SEED},
-                },
-                "frontier": [COSPEND],
-                "generation": 2,
-                "bfs_done": False,
-                "edges": [],
-            }
-        )
+    store = CheckpointStore(
+        str(checkpoint_path), run_key=_crawl_checkpoint_key([SEED], max_generations=2, max_addresses=200)
     )
+    # SEED is a seed (generation 0, rebuilt automatically); COSPEND was
+    # discovered during generation 1 and is recorded explicitly so it
+    # becomes generation 2's frontier on resume.
+    store.mark_completed(_node_unit_id(COSPEND, "co-spend", 1, SEED))
+    store.mark_completed(_generation_done_unit_id(1))
+    store.flush()
+    store.close()
+    # No bfs-done unit -- discovery is not finished yet.
 
     result = crawl_wallet_cluster([SEED], max_generations=2, checkpoint_path=str(checkpoint_path))
 
@@ -476,26 +526,55 @@ def test_crawl_resumes_bfs_from_the_checkpointed_generation(mock_fetch, mock_ser
 @patch("tools.crawl_transaction_graph.BitcoinService")
 @patch("tools.crawl_transaction_graph.fetch_address_transactions")
 def test_crawl_ignores_checkpoint_for_a_different_key(mock_fetch, mock_service_cls, tmp_path):
+    """CheckpointStore's own run-key-mismatch handling wipes a stale
+    checkpoint recorded against a different seed/generation/max_addresses
+    combination the moment it's opened against this run's real key --
+    same mechanism check_wallet_balances.py already relies on."""
     mock_fetch.return_value = []
     mock_service_cls.return_value.check_balance.return_value = 5.0
-    checkpoint_path = tmp_path / "checkpoint.json"
-    checkpoint_path.write_text(
-        json.dumps(
-            {
-                "key": {"seed_addresses": ["1SomeOtherSeed00000000000000000"], "max_generations": 1, "max_addresses": 200},
-                "discovered": {"1SomeOtherSeed00000000000000000": {"confidence": "seed", "generation": 0, "discovered_via": None, "balance": 999.0}},
-                "frontier": [],
-                "generation": 2,
-                "bfs_done": True,
-                "edges": [],
-            }
-        )
+    checkpoint_path = tmp_path / "checkpoint.db"
+    other_seed = "1SomeOtherSeed00000000000000000"
+
+    store = CheckpointStore(
+        str(checkpoint_path), run_key=_crawl_checkpoint_key([other_seed], max_generations=1, max_addresses=200)
     )
+    store.mark_completed(_BFS_DONE_UNIT_ID)
+    store.mark_completed(_balance_unit_id(other_seed, 999.0, None, None))
+    store.flush()
+    store.close()
 
     result = crawl_wallet_cluster([SEED], max_generations=1, checkpoint_path=str(checkpoint_path))
 
     assert result[SEED]["balance"] == 5.0
-    assert "1SomeOtherSeed00000000000000000" not in result
+    assert other_seed not in result
+
+
+@patch("tools.crawl_transaction_graph.BitcoinService")
+@patch("tools.crawl_transaction_graph.fetch_address_transactions")
+def test_crawl_resumes_edges_out_from_the_checkpoint(mock_fetch, mock_service_cls, tmp_path):
+    """
+    edges_out feeds this app's confidence-scoring feature (web/
+    crawl_runs.py) -- a resumed crawl must recover every edge an
+    interrupted run had already found, not just whatever gets
+    re-discovered this time around.
+    """
+    mock_fetch.return_value = []
+    mock_service_cls.return_value.check_balance.return_value = 0.0
+    checkpoint_path = tmp_path / "checkpoint.db"
+
+    store = CheckpointStore(
+        str(checkpoint_path), run_key=_crawl_checkpoint_key([SEED], max_generations=1, max_addresses=200)
+    )
+    prior_edge = {"from": min(SEED, COSPEND), "to": max(SEED, COSPEND), "type": "co-spend", "txid": "tx1"}
+    store.mark_completed(_edge_unit_id(prior_edge))
+    store.mark_completed(_BFS_DONE_UNIT_ID)
+    store.flush()
+    store.close()
+
+    edges = []
+    crawl_wallet_cluster([SEED], max_generations=1, checkpoint_path=str(checkpoint_path), edges_out=edges)
+
+    assert prior_edge in edges
 
 
 @patch("tools.crawl_transaction_graph.BitcoinService")
