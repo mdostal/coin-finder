@@ -20,6 +20,7 @@ below) always sort to the top, real balances sort right after them.</p>
   {% else %}
   <a href="{{ url_for('findings_page', include_archived='1') }}" class="subtle">Show archived</a>
   {% endif %}
+  <a href="{{ url_for('staged_files_page') }}" class="subtle">Staged files &rarr;</a>
 </div>
 
 {% if overlap_count %}

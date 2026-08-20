@@ -176,8 +176,8 @@ items:
       whether the original is still reachable.
     priority: high
     severity: null
-    state: prioritized
-    linked_epic: null
+    state: plan-ready
+    linked_epic: staging-copy-with-original-path-index
     linked_story: null
     raised_at: "2026-08-17T14:30:00-05:00"
     raised_by: mathew

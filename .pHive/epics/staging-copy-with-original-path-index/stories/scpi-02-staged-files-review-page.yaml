@@ -1,0 +1,89 @@
+id: scpi-02-staged-files-review-page
+epic: staging-copy-with-original-path-index
+title: Staged Files review page with keep/re-verify/archive decisions
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [scpi-01-auto-stage-and-index]
+
+description: |
+  Add a "Staged Files" page listing every staging_index.py entry: staged
+  path, original source_path, coin/address/source_label, staged_at, and
+  current decision state. Add three per-entry actions:
+
+  - "Keep" -- plain instant POST, marks decision='keep'. Reversible,
+    informational, matches this app's established convention for
+    non-destructive per-row actions (same shape as Watch/Archive on the
+    findings page).
+  - "Re-verify" -- plain instant POST, checks whether original_source_path
+    still exists/is reachable right now and reports the result (does not
+    require the confirm-page pattern -- read-only against the original,
+    no mutation of anything outside this app's own index).
+  - "Archive & forget" -- marks decision='archived'. CRITICAL SCOPE LIMIT,
+    confirmed explicitly in the design discussion: this NEVER deletes or
+    modifies the real original file on disk -- it only records the
+    decision in staging_index.py. Actually deleting a user's real source
+    file is out of scope for this epic entirely, not a follow-up within
+    this story.
+
+acceptance_criteria:
+  - "Given the Staged Files page, when it renders, then every staging_index entry is listed with its staged path, original source_path, discovery metadata, and current decision"
+  - "Given a staged entry, when 'Keep' is clicked, then its decision updates to 'keep' and this is reflected on page reload"
+  - "Given a staged entry whose original_source_path still exists, when 'Re-verify' is clicked, then the page reports the original is still reachable"
+  - "Given a staged entry whose original_source_path no longer exists (e.g. a removed drive), when 'Re-verify' is clicked, then the page clearly reports the original is missing -- distinct from the 'still reachable' case"
+  - "Given a staged entry, when 'Archive & forget' is clicked and confirmed, then decision updates to 'archived' AND the real original file at original_source_path is confirmed completely untouched (still exists, unchanged) by an explicit test -- this is the single most important acceptance criterion in this story"
+  - "Given the staging_index table is empty, when the Staged Files page renders, then it shows a clear empty state, not an error"
+
+steps:
+  - id: research
+    description: Confirm scpi-01's exact staging_index.py schema/function signatures to build the review page against the real implementation, and re-confirm findings.html's existing Watch/Archive plain-POST pattern to follow the same shape.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the review page rendering, all three decision actions, and specifically an explicit test proving Archive & Forget never touches the real original file's contents or existence.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement the Staged Files route/template and the three decision actions.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review with specific focus on confirming Archive & Forget truly never calls any file-deletion/modification function against the original -- this is the story's core safety property.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/staging_index.py
+      purpose: "Built in scpi-01 -- this story's data source"
+    - path: web/templates/findings.html
+      purpose: "Existing Watch/Archive plain-instant-POST pattern (lines ~141-178) this story's Keep/Re-verify/Archive actions follow"
+
+files_to_modify:
+  - file: web/app.py
+    change: "New Staged Files route + 3 decision action routes"
+  - file: web/templates/staged_files.html
+    change: "New template"
+  - file: tests/test_web_app_staged_files.py
+    change: "New file. Full route + decision-action test coverage, including the explicit archive-never-deletes test"
+
+design_decisions:
+  - decision: "Archive & Forget only ever writes to staging_index.py, never touches the real original file"
+    rationale: "Confirmed explicit scope limit in the design discussion -- real file deletion is a genuinely destructive action against data outside this app's own storage and deserves its own separate, deliberate design pass"
+
+risks:
+  - severity: high
+    description: "If Archive & Forget were ever implemented to actually delete the original file, that would be an irreversible destructive action against real user data with no undo"
+    mitigation: "Explicit, tested acceptance criterion proving the original file is untouched -- this is the story's single most important test, not an afterthought"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md's staging section (added in scpi-01) documents the review page and explicitly notes Archive & Forget never deletes the original file"
+
+references:
+  - path: .pHive/epics/staging-copy-with-original-path-index/docs/design-discussion.md
+    relevant_excerpt: "Section 3.4 (decision UI, conservative v1 scope)."

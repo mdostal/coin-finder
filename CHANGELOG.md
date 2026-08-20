@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-08-19
+
+### Added
+
+- **Discovered wallet files now get automatically backed up locally**,
+  the moment they become a real finding, so you never lose access to one
+  just because the original drive got unplugged or a cloud folder went
+  offline. A new "Staged Files" page lists every one of these local
+  copies alongside where it came from, and lets you mark each one as
+  Keep or Archive & Forget, or re-check right now whether the original is
+  still reachable. Archiving never touches or deletes the real original
+  file — it only updates this app's own record.
+
 ## [0.57.1] - 2026-08-19
 
 ### Changed
