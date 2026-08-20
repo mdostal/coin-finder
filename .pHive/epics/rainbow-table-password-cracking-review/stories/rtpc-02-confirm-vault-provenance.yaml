@@ -1,0 +1,81 @@
+id: rtpc-02-confirm-vault-provenance
+epic: rainbow-table-password-cracking-review
+title: Confirm-to-vault with provenance metadata
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: [rtpc-01-upload-crack-and-review]
+
+description: |
+  Complete the feature: when rtpc-01's review page shows a real found
+  password, add an explicit "Add to vault" confirm action (never silent
+  auto-add) that calls add_vault_entry with new provenance metadata: which
+  wordlist (filename), method ("btcrecover-wordlist-crack"), found-at
+  timestamp, and the target wallet path.
+
+  Extend web/vault.py's add_vault_entry() to accept an optional tags dict,
+  threaded through to `portunus drop --tags` (confirmed via research:
+  Portunus already supports arbitrary tags metadata, the gap is purely
+  that this project's wrapper never passes it through). Also extend the
+  JSON fallback store (_add_vault_entry_fallback, used when Portunus isn't
+  on PATH) with the same tags support for parity -- both backends, not
+  just the primary one.
+
+acceptance_criteria:
+  - "Given a review page showing a real found password, when the user clicks 'Add to vault' and confirms, then a new vault entry is created with the password value AND tags recording wordlist filename, method, found-at timestamp, and wallet path"
+  - "Given Portunus is available, when a crack result is added to the vault, then `portunus list --json` (or the equivalent list_vault_entries() call) shows the provenance tags on that entry"
+  - "Given Portunus is NOT available (fallback path), when a crack result is added to the vault, then the JSON fallback store persists the same provenance fields -- parity confirmed by an explicit test exercising the fallback path directly, not just the primary one"
+  - "Given no password was found by the crack job, when the review page renders, then no 'Add to vault' action is shown at all -- there's nothing to confirm"
+  - "Given the add-to-vault action is called twice for the same crack result (e.g. a user double-clicks), when the second call happens, then it's handled sensibly (idempotent or a clear already-added message), not a crash or a silently duplicated vault entry"
+
+steps:
+  - id: research
+    description: Confirm add_vault_entry's exact current signature and the portunus CLI's exact --tags argument format, plus _add_vault_entry_fallback's exact current JSON schema, to extend both consistently.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the tags parameter on both add_vault_entry backends (Portunus path and JSON fallback), the confirm route, the no-password-found case (no action shown), and double-confirm handling.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Extend add_vault_entry with a tags parameter threaded through both backends; add the confirm route and UI action to rtpc-01's review template.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically for backend parity (Portunus vs. fallback both get real provenance, not just one) and confirm double-confirm is handled without data corruption.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/vault.py
+      purpose: "add_vault_entry() (Portunus path) and _add_vault_entry_fallback() -- both need the new tags parameter, confirmed as two independent backends needing independent extension"
+
+files_to_modify:
+  - file: web/vault.py
+    change: "Add optional tags parameter to add_vault_entry(), threaded through --tags on the Portunus path AND persisted in the JSON fallback store's schema"
+  - file: web/app.py
+    change: "New confirm-to-vault route"
+  - file: web/templates/wordlist_crack_review.html
+    change: "Add the 'Add to vault' confirm action (extends rtpc-01's review page)"
+  - file: tests/test_vault.py
+    change: "Add tags parameter test coverage for both backends"
+  - file: tests/test_web_app_wordlist_crack.py
+    change: "Extend with confirm-to-vault route coverage"
+
+design_decisions:
+  - decision: "Extend both add_vault_entry backends (Portunus + JSON fallback), not just the primary one"
+    rationale: "Direct application of the candidate-match-integrity lesson: fix every consumer/backend, not just the first one found -- confirmed via research that the fallback store has zero provenance support today"
+
+risks:
+  - severity: low
+    description: "Portunus's --tags format needs to be gotten exactly right (comma-separated k=v pairs per research) or provenance silently fails to attach"
+    mitigation: "Explicit test asserting the real tags are queryable back via list_vault_entries()/portunus list --json after the add, not just that the add call didn't error"
+
+references:
+  - path: .pHive/epics/rainbow-table-password-cracking-review/docs/design-discussion.md
+    relevant_excerpt: "Section 4.3 (confirm-to-vault with provenance) and the Portunus tags research finding in section 2."
