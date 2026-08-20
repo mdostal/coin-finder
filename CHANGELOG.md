@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.57.1] - 2026-08-19
+
+### Changed
+
+- The relationship-graph crawl's own progress checkpoint now uses the
+  same memory-safe storage as every other scan stage, for consistency.
+  No behavior change -- crawl progress/resume works exactly as before.
+
 ## [0.57.0] - 2026-08-19
 
 ### Added
