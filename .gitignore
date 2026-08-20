@@ -19,6 +19,8 @@
 /web/auto_unlock_history.db
 /web/jobs.db
 /web/scan_settings.db
+/web/staging_index.db
+/web/credential_scan_cache.db
 
 # Portunus-unavailable fallback vault (plaintext local store) -- never commit
 /web/vault_fallback.env
