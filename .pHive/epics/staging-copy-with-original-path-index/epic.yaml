@@ -1,0 +1,47 @@
+name: staging-copy-with-original-path-index
+title: Staging Copy with Original-Path Index
+description: >
+  Automatically copy a discovered wallet-shaped file into local staging
+  the moment it becomes a finding with a real source_path, with a durable
+  index mapping the staged copy back to its original path and discovery
+  metadata -- so a real finding stays accessible even if its source (a
+  removable drive, a GDrive mount) later disappears. Adds a review page to
+  decide what to do with each original (keep / archive-and-forget /
+  re-verify). v1 never deletes the real original file -- archive-and-
+  forget only records the decision, confirmed explicitly as a scope limit.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [data-durability, storage-management, ux]
+  roster: [researcher, technical-writer]
+  per_tag_reasoning:
+    data-durability: "Findings tied to ephemeral sources (removable drives, cloud mounts) losing traceability was the real trigger for this ask"
+    storage-management: "Real growth-bounding consideration, addressed conservatively rather than over-engineered given today's trivial real usage"
+    ux: "New review page following established confirm/instant-action conventions"
+  confidence: high
+  gate_decisions:
+    collaborative_review: skipped_solo_project
+    hv_planning: medium_scope_lightweight
+    structured_outline: not_required_medium_scope
+  note: >
+    Personal, solo-maintained repo -- orchestrator-direct planning, user as
+    sole reviewer. Deliberately conservative scope: v1 never deletes a
+    real original file, only records a decision -- flagged explicitly
+    rather than silently building destructive file operations.
+
+stories:
+  - id: scpi-01-auto-stage-and-index
+    title: Auto-stage findings with a real source_path + index module
+    complexity: medium
+    depends_on: []
+  - id: scpi-02-staged-files-review-page
+    title: Staged Files review page with keep/re-verify/archive decisions
+    complexity: medium
+    depends_on: [scpi-01-auto-stage-and-index]

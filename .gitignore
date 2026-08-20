@@ -285,6 +285,8 @@ cython_debug/
 !.pHive/epics/rainbow-table-password-cracking-review/**
 !.pHive/epics/crawl-checkpoint-store-migration/
 !.pHive/epics/crawl-checkpoint-store-migration/**
+!.pHive/epics/staging-copy-with-original-path-index/
+!.pHive/epics/staging-copy-with-original-path-index/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
