@@ -1,0 +1,48 @@
+name: rainbow-table-password-cracking-review
+title: Wordlist Cracking Review
+description: >
+  Let the user upload their own wordlist file and run it against a
+  specific "encrypted, no known password" wallet via the already-wired-in
+  BTCRecover integration, review any real crack once (reusing the
+  existing once-only secret-reveal pattern), and on explicit confirmation
+  add the found password to the vault with real provenance metadata
+  (which wordlist, method, when, which wallet) instead of hand-retyping
+  it. User-supplied wordlist only -- no auto-download of any wordlist,
+  confirmed explicitly. No pause/resume in v1 -- confirmed explicitly,
+  bounded by BTCRecover's own runtime-estimate ceiling.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: committed
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [security, vault-integration, external-tool-wrapping]
+  roster: [researcher, technical-writer]
+  per_tag_reasoning:
+    security: "Uploaded wordlist + cracked password are both sensitive; reuses existing once-only-reveal + offline-gate discipline"
+    vault-integration: "New tags/provenance parameter threaded through both vault backends (Portunus + JSON fallback)"
+    external-tool-wrapping: "BTCRecover already integrated -- parameterizing its existing subprocess call, not a new integration"
+  confidence: high
+  gate_decisions:
+    collaborative_review: skipped_solo_project
+    hv_planning: medium_scope_lightweight
+    structured_outline: not_required_medium_scope
+  note: >
+    Personal, solo-maintained repo -- orchestrator-direct planning, user as
+    sole reviewer. Two consequential scope decisions (wordlist sourcing,
+    pause/resume) were explicitly confirmed with the user via direct
+    questions before this doc was finalized, not assumed.
+
+stories:
+  - id: rtpc-01-upload-crack-and-review
+    title: Upload wordlist + crack job + once-only review
+    complexity: medium
+    depends_on: []
+  - id: rtpc-02-confirm-vault-provenance
+    title: Confirm-to-vault with provenance metadata
+    complexity: medium
+    depends_on: [rtpc-01-upload-crack-and-review]

@@ -131,8 +131,8 @@ items:
       provenance field today).
     priority: medium
     severity: null
-    state: prioritized
-    linked_epic: null
+    state: plan-ready
+    linked_epic: rainbow-table-password-cracking-review
     linked_story: null
     raised_at: "2026-08-17T11:00:00-05:00"
     raised_by: mathew

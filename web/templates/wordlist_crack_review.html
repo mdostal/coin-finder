@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- wordlist crack result{% endblock %}
+{% block content %}
+<h2>Wordlist crack result</h2>
+<div class="banner warning">
+This is shown once. It is not saved anywhere and will not reappear if you
+reload or come back to this page. Your uploaded wordlist file has already
+been deleted.
+</div>
+
+{% if job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% elif job.result %}
+<div class="card">
+  <table>
+    <thead><tr><th>Wallet</th><th>Password</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>{{ job.result.wallet_path }}</code></td>
+        <td>
+          {% if job.result.found %}
+          <span class="secret-field">
+            <strong style="color:var(--accent)"><code class="secret-mask" data-secret="{{ job.result.value }}" data-revealed="false">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</code></strong>
+            <button type="button" class="secret-reveal-btn btn-secondary" aria-label="Reveal password" aria-pressed="false" title="Reveal">&#128065;</button>
+          </span>
+          {% else %}
+          <span class="subtle">no match</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  {% if job.result.found %}
+  {% if added %}
+  <div class="banner">
+  Added to the vault as <code>{{ added }}</code>, with tags recording the wordlist, method,
+  found-at time, and wallet path. See the <a href="{{ url_for('vault_page') }}">vault</a> to review it.
+  </div>
+  {% else %}
+  <form method="post" action="{{ url_for('wordlist_crack_confirm') }}">
+    <input type="hidden" name="job_id" value="{{ job_id }}">
+    <input type="hidden" name="wallet_path" value="{{ job.result.wallet_path }}">
+    <input type="hidden" name="value" value="{{ job.result.value }}">
+    <input type="hidden" name="wordlist_filename" value="{{ job.result.wordlist_filename or '' }}">
+    <input type="hidden" name="found_at" value="{{ found_at or '' }}">
+    <button type="submit" class="btn-secondary">Add to vault</button>
+  </form>
+  <p class="subtle">Records which wordlist, method, and when this password was found alongside the value itself.</p>
+  {% endif %}
+  {% endif %}
+</div>
+{% endif %}
+
+<a class="back-link" href="{{ url_for('index') }}">&laquo; back</a>
+{% endblock %}
