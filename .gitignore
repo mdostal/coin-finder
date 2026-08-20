@@ -19,6 +19,8 @@
 /web/auto_unlock_history.db
 /web/jobs.db
 /web/scan_settings.db
+/web/staging_index.db
+/web/credential_scan_cache.db
 
 # Portunus-unavailable fallback vault (plaintext local store) -- never commit
 /web/vault_fallback.env
@@ -285,6 +287,8 @@ cython_debug/
 !.pHive/epics/rainbow-table-password-cracking-review/**
 !.pHive/epics/crawl-checkpoint-store-migration/
 !.pHive/epics/crawl-checkpoint-store-migration/**
+!.pHive/epics/staging-copy-with-original-path-index/
+!.pHive/epics/staging-copy-with-original-path-index/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

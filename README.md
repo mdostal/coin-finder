@@ -833,6 +833,22 @@ this app is a separate, later effort outside this project's own scope.
   in one click, to focus on what still needs attention) matters a lot more
   than any single scan's transient result page. Inconclusive balances are
   always shown as "inconclusive," never silently as if they were zero.
+- **Staged Files review** (`/staged-files`) -- a finding backed by a real
+  wallet file (from a `wallet.dat` scan or a balance check) automatically
+  gets that file copied into local staging and indexed (`web/staging_index.db`,
+  content-hash-named so the same real file backing multiple findings is only
+  ever copied once), so the finding still has a local copy of its source even
+  if the original drive or mount later disappears. This page lists every
+  staged entry -- staged path, original source path, coin/address/source
+  label, when it was staged, and its current decision -- with 3 one-click
+  actions per row: **Keep** (marks it reviewed and worth keeping), **Re-verify**
+  (a live, read-only check of whether the original file is still reachable at
+  its recorded path), and **Archive & forget** (marks it reviewed and no
+  longer interesting). **Archive & forget only ever records that decision in
+  `staging_index.db` -- it NEVER deletes, moves, or modifies the real original
+  file (or even the staged copy) on disk, full stop.** Actually deleting a
+  real source file is a deliberately out-of-scope, separate decision this app
+  does not make for you.
 - **Group view / combined relationship graph** (`/findings/group-view`) --
   every `crawl_transaction_graph.py` crawl run from "On-demand actions" is
   saved (`web/crawl_runs.db`), not just shown once and discarded. This page

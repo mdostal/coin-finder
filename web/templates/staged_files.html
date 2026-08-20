@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- staged files{% endblock %}
+{% block content %}
+<h2>Staged Files</h2>
+<p>Every real wallet file a scan has automatically copied into local staging,
+alongside where it was originally found -- so a finding still has a local
+copy of its source even if the original drive or mount later disappears.
+<a href="{{ url_for('findings_page') }}">&larr; back to findings</a></p>
+<p class="subtle"><strong>Keep</strong> and <strong>Archive &amp; forget</strong> only
+ever record a decision here in this app's own index. <strong>Neither one, ever,
+deletes, moves, or modifies the real original file on disk</strong> -- actually
+removing a real file is out of scope. <strong>Re-verify</strong> is read-only:
+it just checks, right now, whether the original file is still where it was
+found.</p>
+
+{% if entries %}
+<table>
+  <thead>
+    <tr>
+      <th>Coin / Address</th>
+      <th>Staged copy</th>
+      <th>Original source</th>
+      <th>Staged</th>
+      <th>Decision</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    {% set decision_class = {"keep": "status-done", "archived": "status-archived"}.get(e.decision, "status-new") %}
+    <tr>
+      <td>
+        {{ m.coin_badge(e.coin) }}
+        <div><code>{{ e.address }}</code></div>
+        {% if e.source_label %}<div class="subtle">SOURCE {{ e.source_label }}</div>{% endif %}
+      </td>
+      <td>{{ m.path_chip(e.staged_path) }}</td>
+      <td>
+        {{ m.path_chip(e.original_source_path) }}
+        {% if reverify_path == e.staged_path %}
+          {% if reverify_status == "exists" %}
+          <div><span class="status-pill status-done" title="Re-verified just now: the original file is still there.">still there</span></div>
+          {% else %}
+          <div><span class="status-pill status-error" title="Re-verified just now: the original file no longer exists at this path -- drive unmounted, moved, or deleted.">missing</span></div>
+          {% endif %}
+        {% endif %}
+      </td>
+      <td>{{ e.staged_at | int | timestamp_to_local }}</td>
+      <td><span class="status-pill {{ decision_class }}">{{ e.decision }}</span></td>
+      <td>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <form method="post" action="{{ url_for('staged_files_keep') }}">
+            <input type="hidden" name="staged_path" value="{{ e.staged_path }}">
+            <button type="submit" class="btn-secondary">Keep</button>
+          </form>
+          <form method="post" action="{{ url_for('staged_files_reverify') }}">
+            <input type="hidden" name="staged_path" value="{{ e.staged_path }}">
+            <button type="submit" class="btn-secondary">Re-verify</button>
+          </form>
+          <form method="post" action="{{ url_for('staged_files_archive') }}">
+            <input type="hidden" name="staged_path" value="{{ e.staged_path }}">
+            <button type="submit" class="btn-secondary">Archive &amp; forget</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No files staged yet -- a scan that finds a real wallet file
+will copy it here automatically. Nothing to review yet.</p>
+{% endif %}
+{% endblock %}

@@ -52,6 +52,13 @@ from web.auto_unlock_history import (
 )
 from web.credential_scan_cache import credential_status_index, mark_address_extracted, run_credential_scan
 from web.scan_excludes import add_exclude, list_excludes, remove_exclude
+from web.staging_index import (
+    DEFAULT_DB_PATH as STAGING_INDEX_DB_PATH,
+    get_staged_entry,
+    list_staged_entries,
+    set_staged_decision,
+    stage_and_index,
+)
 from web.scan_settings import (
     get_auto_profile,
     get_settings,
@@ -1264,6 +1271,60 @@ def create_app(host="127.0.0.1"):
         clear_all_findings()
         return redirect(url_for("findings_page"))
 
+    # --- scpi-02: Staged Files review page -----------------------------
+    # scpi-01 auto-stages a real copy of every finding's backing wallet
+    # file into local staging + records it in staging_index.py, but until
+    # now there was no page to look at what's been staged or decide what
+    # to do with each entry. 3 plain-instant-POST actions, same shape as
+    # findings.html's per-row Watch/Archive -- no JS modal, no confirm
+    # page.
+
+    @app.route("/staged-files")
+    def staged_files_page():
+        entries = list_staged_entries(db_path=STAGING_INDEX_DB_PATH)
+        return render_template(
+            "staged_files.html",
+            entries=entries,
+            reverify_path=request.args.get("reverify_path"),
+            reverify_status=request.args.get("reverify_status"),
+        )
+
+    @app.route("/staged-files/keep", methods=["POST"])
+    def staged_files_keep():
+        # Reversible, informational -- marks decision='keep'. Nothing
+        # else about the entry (or any real file) changes.
+        staged_path = request.form.get("staged_path")
+        if staged_path:
+            set_staged_decision(staged_path, "keep", db_path=STAGING_INDEX_DB_PATH)
+        return redirect(url_for("staged_files_page"))
+
+    @app.route("/staged-files/reverify", methods=["POST"])
+    def staged_files_reverify():
+        # Read-only against the real original file -- one stat() call,
+        # never writes/deletes/moves anything anywhere. Reports the live
+        # result back via query params so the page can show a clear
+        # "still there" vs "missing" result for the row just checked.
+        staged_path = request.form.get("staged_path")
+        entry = get_staged_entry(staged_path, db_path=STAGING_INDEX_DB_PATH) if staged_path else None
+        status = "exists" if entry and Path(entry["original_source_path"]).is_file() else "missing"
+        return redirect(url_for("staged_files_page", reverify_path=staged_path, reverify_status=status))
+
+    @app.route("/staged-files/archive", methods=["POST"])
+    def staged_files_archive():
+        # CRITICAL SCOPE LIMIT (scpi-02, confirmed explicitly in the
+        # design discussion): this ONLY ever writes to staging_index.db
+        # via set_staged_decision -- it must NEVER delete, move, rename,
+        # or otherwise touch the real file at original_source_path (or
+        # the staged copy). See
+        # tests/test_web_app_staged_files.py::test_archive_and_forget_never_touches_the_real_original_file
+        # for the explicit proof. Actually deleting a user's real source
+        # file is out of scope for this whole epic, not a follow-up --
+        # do not "improve" this into a real delete.
+        staged_path = request.form.get("staged_path")
+        if staged_path:
+            set_staged_decision(staged_path, "archived", db_path=STAGING_INDEX_DB_PATH)
+        return redirect(url_for("staged_files_page"))
+
     @app.route("/findings/group-view")
     def group_view_page():
         return render_template("group_view.html", overlaps=find_overlap_addresses(), runs=list_crawl_runs())
@@ -1856,6 +1917,10 @@ _NAV_GROUP_BY_ENDPOINT = {
     "group_view_clear": "findings",
     "group_view_graph": "findings",
     "findings_related": "findings",
+    "staged_files_page": "findings",
+    "staged_files_keep": "findings",
+    "staged_files_reverify": "findings",
+    "staged_files_archive": "findings",
     # About -- update mechanics + network transparency.
     "network_page": "about",
     "update_page": "about",
@@ -1978,6 +2043,38 @@ def _clamp_generations(raw):
         return DEFAULT_CRAWL_GENERATIONS
 
 
+def _stage_finding_source(source_path, coin, address, source_label, staged_already):
+    """
+    Auto-stages a finding's real backing file into DEFAULT_STAGING_DIR and
+    records a web.staging_index.py entry for it, so the finding still has
+    a local copy of its source if the original (an unplugged drive, an
+    unmounted cloud folder) later disappears.
+
+    Only called from the 3 job functions that pass a real source_path to
+    record_finding() today (_run_scan_wallet_dat_job,
+    _run_check_balances_job, _run_check_balances_selected_job) -- the
+    other 3 record_finding() call sites (crawl, fork-coin check, quick
+    lookup) are pure address-based discovery with no real file behind
+    them and must never reach this function.
+
+    :param staged_already: a set of source_path strings already staged
+        THIS job run -- one real file can back many findings (every
+        address a wallet.dat holds, or every coin/address a scan turns up
+        for one file), and this dedups the (relatively expensive, full-
+        file-read) hashing/copy work to once per distinct file per job.
+        stage_and_index() is itself idempotent (content-hash-keyed), so
+        skipping a repeat call here is an efficiency win, not a
+        correctness requirement -- a second real call for the same file
+        would resolve to the same staged_path anyway.
+    """
+    if not source_path or source_path in staged_already:
+        return
+    staged_already.add(source_path)
+    if not Path(source_path).is_file():
+        return
+    stage_and_index(source_path, coin, address, source_label, staging_dir=DEFAULT_STAGING_DIR)
+
+
 def _run_scan_wallet_dat_job(wallet_path, job_id):
     scan = scan_wallet_for_addresses(wallet_path)
     checked = check_addresses_balances(
@@ -1994,8 +2091,10 @@ def _run_scan_wallet_dat_job(wallet_path, job_id):
     for entry in significant:
         lines.append(f"- {entry['address']}: {entry['balance']}")
 
+    staged_already = set()
     for entry in checked["results"]:
         record_finding("Bitcoin", entry["address"], entry.get("balance"), source_path=wallet_path, source_label="scan_wallet_dat")
+        _stage_finding_source(wallet_path, "Bitcoin", entry["address"], "scan_wallet_dat", staged_already)
 
     return {
         "report": "\n".join(lines),
@@ -2783,10 +2882,12 @@ def _run_check_balances_job(output_dir, job_id, target_path=None):
     balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
     balances = _read_json(balances_path)
     if balances:
+        staged_already = set()
         for file_path, crypto_wallets in balances.items():
             for coin, addresses in crypto_wallets.items():
                 for address, balance in addresses.items():
                     record_finding(coin, address, balance, source_path=file_path, source_label="scan")
+                    _stage_finding_source(file_path, coin, address, "scan", staged_already)
 
     return {"output_dir": output_dir}
 
@@ -2838,10 +2939,12 @@ def _run_check_balances_selected_job(output_dir, selected_files, job_id, target_
 
     balances = _read_json(balances_path)
     if balances:
+        staged_already = set()
         for file_path, crypto_wallets in balances.items():
             for coin, addresses in crypto_wallets.items():
                 for address, balance in addresses.items():
                     record_finding(coin, address, balance, source_path=file_path, source_label="scan")
+                    _stage_finding_source(file_path, coin, address, "scan", staged_already)
 
     return {"output_dir": str(selection_dir)}
 

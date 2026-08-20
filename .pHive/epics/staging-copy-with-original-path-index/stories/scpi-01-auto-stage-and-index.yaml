@@ -1,0 +1,102 @@
+id: scpi-01-auto-stage-and-index
+epic: staging-copy-with-original-path-index
+title: Auto-stage findings with a real source_path + index module
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  Build web/staging_index.py, following this project's established
+  sibling-module schema convention (own db file, _SCHEMA/_MIGRATIONS/
+  _connect boilerplate, db_path=DEFAULT_DB_PATH parameter). Table keyed by
+  staged_path, columns: original_source_path, coin, address, source_label,
+  staged_at, decision (default 'undecided'). No secret/key material, same
+  discipline as every existing cache/history module in this app.
+
+  Hook auto-staging into the 3 record_finding() call sites that pass a
+  real source_path today: _run_scan_wallet_dat_job, _run_check_balances_job,
+  and _run_check_balances_selected_job (all in web/app.py). When the
+  source file actually exists on disk, copy it into DEFAULT_STAGING_DIR
+  using content-hash-based naming (staged_path = staging_dir /
+  f"{sha256-prefix}-{original_name}") -- this fixes the existing /item/stage
+  route's same-basename collision gap as a side effect: two different
+  files sharing a basename now both stage cleanly, and re-staging the
+  exact same file (a re-scan) naturally produces the same staged path
+  instead of erroring. Record the index entry (original path, coin,
+  address, source_label, staged_at) alongside the copy.
+
+  The other 3 record_finding() call sites (crawl, fork-coin check, quick
+  lookup) never have a real local file -- do not touch them, this is by
+  design, not an oversight to "fix."
+
+  Log a visible warning once total staged size crosses a soft 1GB
+  threshold -- a soft signal, not a hard cap or blocker, since real
+  today's-scale usage is trivial and a hard cap is explicitly deferred
+  future scope per the design discussion.
+
+acceptance_criteria:
+  - "Given _run_scan_wallet_dat_job records a finding with a real, existing source_path, when the job completes, then the source file is copied into staging AND a staging_index.py entry is recorded mapping the staged path back to the original source_path/coin/address/source_label"
+  - "Given _run_check_balances_job or _run_check_balances_selected_job records findings with real source_paths, when those jobs complete, then each distinct real file gets staged and indexed exactly once, not duplicated per finding if multiple addresses share one source file"
+  - "Given two different real files from different sources share the same basename, when both are auto-staged, then both are staged successfully with distinct content-hash-based paths -- no collision/refusal, unlike today's /item/stage behavior"
+  - "Given the exact same file is auto-staged twice (e.g. a re-scan), when the second staging attempt happens, then it resolves to the same content-hash-based staged_path as the first -- no duplicate copy, no error"
+  - "Given crawl_transaction_graph/check_fork_coins/quick_lookup jobs record findings with no source_path, when those jobs complete, then nothing is staged and no staging_index entry is created for them -- confirmed by an explicit test, not just absence of a crash"
+  - "Given total staged size crosses 1GB in a test scenario (or a mocked size check), when the threshold is crossed, then a visible warning is logged -- confirmed by an explicit test, not just implemented and unverified"
+
+steps:
+  - id: research
+    description: Confirm the exact call signatures at the 3 relevant record_finding() call sites in web/app.py and the existing /item/stage route's copy mechanism to reuse (shutil.copy2) rather than reinvent.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for staging_index.py's schema/CRUD, the auto-staging hook at each of the 3 call sites, content-hash collision handling, dedup on re-staging, the 3 no-file call sites correctly staging nothing, and the soft size-threshold warning.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement web/staging_index.py and the auto-staging hooks in web/app.py's 3 relevant job functions.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically that the 3 no-file call sites are genuinely untouched (not staging empty/garbage entries) and that content-hash naming actually resolves both the collision and dedup cases correctly.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: web/app.py
+      purpose: "_run_scan_wallet_dat_job, _run_check_balances_job, _run_check_balances_selected_job are the 3 hook points; existing /item/stage route (DEFAULT_STAGING_DIR, shutil.copy2) is the copy mechanism to reuse"
+    - path: web/findings.py
+      purpose: "Schema convention reference -- staging_index.py follows the same _SCHEMA/_MIGRATIONS/_connect shape"
+
+files_to_modify:
+  - file: web/staging_index.py
+    change: "New file. Index module following established sibling-module convention"
+  - file: web/app.py
+    change: "Hook auto-staging into the 3 relevant record_finding() call sites"
+  - file: tests/test_staging_index.py
+    change: "New file. Full schema/CRUD test coverage"
+  - file: tests/test_web_app_auto_staging.py
+    change: "New file. Hook test coverage at all 3 relevant call sites plus the 3 no-op sites"
+
+design_decisions:
+  - decision: "Content-hash-based staged filenames, not the existing flat basename-only naming"
+    rationale: "Fixes a real, confirmed collision gap in the existing /item/stage route as a side effect, and naturally deduplicates re-staged identical files -- established naming discipline reused from tonight's checkpoint-store and vault-provenance work"
+  - decision: "Only the 3 call sites with a real source_path get auto-staging; the other 3 are untouched by design"
+    rationale: "The signal already exists (source_path is not None) -- no new removable-vs-local detection heuristic needed for v1, per the design discussion's resolution of that open question"
+
+risks:
+  - severity: medium
+    description: "Auto-staging every wallet-shaped finding could grow storage significantly on a large real drive scan"
+    mitigation: "Soft 1GB warning log (not a hard cap) gives real visibility without blocking; a hard cap is explicitly deferred future scope, not silently absent"
+
+cross_cutting:
+  - concern: documentation
+    action: "README.md gets a note about auto-staging behavior once both stories ship"
+
+references:
+  - path: .pHive/epics/staging-copy-with-original-path-index/docs/design-discussion.md
+    relevant_excerpt: "Section 3.1-3.3 (trigger scope, naming, index schema)."
