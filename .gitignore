@@ -283,6 +283,8 @@ cython_debug/
 !.pHive/epics/password-note-scanner/**
 !.pHive/epics/rainbow-table-password-cracking-review/
 !.pHive/epics/rainbow-table-password-cracking-review/**
+!.pHive/epics/crawl-checkpoint-store-migration/
+!.pHive/epics/crawl-checkpoint-store-migration/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/
