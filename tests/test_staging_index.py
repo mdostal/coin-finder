@@ -7,6 +7,7 @@ from web.staging_index import (
     SIZE_WARNING_THRESHOLD_BYTES,
     get_staged_entry,
     list_staged_entries,
+    set_staged_decision,
     stage_and_index,
 )
 
@@ -95,6 +96,82 @@ def test_same_file_staged_twice_resolves_to_same_path_no_duplicate_copy_or_error
     mock_copy2.assert_not_called()
     assert len(list(staging_dir.iterdir())) == 1
     assert len(list_staged_entries(db_path=db_path)) == 1
+
+
+def test_set_staged_decision_updates_only_the_decision_column(tmp_path):
+    source = _make_file(tmp_path / "wallet.dat")
+    staging_dir = tmp_path / "staged"
+    db_path = tmp_path / "staging_index.db"
+    staged_path = stage_and_index(
+        str(source), "Bitcoin", "1abc", "scan_wallet_dat", staging_dir=staging_dir, db_path=db_path
+    )
+
+    set_staged_decision(staged_path, "keep", db_path=db_path)
+
+    entry = get_staged_entry(staged_path, db_path=db_path)
+    assert entry["decision"] == "keep"
+    # Everything else about the entry is untouched.
+    assert entry["original_source_path"] == str(source)
+    assert entry["coin"] == "Bitcoin"
+    assert entry["address"] == "1abc"
+
+
+def test_set_staged_decision_can_move_to_archived_and_back(tmp_path):
+    source = _make_file(tmp_path / "wallet.dat")
+    staging_dir = tmp_path / "staged"
+    db_path = tmp_path / "staging_index.db"
+    staged_path = stage_and_index(
+        str(source), "Bitcoin", "1abc", "scan_wallet_dat", staging_dir=staging_dir, db_path=db_path
+    )
+
+    set_staged_decision(staged_path, "archived", db_path=db_path)
+    assert get_staged_entry(staged_path, db_path=db_path)["decision"] == "archived"
+
+    set_staged_decision(staged_path, "keep", db_path=db_path)
+    assert get_staged_entry(staged_path, db_path=db_path)["decision"] == "keep"
+
+
+def test_set_staged_decision_only_affects_the_targeted_row(tmp_path):
+    source_a = _make_file(tmp_path / "a" / "wallet.dat", content=b"AAAA")
+    source_b = _make_file(tmp_path / "b" / "wallet.dat", content=b"BBBB")
+    staging_dir = tmp_path / "staged"
+    db_path = tmp_path / "staging_index.db"
+    staged_a = stage_and_index(str(source_a), "Bitcoin", "1aaa", "scan", staging_dir=staging_dir, db_path=db_path)
+    staged_b = stage_and_index(str(source_b), "Bitcoin", "1bbb", "scan", staging_dir=staging_dir, db_path=db_path)
+
+    set_staged_decision(staged_a, "archived", db_path=db_path)
+
+    assert get_staged_entry(staged_a, db_path=db_path)["decision"] == "archived"
+    assert get_staged_entry(staged_b, db_path=db_path)["decision"] == "undecided"
+
+
+def test_set_staged_decision_for_unknown_staged_path_is_a_silent_no_op(tmp_path):
+    db_path = tmp_path / "staging_index.db"
+    # No entry was ever staged -- must not raise.
+    set_staged_decision("/does/not/exist-in-index", "keep", db_path=db_path)
+    assert list_staged_entries(db_path=db_path) == []
+
+
+def test_set_staged_decision_never_touches_the_real_original_file(tmp_path):
+    """
+    The single most important behavior in this module: updating the
+    decision column must never delete, move, or modify the real original
+    file OR the staged copy on disk, in any of the 3 decision states a
+    review-page action can set.
+    """
+    source = _make_file(tmp_path / "wallet.dat", content=b"precious real wallet bytes")
+    staging_dir = tmp_path / "staged"
+    db_path = tmp_path / "staging_index.db"
+    staged_path = stage_and_index(
+        str(source), "Bitcoin", "1abc", "scan_wallet_dat", staging_dir=staging_dir, db_path=db_path
+    )
+
+    for decision in ("keep", "archived", "undecided"):
+        set_staged_decision(staged_path, decision, db_path=db_path)
+        assert source.exists()
+        assert source.read_bytes() == b"precious real wallet bytes"
+        assert Path(staged_path).exists()
+        assert Path(staged_path).read_bytes() == b"precious real wallet bytes"
 
 
 def test_size_warning_logs_once_when_crossing_1gb_threshold(tmp_path, caplog):

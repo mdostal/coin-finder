@@ -52,7 +52,13 @@ from web.auto_unlock_history import (
 )
 from web.credential_scan_cache import credential_status_index, mark_address_extracted, run_credential_scan
 from web.scan_excludes import add_exclude, list_excludes, remove_exclude
-from web.staging_index import stage_and_index
+from web.staging_index import (
+    DEFAULT_DB_PATH as STAGING_INDEX_DB_PATH,
+    get_staged_entry,
+    list_staged_entries,
+    set_staged_decision,
+    stage_and_index,
+)
 from web.scan_settings import (
     get_auto_profile,
     get_settings,
@@ -1265,6 +1271,60 @@ def create_app(host="127.0.0.1"):
         clear_all_findings()
         return redirect(url_for("findings_page"))
 
+    # --- scpi-02: Staged Files review page -----------------------------
+    # scpi-01 auto-stages a real copy of every finding's backing wallet
+    # file into local staging + records it in staging_index.py, but until
+    # now there was no page to look at what's been staged or decide what
+    # to do with each entry. 3 plain-instant-POST actions, same shape as
+    # findings.html's per-row Watch/Archive -- no JS modal, no confirm
+    # page.
+
+    @app.route("/staged-files")
+    def staged_files_page():
+        entries = list_staged_entries(db_path=STAGING_INDEX_DB_PATH)
+        return render_template(
+            "staged_files.html",
+            entries=entries,
+            reverify_path=request.args.get("reverify_path"),
+            reverify_status=request.args.get("reverify_status"),
+        )
+
+    @app.route("/staged-files/keep", methods=["POST"])
+    def staged_files_keep():
+        # Reversible, informational -- marks decision='keep'. Nothing
+        # else about the entry (or any real file) changes.
+        staged_path = request.form.get("staged_path")
+        if staged_path:
+            set_staged_decision(staged_path, "keep", db_path=STAGING_INDEX_DB_PATH)
+        return redirect(url_for("staged_files_page"))
+
+    @app.route("/staged-files/reverify", methods=["POST"])
+    def staged_files_reverify():
+        # Read-only against the real original file -- one stat() call,
+        # never writes/deletes/moves anything anywhere. Reports the live
+        # result back via query params so the page can show a clear
+        # "still there" vs "missing" result for the row just checked.
+        staged_path = request.form.get("staged_path")
+        entry = get_staged_entry(staged_path, db_path=STAGING_INDEX_DB_PATH) if staged_path else None
+        status = "exists" if entry and Path(entry["original_source_path"]).is_file() else "missing"
+        return redirect(url_for("staged_files_page", reverify_path=staged_path, reverify_status=status))
+
+    @app.route("/staged-files/archive", methods=["POST"])
+    def staged_files_archive():
+        # CRITICAL SCOPE LIMIT (scpi-02, confirmed explicitly in the
+        # design discussion): this ONLY ever writes to staging_index.db
+        # via set_staged_decision -- it must NEVER delete, move, rename,
+        # or otherwise touch the real file at original_source_path (or
+        # the staged copy). See
+        # tests/test_web_app_staged_files.py::test_archive_and_forget_never_touches_the_real_original_file
+        # for the explicit proof. Actually deleting a user's real source
+        # file is out of scope for this whole epic, not a follow-up --
+        # do not "improve" this into a real delete.
+        staged_path = request.form.get("staged_path")
+        if staged_path:
+            set_staged_decision(staged_path, "archived", db_path=STAGING_INDEX_DB_PATH)
+        return redirect(url_for("staged_files_page"))
+
     @app.route("/findings/group-view")
     def group_view_page():
         return render_template("group_view.html", overlaps=find_overlap_addresses(), runs=list_crawl_runs())
@@ -1857,6 +1917,10 @@ _NAV_GROUP_BY_ENDPOINT = {
     "group_view_clear": "findings",
     "group_view_graph": "findings",
     "findings_related": "findings",
+    "staged_files_page": "findings",
+    "staged_files_keep": "findings",
+    "staged_files_reverify": "findings",
+    "staged_files_archive": "findings",
     # About -- update mechanics + network transparency.
     "network_page": "about",
     "update_page": "about",

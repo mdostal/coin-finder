@@ -64,6 +64,17 @@ def _never_touch_the_real_findings_db():
     staging_index.db AND the real DEFAULT_STAGING_DIR on disk (an actual
     file copy, not just a db row), same fix: mocked here by default,
     tests asserting on it override with their own @patch.
+
+    scpi-02's Staged Files review page also calls web.staging_index.
+    list_staged_entries()/get_staged_entry()/set_staged_decision()
+    directly from web/app.py routes (staged_files_page, and its 3
+    decision actions) -- same leak risk against the real
+    staging_index.db (even a read-only list/get call creates the file
+    via _connect()'s CREATE TABLE IF NOT EXISTS if it doesn't exist yet),
+    same fix: mocked here by default, tests asserting on real behavior
+    override with their own @patch (typically `wraps=` the real function
+    plus a monkeypatched web.app.STAGING_INDEX_DB_PATH pointed at a
+    tmp_path db, same pattern as web.app.DEFAULT_STAGING_DIR).
     """
     with (
         patch("web.app.record_finding"),
@@ -76,5 +87,8 @@ def _never_touch_the_real_findings_db():
         patch("web.app.credential_status_index", return_value={}),
         patch("web.app.mark_address_extracted"),
         patch("web.app.stage_and_index"),
+        patch("web.app.list_staged_entries", return_value=[]),
+        patch("web.app.get_staged_entry", return_value=None),
+        patch("web.app.set_staged_decision"),
     ):
         yield

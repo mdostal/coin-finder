@@ -169,3 +169,29 @@ def get_staged_entry(staged_path, db_path=DEFAULT_DB_PATH):
         return dict(row) if row is not None else None
     finally:
         conn.close()
+
+
+def set_staged_decision(staged_path, decision, db_path=DEFAULT_DB_PATH):
+    """
+    Updates ONLY the `decision` column for staged_path -- 'keep' or
+    'archived' (scpi-02's review page), same 'undecided' default as
+    stage_and_index() leaves every new entry in. This never touches the
+    staged copy on disk, and NEVER touches the real file at
+    original_source_path in any way -- it is a pure sqlite UPDATE against
+    this module's own index, nothing else. Deleting a user's real
+    original file is out of scope for this entire epic; see
+    web/app.py's staged_files_archive route for where that scope limit
+    is enforced at the UI action level.
+
+    A staged_path not present in the index is a silent no-op (0 rows
+    updated) rather than an error -- mirrors get_staged_entry() returning
+    None for the same case.
+    """
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE staging_index SET decision = ? WHERE staged_path = ?", (decision, str(staged_path))
+        )
+        conn.commit()
+    finally:
+        conn.close()
