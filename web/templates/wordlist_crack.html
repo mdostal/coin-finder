@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}coin-finder -- crack with wordlist{% endblock %}
+{% block content %}
+{{ m.group_tabs('unlock') }}
+<h2>Crack with a wordlist</h2>
+<p>Upload your own wordlist file (plain text, one candidate password per
+line) and try every line against one wallet file, via the same BTCRecover
+integration <a href="{{ url_for('item_unlock_form') }}">Unlock</a> and
+<a href="{{ url_for('auto_unlock_form') }}">Auto-unlock</a> already use --
+just with your uploaded file as the candidate list instead of a few typed
+in by hand or your saved <a href="{{ url_for('vault_page') }}">vault</a>
+entries.</p>
+
+<div class="banner {{ 'warning' if network_status != 'OFFLINE' else '' }}" style="{{ 'background:var(--bg-raised);border-color:var(--border);color:var(--text-dim);' if network_status == 'OFFLINE' else '' }}">
+  Network status right now: <strong style="color:inherit">{{ network_status }}</strong>.
+  {% if network_status != "OFFLINE" %}
+  Nothing in this app ever sends a password, key, or seed phrase over the
+  network -- the reason offline is recommended here is local, not remote:
+  if this machine were ever compromised, being online during a crack
+  attempt means a candidate list and the real wallet file sit together on
+  a machine that can reach the outside world. Offline removes that risk
+  category. Full details on exactly what this app does and doesn't send
+  anywhere: <a href="{{ url_for('network_page') }}">what actually touches
+  the network</a>. Your call either way -- see the checkbox below.
+  {% else %}
+  Safe to test candidates against a real wallet.
+  {% endif %}
+</div>
+
+<div class="banner warning">
+  The result of a run (whether a password was found, and what it was) is
+  shown to you exactly once, immediately after the job finishes, and is
+  never written to disk or logged. Leave that page and it is gone for
+  good -- if you need it again, run this again. Your uploaded wordlist
+  file itself is also deleted from disk as soon as the job finishes,
+  whether it found a match or not.
+</div>
+
+{% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="{{ url_for('wordlist_crack_submit') }}" enctype="multipart/form-data">
+    {{ m.path_input("Wallet file to crack", "wallet_path", mode="file", required=True) }}
+
+    <label>Wordlist file (plain text, one candidate password per line)</label>
+    <input type="file" name="wordlist" required>
+
+    {% if network_status != "OFFLINE" %}
+    <label style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:1rem">
+      <input type="checkbox" name="allow_online" value="1" style="width:auto;margin-top:0.2rem">
+      <span>I understand the risk and want to run this <strong>while online</strong> anyway.
+      Recommended path is still OFFLINE (see above) -- this is your choice to make, not a hard requirement.</span>
+    </label>
+    {% endif %}
+
+    <button type="submit">Run</button>
+  </form>
+</div>
+{% endblock %}

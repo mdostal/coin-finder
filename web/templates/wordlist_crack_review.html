@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}coin-finder -- wordlist crack result{% endblock %}
+{% block content %}
+<h2>Wordlist crack result</h2>
+<div class="banner warning">
+This is shown once. It is not saved anywhere and will not reappear if you
+reload or come back to this page. Your uploaded wordlist file has already
+been deleted.
+</div>
+
+{% if job.status == "error" %}
+<div class="banner error">{{ job.error }}</div>
+{% elif job.result %}
+<div class="card">
+  <table>
+    <thead><tr><th>Wallet</th><th>Password</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>{{ job.result.wallet_path }}</code></td>
+        <td>
+          {% if job.result.found %}
+          <span class="secret-field">
+            <strong style="color:var(--accent)"><code class="secret-mask" data-secret="{{ job.result.value }}" data-revealed="false">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</code></strong>
+            <button type="button" class="secret-reveal-btn btn-secondary" aria-label="Reveal password" aria-pressed="false" title="Reveal">&#128065;</button>
+          </span>
+          {% else %}
+          <span class="subtle">no match</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<a class="back-link" href="{{ url_for('index') }}">&laquo; back</a>
+{% endblock %}
