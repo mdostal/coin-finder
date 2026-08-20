@@ -42,7 +42,7 @@ items:
       this directly or needs new aggregation logic first.
     priority: high
     severity: null
-    state: plan-ready
+    state: closed
     linked_epic: multi-cluster-relationship-graph
     linked_story: null
     raised_at: "2026-08-17T10:40:00-05:00"
@@ -87,7 +87,7 @@ items:
       auto-unlock matching pipeline once discovered.
     priority: high
     severity: null
-    state: plan-ready
+    state: closed
     linked_epic: password-note-scanner
     linked_story: null
     raised_at: "2026-08-17T10:50:00-05:00"
@@ -131,7 +131,7 @@ items:
       provenance field today).
     priority: medium
     severity: null
-    state: plan-ready
+    state: closed
     linked_epic: rainbow-table-password-cracking-review
     linked_story: null
     raised_at: "2026-08-17T11:00:00-05:00"
@@ -200,7 +200,7 @@ items:
       in flight.
     priority: low
     severity: null
-    state: plan-ready
+    state: closed
     linked_epic: crawl-checkpoint-store-migration
     linked_story: null
     raised_at: "2026-08-18T23:59:00-05:00"
