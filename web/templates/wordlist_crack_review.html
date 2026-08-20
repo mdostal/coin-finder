@@ -30,6 +30,25 @@ been deleted.
       </tr>
     </tbody>
   </table>
+
+  {% if job.result.found %}
+  {% if added %}
+  <div class="banner">
+  Added to the vault as <code>{{ added }}</code>, with tags recording the wordlist, method,
+  found-at time, and wallet path. See the <a href="{{ url_for('vault_page') }}">vault</a> to review it.
+  </div>
+  {% else %}
+  <form method="post" action="{{ url_for('wordlist_crack_confirm') }}">
+    <input type="hidden" name="job_id" value="{{ job_id }}">
+    <input type="hidden" name="wallet_path" value="{{ job.result.wallet_path }}">
+    <input type="hidden" name="value" value="{{ job.result.value }}">
+    <input type="hidden" name="wordlist_filename" value="{{ job.result.wordlist_filename or '' }}">
+    <input type="hidden" name="found_at" value="{{ found_at or '' }}">
+    <button type="submit" class="btn-secondary">Add to vault</button>
+  </form>
+  <p class="subtle">Records which wordlist, method, and when this password was found alongside the value itself.</p>
+  {% endif %}
+  {% endif %}
 </div>
 {% endif %}
 

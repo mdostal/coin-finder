@@ -198,6 +198,138 @@ def test_resolve_vault_entries_raises_clear_error_on_timeout_instead_of_hanging(
         assert "timed out" in str(e)
 
 
+# --- rtpc-02: tags/provenance -----------------------------------------
+
+
+@patch("web.vault.subprocess.run")
+def test_add_vault_entry_passes_tags_to_portunus_drop(mock_run, tmp_path):
+    value_file = tmp_path / "value.txt"
+    value_file.write_text("hunter2")
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    add_vault_entry(
+        "wordlist-crack-abc123",
+        str(value_file),
+        description="crack match",
+        tags={
+            "wordlist": "rockyou-sample.txt",
+            "method": "btcrecover-wordlist-crack",
+            "found_at": "2026-08-19T01:02:03Z",
+            "wallet_path": "/wallets/locked.dat",
+        },
+    )
+
+    calls = [c.args[0] for c in mock_run.call_args_list]
+    drop_call = next(c for c in calls if "drop" in c)
+    assert "--tags" in drop_call
+    tags_value = drop_call[drop_call.index("--tags") + 1]
+    assert "wordlist=rockyou-sample.txt" in tags_value
+    assert "method=btcrecover-wordlist-crack" in tags_value
+    assert "found_at=2026-08-19T01:02:03Z" in tags_value
+    assert "wallet_path=/wallets/locked.dat" in tags_value
+
+
+@patch("web.vault.subprocess.run")
+def test_add_vault_entry_without_tags_omits_tags_flag(mock_run, tmp_path):
+    """Existing callers that never pass tags keep working exactly as before -- no --tags flag at all."""
+    value_file = tmp_path / "value.txt"
+    value_file.write_text("hunter2")
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    add_vault_entry("password-1", str(value_file), description="guess from 2015")
+
+    calls = [c.args[0] for c in mock_run.call_args_list]
+    drop_call = next(c for c in calls if "drop" in c)
+    assert "--tags" not in drop_call
+
+
+@patch("web.vault.subprocess.run")
+def test_add_vault_entry_tags_round_trip_through_list_vault_entries(mock_run, tmp_path):
+    """
+    rtpc-02: proves the full provenance chain, not just that the --tags
+    argument was passed to `drop` -- a fake portunus captures the exact
+    --tags string, parses it back into a dict the way the real `list
+    --json` would report it, and this asserts list_vault_entries() (the
+    project's own wrapper around `portunus list --json`) surfaces the
+    same four provenance fields afterward, queryable, not just silently
+    accepted by the add call.
+    """
+    value_file = tmp_path / "value.txt"
+    value_file.write_text("hunter2")
+    state = {}
+
+    def fake_run(args, **kwargs):
+        if args[:2] == ["portunus", "drop"]:
+            if "--tags" in args:
+                tags_str = args[args.index("--tags") + 1]
+                tags = dict(pair.split("=", 1) for pair in tags_str.split(","))
+            else:
+                tags = {}
+            state["entry"] = {"name": args[2], "state": "dropped", "description": "", "tags": tags}
+            return MagicMock(returncode=0, stdout="", stderr="")
+        if args[:2] == ["portunus", "state"]:
+            state["entry"]["state"] = args[3]
+            return MagicMock(returncode=0, stdout="", stderr="")
+        if args[:2] == ["portunus", "list"]:
+            return MagicMock(returncode=0, stdout=json.dumps([state["entry"]]), stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = fake_run
+
+    tags = {
+        "wordlist": "rockyou-sample.txt",
+        "method": "btcrecover-wordlist-crack",
+        "found_at": "2026-08-19T01:02:03Z",
+        "wallet_path": "/wallets/locked.dat",
+    }
+    add_vault_entry("wordlist-crack-abc123", str(value_file), description="crack match", tags=tags)
+
+    entries = list_vault_entries()
+    assert len(entries) == 1
+    assert entries[0]["tags"] == tags
+
+
+@patch("web.vault.shutil.which", return_value=None)
+def test_add_vault_entry_fallback_persists_tags(mock_which, tmp_path, monkeypatch):
+    """
+    rtpc-02: the JSON fallback store (used when Portunus isn't on PATH)
+    gets the same provenance parity, tested directly against the fallback
+    path -- not just inferred from the Portunus test above.
+    """
+    monkeypatch.setattr("web.vault.FALLBACK_ENV_PATH", tmp_path / "vault_fallback.env")
+    monkeypatch.setattr("web.vault.FALLBACK_META_PATH", tmp_path / "vault_fallback_meta.json")
+    value_file = tmp_path / "value.txt"
+    value_file.write_text("hunter2")
+
+    tags = {
+        "wordlist": "rockyou-sample.txt",
+        "method": "btcrecover-wordlist-crack",
+        "found_at": "2026-08-19T01:02:03Z",
+        "wallet_path": "/wallets/locked.dat",
+    }
+    add_vault_entry("wordlist-crack-abc123", str(value_file), description="crack match", tags=tags)
+
+    entries = list_vault_entries()
+    assert len(entries) == 1
+    assert entries[0]["tags"] == tags
+
+    pairs = resolve_vault_entries_with_values(["wordlist-crack-abc123"])
+    assert pairs == [("wordlist-crack-abc123", "hunter2")]
+
+
+@patch("web.vault.shutil.which", return_value=None)
+def test_add_vault_entry_fallback_without_tags_defaults_to_empty_dict(mock_which, tmp_path, monkeypatch):
+    monkeypatch.setattr("web.vault.FALLBACK_ENV_PATH", tmp_path / "vault_fallback.env")
+    monkeypatch.setattr("web.vault.FALLBACK_META_PATH", tmp_path / "vault_fallback_meta.json")
+    value_file = tmp_path / "value.txt"
+    value_file.write_text("hunter2")
+
+    add_vault_entry("password-1", str(value_file), description="guess from 2015")
+
+    entries = list_vault_entries()
+    assert entries[0]["tags"] == {}
+
+
 @patch("web.vault.shutil.which", return_value=None)
 def test_fallback_used_when_portunus_not_installed(mock_which, tmp_path, monkeypatch):
     monkeypatch.setattr("web.vault.FALLBACK_ENV_PATH", tmp_path / "vault_fallback.env")
