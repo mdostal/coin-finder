@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from services import REQUEST_TIMEOUT_SECONDS
 from services.bitcoin import BitcoinService
+from tools.checkpoint_store import CheckpointStore
 
 MAX_FETCH_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
@@ -110,17 +111,144 @@ def _crawl_checkpoint_key(seed_addresses, max_generations, max_addresses):
     return {"seed_addresses": sorted(seed_addresses), "max_generations": max_generations, "max_addresses": max_addresses}
 
 
-def _load_crawl_checkpoint(checkpoint_path, key):
-    if not checkpoint_path or not Path(checkpoint_path).exists():
-        return None
-    try:
-        with open(checkpoint_path) as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
-    if data.get("key") != key:
-        return None
-    return data
+# --- Checkpoint unit-id encodings for tools.checkpoint_store.CheckpointStore ---
+#
+# CheckpointStore's unit_id is a single opaque string with no separate
+# "value" column (see its class docstring) -- the same shape
+# check_wallet_balances.py already solved by encoding a confirmed balance
+# into the unit_id itself (_checkpoint_unit_id there). crawl_wallet_cluster()
+# needs four different kinds of unit, one per piece of state a resume must
+# recover verbatim, each under its own string prefix so they can all share
+# one completed_units table without colliding:
+#
+#   node|[address, confidence, generation, discovered_via]
+#       One per address discovered during BFS (never seeds -- those are
+#       always rebuilt straight from the seed_addresses argument, same as
+#       a from-scratch run). Marked completed the moment an address is
+#       first added to `discovered`, so a resumed BFS phase sees exactly
+#       the same confidence/generation/discovered_via an interrupted run
+#       had.
+#   generation-done|<generation>
+#       One per BFS generation whose entire frontier finished processing.
+#       The highest number recorded is "the last generation this crawl
+#       fully completed" -- resuming restarts at the NEXT generation, with
+#       that generation's frontier recomputed as every address discovered
+#       at exactly that generation (see _load_crawl_resume_state). This
+#       has to be its own unit, not inferred from node| alone, because a
+#       generation can finish having discovered zero new addresses and
+#       still needs to count as done.
+#   bfs-done
+#       A single sentinel unit marked completed once BFS discovery has
+#       fully finished (max_generations exhausted OR the frontier ran
+#       empty early) -- resuming with this present skips discovery
+#       entirely and goes straight to the balance/dormancy pass, exactly
+#       like today's bfs_done flag.
+#   balance|[address, balance, last_activity_timestamp, dormant_years]
+#       One per address whose balance/dormancy has already been checked --
+#       resuming skips these entirely, matching today's per-address
+#       balance-phase resume exactly.
+#   edge|<edge dict, json-encoded with sorted keys>
+#       One per distinct edge recorded via edges_out (see
+#       crawl_wallet_cluster()'s edges_out docstring), so a resumed run
+#       recovers every edge an interrupted run had already found, not
+#       just the ones re-discovered this time around.
+_NODE_PREFIX = "node|"
+_EDGE_PREFIX = "edge|"
+_BALANCE_PREFIX = "balance|"
+_GENERATION_DONE_PREFIX = "generation-done|"
+_BFS_DONE_UNIT_ID = "bfs-done"
+
+
+def _node_unit_id(address, confidence, generation, discovered_via):
+    return _NODE_PREFIX + json.dumps([address, confidence, generation, discovered_via])
+
+
+def _decode_node_unit_id(unit_id):
+    address, confidence, generation, discovered_via = json.loads(unit_id[len(_NODE_PREFIX):])
+    return address, confidence, generation, discovered_via
+
+
+def _edge_unit_id(edge):
+    return _EDGE_PREFIX + json.dumps(edge, sort_keys=True)
+
+
+def _decode_edge_unit_id(unit_id):
+    return json.loads(unit_id[len(_EDGE_PREFIX):])
+
+
+def _balance_unit_id(address, balance, last_activity_timestamp, dormant_years):
+    return _BALANCE_PREFIX + json.dumps([address, balance, last_activity_timestamp, dormant_years])
+
+
+def _decode_balance_unit_id(unit_id):
+    address, balance, last_activity_timestamp, dormant_years = json.loads(unit_id[len(_BALANCE_PREFIX):])
+    return address, balance, last_activity_timestamp, dormant_years
+
+
+def _generation_done_unit_id(generation):
+    return f"{_GENERATION_DONE_PREFIX}{generation}"
+
+
+def _load_crawl_resume_state(store, seed_addresses):
+    """
+    One-time full read of every unit a prior (possibly interrupted) crawl
+    recorded against this same run_key -- same "single read at startup,
+    never from the hot path" shape as check_wallet_balances.py's
+    _load_resume_state(), for the same reason (see that function's
+    docstring): cost proportional only to how much progress was already
+    made, never to how large a in-progress crawl could theoretically grow.
+
+    :return: (discovered, frontier, start_generation, bfs_done, edges,
+        has_prior_progress)
+        discovered: {address: info}, seeded from seed_addresses (generation
+            0, confidence "seed") and overlaid with every persisted node|
+            and balance| unit -- identical in shape to a from-scratch
+            discovered dict, just prepopulated with prior progress.
+        frontier: the address set BFS should resume expanding from --
+            recomputed as every address discovered at exactly the last
+            completed generation. 0 completed generations naturally
+            yields the seed addresses themselves, which is also exactly
+            right for a from-scratch run.
+        start_generation: the next generation BFS should process.
+        bfs_done: whether discovery had already finished.
+        edges: every edge a prior run had already recorded.
+        has_prior_progress: whether ANY unit at all was found -- lets the
+            caller print the same "Resuming crawl..." message as before
+            only when there's real prior progress to resume, not on a
+            brand-new checkpoint file that looks identical to a
+            from-scratch run.
+    """
+    discovered = {addr: {"confidence": "seed", "generation": 0, "discovered_via": None} for addr in seed_addresses}
+    balances = {}
+    edges = []
+    max_generation_done = 0
+    bfs_done = False
+
+    rows = store.conn.execute(f"SELECT {store.unit_column} FROM {store.units_table}").fetchall()
+    for (unit_id,) in rows:
+        if unit_id == _BFS_DONE_UNIT_ID:
+            bfs_done = True
+        elif unit_id.startswith(_GENERATION_DONE_PREFIX):
+            generation = int(unit_id[len(_GENERATION_DONE_PREFIX):])
+            max_generation_done = max(max_generation_done, generation)
+        elif unit_id.startswith(_NODE_PREFIX):
+            address, confidence, generation, discovered_via = _decode_node_unit_id(unit_id)
+            discovered[address] = {"confidence": confidence, "generation": generation, "discovered_via": discovered_via}
+        elif unit_id.startswith(_EDGE_PREFIX):
+            edges.append(_decode_edge_unit_id(unit_id))
+        elif unit_id.startswith(_BALANCE_PREFIX):
+            address, balance, last_activity_timestamp, dormant_years = _decode_balance_unit_id(unit_id)
+            balances[address] = (balance, last_activity_timestamp, dormant_years)
+
+    for address, (balance, last_activity_timestamp, dormant_years) in balances.items():
+        if address in discovered:
+            discovered[address]["balance"] = balance
+            discovered[address]["last_activity_timestamp"] = last_activity_timestamp
+            discovered[address]["dormant_years"] = dormant_years
+
+    frontier = {addr for addr, info in discovered.items() if info["generation"] == max_generation_done}
+    start_generation = max_generation_done + 1
+    return discovered, frontier, start_generation, bfs_done, edges, bool(rows)
 
 
 def crawl_wallet_cluster(
@@ -154,7 +282,9 @@ def crawl_wallet_cluster(
         this call.
     :param checkpoint_path: optional -- makes this resumable across a
         quit/update/crash, same idea as search_for_wallets/check_wallet_
-        balances. Two different granularities for the two different-
+        balances, backed by tools.checkpoint_store.CheckpointStore (the
+        same sqlite-backed store those two stages and analyze_wallets
+        already use). Two different granularities for the two different-
         shaped phases: BFS discovery checkpoints after each full
         generation completes (a partial generation restarts from its own
         beginning, not the whole crawl); the balance/dormancy pass --
@@ -174,35 +304,23 @@ def crawl_wallet_cluster(
     if progress_callback is None:
         progress_callback = lambda current, total, message="": None
 
-    key = _crawl_checkpoint_key(seed_addresses, max_generations, max_addresses)
-    checkpoint = _load_crawl_checkpoint(checkpoint_path, key)
+    store = None
+    if checkpoint_path:
+        store = CheckpointStore(
+            str(checkpoint_path),
+            run_key=_crawl_checkpoint_key(seed_addresses, max_generations, max_addresses),
+        )
 
-    def _flush(discovered, frontier, generation, bfs_done):
-        if not checkpoint_path:
-            return
-        with open(checkpoint_path, "w") as f:
-            json.dump(
-                {
-                    "key": key,
-                    "discovered": discovered,
-                    "frontier": sorted(frontier),
-                    "generation": generation,
-                    "bfs_done": bfs_done,
-                    "edges": edges_out if edges_out is not None else [],
-                },
-                f,
-            )
-
-    if checkpoint:
-        discovered = checkpoint["discovered"]
-        frontier = set(checkpoint["frontier"])
-        start_generation = checkpoint["generation"]
-        bfs_done = checkpoint["bfs_done"]
+    if store is not None:
+        discovered, frontier, start_generation, bfs_done, resumed_edges, has_prior_progress = _load_crawl_resume_state(
+            store, seed_addresses
+        )
         if edges_out is not None:
-            for edge in checkpoint.get("edges", []):
+            for edge in resumed_edges:
                 if edge not in edges_out:
                     edges_out.append(edge)
-        print(f"Resuming crawl: {len(discovered)} address(es) already discovered, generation {start_generation}.")
+        if has_prior_progress:
+            print(f"Resuming crawl: {len(discovered)} address(es) already discovered, generation {start_generation}.")
     else:
         discovered = {addr: {"confidence": "seed", "generation": 0, "discovered_via": None} for addr in seed_addresses}
         frontier = set(seed_addresses)
@@ -212,8 +330,18 @@ def crawl_wallet_cluster(
     tx_cache = {}
 
     def record_edge(edge):
-        if edges_out is not None and edge not in edges_out:
+        # edges_out=None stays a complete no-op, same as before this
+        # migration -- when a caller doesn't care about edges, nothing
+        # about them is appended to edges_out OR persisted to the
+        # checkpoint (the old _flush() only ever wrote
+        # "edges": edges_out if edges_out is not None else [] -- i.e.
+        # never anything, in that case).
+        if edges_out is None:
+            return
+        if edge not in edges_out:
             edges_out.append(edge)
+            if store is not None:
+                store.mark_completed(_edge_unit_id(edge))
 
     if not bfs_done:
         for generation in range(start_generation, max_generations + 1):
@@ -233,6 +361,8 @@ def crawl_wallet_cluster(
                         if co_spend not in discovered:
                             discovered[co_spend] = {"confidence": "co-spend", "generation": generation, "discovered_via": address}
                             next_frontier.add(co_spend)
+                            if store is not None:
+                                store.mark_completed(_node_unit_id(co_spend, "co-spend", generation, address))
 
                     for output_addr in find_output_addresses(tx, address):
                         record_edge({"from": address, "to": output_addr, "type": "output", "txid": tx["txid"]})
@@ -241,14 +371,25 @@ def crawl_wallet_cluster(
                         if output_addr not in discovered:
                             discovered[output_addr] = {"confidence": "output", "generation": generation, "discovered_via": address}
                             next_frontier.add(output_addr)
+                            if store is not None:
+                                store.mark_completed(_node_unit_id(output_addr, "output", generation, address))
 
                 progress_callback(i, len(ordered_frontier), f"Generation {generation}: {address}")
 
             frontier = next_frontier
-            _flush(discovered, frontier, generation + 1, bfs_done=False)
+            if store is not None:
+                # One flush per completed generation -- same cadence as
+                # the old per-generation JSON write, and exactly what
+                # keeps a partial (interrupted) generation resuming from
+                # its own beginning: nothing about a not-yet-finished
+                # generation is ever flushed to disk.
+                store.mark_completed(_generation_done_unit_id(generation))
+                store.flush()
 
         bfs_done = True
-        _flush(discovered, set(), max_generations + 1, bfs_done=True)
+        if store is not None:
+            store.mark_completed(_BFS_DONE_UNIT_ID)
+            store.flush()
 
     service = BitcoinService()
     already_finalized = {addr for addr, info in discovered.items() if "balance" in info}
@@ -270,12 +411,14 @@ def crawl_wallet_cluster(
 
         checked += 1
         progress_callback(checked, total, f"Checking balance: {address}")
-        if checkpoint_path and (i % CHECKPOINT_EVERY_ADDRESSES == 0 or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS):
-            _flush(discovered, set(), max_generations + 1, bfs_done=True)
-            last_checkpoint_at = time.time()
+        if store is not None:
+            store.mark_completed(_balance_unit_id(address, info["balance"], info["last_activity_timestamp"], info["dormant_years"]))
+            if i % CHECKPOINT_EVERY_ADDRESSES == 0 or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS:
+                store.flush()
+                last_checkpoint_at = time.time()
 
-    if checkpoint_path:
-        Path(checkpoint_path).unlink(missing_ok=True)
+    if store is not None:
+        store.delete()
 
     return discovered
 
