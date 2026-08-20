@@ -67,7 +67,7 @@ def list_vault_entries(include_revoked=False):
     return entries
 
 
-def add_vault_entry(name, value_file_path, description="", sm_name=None):
+def add_vault_entry(name, value_file_path, description="", sm_name=None, tags=None):
     """
     Stores a candidate password/phrase into Portunus's local encrypted
     vault, reading the value from a local file (never a CLI argument) --
@@ -81,20 +81,31 @@ def add_vault_entry(name, value_file_path, description="", sm_name=None):
     :param value_file_path: local file containing the value.
     :param sm_name: vault key; defaults to an uppercased, underscored form
         of name if not given.
+    :param tags: optional {key: value, ...} of arbitrary provenance
+        metadata (e.g. which wordlist a cracked password came from, the
+        method used, when, against which wallet) -- rtpc-02. Threaded
+        through to Portunus's own `--tags` flag (comma-separated `k=v`
+        pairs, confirmed via research against the real CLI) on the
+        Portunus path, and persisted as-is in the JSON fallback store's
+        schema. None/empty is a no-op on both paths -- every existing
+        caller that doesn't pass tags keeps working unchanged.
     """
     if not _portunus_available():
-        _add_vault_entry_fallback(name, value_file_path, description)
+        _add_vault_entry_fallback(name, value_file_path, description, tags)
         return
 
     sm_name = sm_name or name.upper().replace("-", "_")
+    drop_args = [
+        "portunus", "drop", name, sm_name,
+        "--project", PROJECT,
+        "--group", GROUP,
+        "--description", description or name,
+        "--value-file", str(value_file_path),
+    ]
+    if tags:
+        drop_args += ["--tags", ",".join(f"{k}={v}" for k, v in tags.items())]
     subprocess.run(
-        [
-            "portunus", "drop", name, sm_name,
-            "--project", PROJECT,
-            "--group", GROUP,
-            "--description", description or name,
-            "--value-file", str(value_file_path),
-        ],
+        drop_args,
         capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=PORTUNUS_TIMEOUT_SECONDS,
     )
     subprocess.run(
@@ -198,7 +209,15 @@ def _list_vault_entries_fallback(include_revoked):
     return entries
 
 
-def _add_vault_entry_fallback(name, value_file_path, description):
+def _add_vault_entry_fallback(name, value_file_path, description, tags=None):
+    """
+    rtpc-02: same schema extension as the Portunus path above -- an
+    optional "tags" field alongside the existing name/description/state,
+    so provenance metadata (wordlist filename, method, found-at, wallet
+    path) isn't a Portunus-only feature. Stored as a plain dict (this
+    sidecar is already local, ungitignored JSON -- no CLI arg-encoding
+    concern the way Portunus's `--tags` flag has).
+    """
     with open(value_file_path, "r") as f:
         value = f.read().strip()
 
@@ -206,7 +225,7 @@ def _add_vault_entry_fallback(name, value_file_path, description):
     set_key(str(FALLBACK_ENV_PATH), _fallback_key(name), value, quote_mode="always")
 
     entries = [e for e in _load_fallback_meta() if e["name"] != name]
-    entries.append({"name": name, "description": description or name, "state": "enabled"})
+    entries.append({"name": name, "description": description or name, "state": "enabled", "tags": tags or {}})
     _save_fallback_meta(entries)
 
 

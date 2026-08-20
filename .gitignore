@@ -281,6 +281,8 @@ cython_debug/
 !.pHive/epics/multi-cluster-relationship-graph/**
 !.pHive/epics/password-note-scanner/
 !.pHive/epics/password-note-scanner/**
+!.pHive/epics/rainbow-table-password-cracking-review/
+!.pHive/epics/rainbow-table-password-cracking-review/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

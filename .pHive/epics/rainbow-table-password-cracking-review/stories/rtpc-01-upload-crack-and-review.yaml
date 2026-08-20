@@ -1,0 +1,102 @@
+id: rtpc-01-upload-crack-and-review
+epic: rainbow-table-password-cracking-review
+title: Upload wordlist + crack job + once-only review
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  Add a new route where the user picks one wallet (intended for a
+  "encrypted, no known password" state-3 finding, per credential-clarity-
+  and-unlock-ux's 4-state model, though this story does not need to
+  enforce that state -- any wallet path is acceptable) and uploads a
+  wordlist file (one candidate per line, same format tools/unlock_wallet.py
+  already expects via --passwordlist). Dispatch a new job kind that calls
+  tools/unlock_wallet.py's existing subprocess-based BTCRecover invocation
+  with the uploaded file as the candidates_file, in place of a vault-
+  resolved one. The existing hard offline gate in unlock_wallet.py is
+  unchanged and still enforced -- this feature gets no exemption from it.
+
+  Dispatch as secret=True (same as every other credential-bearing job in
+  this app) so the result goes through the existing once-only reveal
+  mechanism: consume_job_result() (one read, then the job row is deleted)
+  + web/static/secret-reveal.js's masked-by-default client-side toggle.
+  This is the fifth consumer of that exact pattern (after auto-unlock,
+  vault-reveal, single key extraction, bulk key extraction) -- reuse it
+  verbatim, do not build a new secrecy mechanism.
+
+  No vault ingestion in this story -- that's rtpc-02. This story ends at
+  "review the crack result once, safely."
+
+  The uploaded wordlist file itself may contain the user's real candidate
+  passwords -- never log its contents, and delete the uploaded file after
+  the job completes (success or failure), matching the discipline already
+  applied to every other candidates-file in this app.
+
+acceptance_criteria:
+  - "Given a wallet path and an uploaded wordlist file containing the wallet's real password among other candidates, when the crack job runs, then the job result (consumed once via consume_job_result()) contains the real password"
+  - "Given a wordlist file with no matching candidate, when the crack job runs, then the job result clearly indicates no match was found, not an error or a false positive"
+  - "Given the crack job dispatched, when created, then it is created with secret=True, and a test confirms the raw result is never visible via the plain (non-consuming) job-status endpoint in a terminal state"
+  - "Given the review page renders a found password, when the page loads, then the value is masked by default with a reveal toggle, matching the exact pattern already used on auto_unlock_result.html/vault_reveal_result.html"
+  - "Given network connectivity is available (not offline), when the crack job is dispatched without an explicit online override, then it refuses to run -- the existing offline gate in unlock_wallet.py is exercised by this new job path, not bypassed"
+  - "Given a crack job completes (found or not found), when the job finishes, then the uploaded wordlist file is deleted from disk -- confirmed by an explicit test, not just assumed from Flask's default temp-file behavior"
+
+steps:
+  - id: research
+    description: Confirm tools/unlock_wallet.py's exact run_unlock() signature and offline-gate check, and web/jobs.py's exact secret=True/consume_job_result() contract, to wire the new job path consistently with both.
+    agent: researcher
+  - id: test-spec
+    description: Write failing tests for the upload route, the crack job (match found, no match, offline-gate enforcement), the secret=True/once-only-consumption behavior, and wordlist file cleanup.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: Implement the upload route, the new crack job kind wrapping unlock_wallet.py's existing subprocess call, and the review template reusing the existing once-only-reveal scaffolding.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review specifically for offline-gate enforcement (not bypassed by this new path) and confirm wordlist file cleanup actually happens in both the success and failure/exception paths.
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch.
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  key_files:
+    - path: tools/unlock_wallet.py
+      purpose: "Existing BTCRecover subprocess invocation + offline gate -- parameterized with the uploaded file, not restructured"
+    - path: web/jobs.py
+      purpose: "run_job(secret=True)/consume_job_result() -- the once-only reveal contract this story's job must follow exactly"
+    - path: web/static/secret-reveal.js
+      purpose: "Existing masked-by-default client-side reveal toggle -- reused verbatim on the new review template"
+    - path: web/templates/auto_unlock_result.html
+      purpose: "Closest existing template pattern for a once-only credential reveal page"
+
+files_to_modify:
+  - file: web/app.py
+    change: "New wordlist-upload route + crack job dispatch"
+  - file: web/templates/wordlist_crack_review.html
+    change: "New template, reusing the once-only-reveal pattern"
+  - file: tests/test_web_app_wordlist_crack.py
+    change: "New file. Upload, job dispatch, offline-gate, once-only-reveal, and file-cleanup test coverage"
+
+design_decisions:
+  - decision: "Reuse tools/unlock_wallet.py's existing subprocess call parameterized with the uploaded file, not a new BTCRecover integration"
+    rationale: "BTCRecover is already correctly wired in (offline gate, script-runner-prefix handling) -- this story only changes where the candidates file comes from"
+  - decision: "secret=True + consume_job_result(), not a new secrecy mechanism"
+    rationale: "Fifth consumer of an already-audited, already-working pattern -- confirmed in design discussion §4.2"
+
+risks:
+  - severity: medium
+    description: "Uploaded wordlist file is real sensitive candidate data (the user's own remembered password patterns)"
+    mitigation: "Never logged; explicit test confirms deletion after the job completes in both success and failure paths"
+  - severity: low
+    description: "No pause/resume in this story (confirmed v1 scope) means a very large uploaded wordlist could run for a long time with no way to stop cleanly"
+    mitigation: "Accepted, explicitly documented limitation per design discussion §3/§5 -- BTCRecover's own --max-eta refusal-to-start bounds worst case"
+
+references:
+  - path: .pHive/epics/rainbow-table-password-cracking-review/docs/design-discussion.md
+    relevant_excerpt: "Section 4.1 (upload + crack job) and 4.2 (once-only review)."

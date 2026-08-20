@@ -678,6 +678,160 @@ def create_app(host="127.0.0.1"):
             abort(404)
         return render_template("unlock_result.html", job_id=job_id, job=job)
 
+    @app.route("/wordlist-crack", methods=["GET"])
+    def wordlist_crack_form():
+        return render_template("wordlist_crack.html", network_status=check_network_status(), error=None)
+
+    @app.route("/wordlist-crack", methods=["POST"])
+    def wordlist_crack_submit():
+        # rtpc-01: same re-check-at-request-time discipline as item_unlock()
+        # -- never trusted from the GET page load. Default (checkbox
+        # unchecked) still refuses when online; an explicit allow_online=1
+        # is an informed-choice override, not a bypass. The actual hard
+        # gate is still the one inside tools/unlock_wallet.run_unlock() --
+        # this is only a fast pre-check to avoid starting a job for
+        # nothing.
+        network_status = check_network_status()
+        allow_online = request.form.get("allow_online") == "1"
+
+        if network_status != "OFFLINE" and not allow_online:
+            return (
+                render_template(
+                    "wordlist_crack.html",
+                    network_status=network_status,
+                    error=(
+                        f"Network status is {network_status}, not OFFLINE. Testing real passwords "
+                        "against a real wallet is safest with network disabled. Disconnect and try "
+                        'again, or check "run anyway" below if you understand the risk and want to '
+                        "proceed online."
+                    ),
+                ),
+                409,
+            )
+
+        wallet_path = (request.form.get("wallet_path") or "").strip()
+        if not wallet_path or not Path(wallet_path).is_file():
+            return render_template("wordlist_crack.html", network_status=network_status, error=f"Not a file: {wallet_path}"), 400
+
+        wordlist_file = request.files.get("wordlist")
+        if wordlist_file is None or not wordlist_file.filename:
+            return (
+                render_template(
+                    "wordlist_crack.html", network_status=network_status, error="Choose a wordlist file to upload (one candidate password per line)."
+                ),
+                400,
+            )
+
+        # Saved straight to a local temp file -- never read into memory or
+        # logged by this app. _run_wordlist_crack_job below deletes it once
+        # the job finishes, whether that's a match, a clean no-match, or an
+        # exception (including the offline gate's own refusal) -- same
+        # file-only-candidates discipline every other unlock path in this
+        # app already follows for its own candidates file.
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+            candidates_path = f.name
+        wordlist_file.save(candidates_path)
+
+        job_id = run_job(
+            _run_wordlist_crack_job,
+            wallet_path,
+            candidates_path,
+            allow_online=allow_online,
+            wordlist_filename=wordlist_file.filename,
+            secret=True,
+            kind="wordlist-crack",
+            label=wallet_path,
+        )
+        return redirect(url_for("wordlist_crack_status", job_id=job_id))
+
+    @app.route("/wordlist-crack/status/<job_id>")
+    def wordlist_crack_status(job_id):
+        job = get_job(job_id)
+        if job is None:
+            abort(404)
+        return render_template("wordlist_crack_status.html", job_id=job_id, job=job)
+
+    @app.route("/wordlist-crack/review/<job_id>")
+    def wordlist_crack_review(job_id):
+        job = consume_job_result(job_id)
+        if job is None:
+            abort(404)
+        # rtpc-02: the job row (and, with it, job["started_at"]) is gone
+        # after the consume_job_result() call above -- this is the only
+        # moment "found at" is available, so it's captured here and
+        # carried forward as a hidden form field on the review page's
+        # confirm-to-vault form, not re-derived later in
+        # wordlist_crack_confirm() (which has no job to look up).
+        found_at = _format_job_started_at(job.get("started_at"))
+        return render_template("wordlist_crack_review.html", job_id=job_id, job=job, found_at=found_at)
+
+    @app.route("/wordlist-crack/confirm", methods=["POST"])
+    def wordlist_crack_confirm():
+        """
+        rtpc-02: the one and only place a wordlist-crack result can reach
+        the vault -- an explicit, human-confirmed "Add to vault" action,
+        never a silent auto-add (see wordlist_crack_review.html's
+        confirm form, only ever rendered when job.result.found is true).
+
+        The wordlist-crack job is secret=True/once-only (see
+        consume_job_result()) -- by the time this route runs, the job row
+        that produced the result is already deleted from the registry.
+        So, unlike password_scan_confirm (which still has a live job to
+        re-read), the found password and its provenance travel forward as
+        hidden form fields on the review page's own confirm form -- the
+        same page that already displayed this exact value once. Nothing
+        new is exposed; this route just relays what was already shown.
+
+        Mirrors vault_add()'s/password_scan_confirm()'s existing temp-
+        file-write-then-delete-in-a-finally-block pattern for the value.
+
+        Idempotent by design, not by an extra existence check: the vault
+        entry name is deterministic from job_id (see
+        _wordlist_crack_vault_name()), so re-posting this same form (a
+        double-click, a retried request) resolves to the exact same name
+        both times -- add_vault_entry's drop-then-enable is an upsert by
+        name on both backends, so a second confirm overwrites the same
+        entry in place rather than creating a second one. Same precedent
+        as password_scan_confirm's note-scan-{hash} naming.
+        """
+        job_id = (request.form.get("job_id") or "").strip()
+        wallet_path = (request.form.get("wallet_path") or "").strip()
+        value = request.form.get("value") or ""
+        wordlist_filename = (request.form.get("wordlist_filename") or "").strip()
+        found_at = (request.form.get("found_at") or "").strip()
+
+        if not job_id or not wallet_path or not value:
+            abort(400)
+
+        name = _wordlist_crack_vault_name(job_id)
+        description = f"Wordlist crack match against {wallet_path}" + (f" (wordlist: {wordlist_filename})" if wordlist_filename else "")
+        tags = {
+            "wordlist": wordlist_filename or "unknown",
+            "method": "btcrecover-wordlist-crack",
+            "found_at": found_at or "unknown",
+            "wallet_path": wallet_path,
+        }
+
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write(value)
+            value_path = f.name
+
+        try:
+            add_vault_entry(name, value_path, description=description, tags=tags)
+        finally:
+            Path(value_path).unlink(missing_ok=True)
+
+        # Synthetic job dict for the template's reuse -- the real job row
+        # is long gone (see the docstring above); this carries just enough
+        # of its shape (job.result.found/wallet_path/value/wordlist_filename)
+        # for wordlist_crack_review.html to render its usual result table,
+        # with `added` set so the confirm form itself doesn't render again.
+        job = {
+            "status": "done",
+            "result": {"wallet_path": wallet_path, "found": True, "value": value, "wordlist_filename": wordlist_filename},
+        }
+        return render_template("wordlist_crack_review.html", job_id=job_id, job=job, added=name)
+
     def _render_auto_unlock_form(requested_wallet_paths):
         # Shared by the GET confirm page (query-string scoped, fine for a
         # single finding or a short link) and the POST confirm page below
@@ -1612,7 +1766,7 @@ def create_app(host="127.0.0.1"):
 # on-page tabs plus a deliberate order fixes both complaints at once.
 _NAV_GROUPS = {
     "sources": {"label": "Sources", "tabs": [("Scan", "index"), ("Cloud — Mounts", "mounts_page"), ("Cloud — Google Drive", "drive_form"), ("Email", "gmail_form"), ("Manage", "targets_page")]},
-    "unlock": {"label": "Unlock", "tabs": [("Try", "item_unlock_form"), ("Vault", "vault_page"), ("Extract Key", "item_extract_key_form")]},
+    "unlock": {"label": "Unlock", "tabs": [("Try", "item_unlock_form"), ("Crack wordlist", "wordlist_crack_form"), ("Vault", "vault_page"), ("Extract Key", "item_extract_key_form")]},
     "about": {"label": "About", "tabs": [("Update", "update_page"), ("Network", "network_page")]},
 }
 
@@ -1664,6 +1818,11 @@ _NAV_GROUP_BY_ENDPOINT = {
     "item_unlock": "unlock",
     "item_unlock_status": "unlock",
     "item_unlock_result": "unlock",
+    "wordlist_crack_form": "unlock",
+    "wordlist_crack_submit": "unlock",
+    "wordlist_crack_status": "unlock",
+    "wordlist_crack_review": "unlock",
+    "wordlist_crack_confirm": "unlock",
     "auto_unlock_form": "unlock",
     "auto_unlock_confirm": "unlock",
     "auto_unlock_submit": "unlock",
@@ -1738,6 +1897,7 @@ _STATUS_ENDPOINT_BY_KIND = {
     "check-balances": "scan_balances_status",
     "unlock": "item_unlock_status",
     "extract-key": "item_extract_key_status",
+    "wordlist-crack": "wordlist_crack_status",
 }
 
 
@@ -2056,6 +2216,92 @@ def _run_btcrecover_unlock_job(wallet_path, candidates_path, allow_online=False,
         "returncode": result.returncode,
         "vault_label": _match_vault_label(result.stdout, vault_pairs),
     }
+
+
+def _parse_wordlist_crack_result(stdout):
+    """
+    rtpc-01: unlike _match_vault_label above (which cross-references a
+    small, already-in-memory set of known vault values), an uploaded
+    wordlist's contents are never read back into this app -- the real
+    password (if any) is parsed straight out of BTCRecover's own stdout,
+    in the exact "Password found: '<password>'" line format
+    tools/unlock_wallet.py's own test suite already asserts
+    (test_run_unlock_finds_password_in_public_test_fixture).
+
+    :return: the found password, or None if no match was reported.
+    """
+    for line in stdout.splitlines():
+        line = line.rstrip("\r\n")
+        if line.startswith("Password found: '") and line.endswith("'"):
+            return line[len("Password found: '") : -1]
+    return None
+
+
+def _run_wordlist_crack_job(wallet_path, candidates_path, allow_online=False, wordlist_filename=None):
+    """
+    rtpc-01: the fifth job in this app dispatched secret=True (after
+    unlock, auto-unlock, extract-key, bulk-extract-key) -- see
+    web/jobs.py's run_job()/consume_job_result() docstrings for the
+    once-only-read contract this relies on. Calls tools/unlock_wallet.
+    run_unlock() completely unmodified (offline gate included) with the
+    uploaded wordlist file as candidates_path, exactly like
+    _run_btcrecover_unlock_job above does for a vault-built one -- this
+    is the only thing that differs: where the candidates file came from.
+
+    candidates_path is the user's own uploaded wordlist -- it may be full
+    of their real remembered password patterns. Its contents are never
+    read or logged here; the file itself is deleted below whether
+    run_unlock finds a match, finds nothing, or raises (including the
+    offline gate's own RuntimeError).
+
+    :param wordlist_filename: rtpc-02 -- the *original* uploaded filename
+        (candidates_path is a temp path, not this), carried through into
+        the result purely as provenance metadata for a later "Add to
+        vault" confirm (see wordlist_crack_confirm()). None for existing
+        callers that don't pass it -- optional, not required to run a crack.
+    """
+    try:
+        result = run_unlock(wallet_path, candidates_path, allow_online=allow_online)
+    finally:
+        Path(candidates_path).unlink(missing_ok=True)
+
+    value = _parse_wordlist_crack_result(result.stdout)
+    return {
+        "wallet_path": wallet_path,
+        "found": value is not None,
+        "value": value,
+        "wordlist_filename": wordlist_filename,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "returncode": result.returncode,
+    }
+
+
+def _format_job_started_at(started_at):
+    """
+    rtpc-02: UTC-ish ISO timestamp for a job's started_at (a raw
+    time.time() float from web/jobs_store.py), used as the wordlist-crack
+    confirm form's "found at" provenance field. Empty string for a
+    missing/falsy value rather than raising -- this is best-effort
+    metadata, not something that should ever block adding to the vault.
+    """
+    if not started_at:
+        return ""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at))
+
+
+def _wordlist_crack_vault_name(job_id):
+    """
+    Deterministic per-crack-result vault entry name, derived from the
+    job_id already embedded in the review page's confirm form (see
+    wordlist_crack_confirm()). Re-posting the same confirm form (a
+    double-click, a retried request) always resolves to the same name --
+    add_vault_entry's drop-then-enable is an upsert by name on both
+    backends, so a repeat confirm overwrites the same entry rather than
+    creating a second one. Same precedent as password_scan_confirm's
+    note-scan-{hash} naming.
+    """
+    return f"wordlist-crack-{job_id[:12]}"
 
 
 def _run_exodus_unlock_job(seed_seco_path, candidates_path, allow_online=False, vault_pairs=None):
