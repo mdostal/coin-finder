@@ -1,0 +1,41 @@
+name: crawl-checkpoint-store-migration
+title: Crawl Checkpoint Store Migration
+description: >
+  Re-point tools/crawl_transaction_graph.py's crawl_wallet_cluster()
+  checkpoint flush at the shared tools/checkpoint_store.py (built in the
+  scalable-scan-engine epic) instead of its own bespoke two-phase JSON
+  checkpoint. Deliberately deferred out of that epic as explicitly lowest
+  priority -- pure format consistency across the pipeline, not a
+  correctness fix (no live incident against the existing JSON checkpoint).
+  Single small story, no full design-discussion/H-V ceremony -- scope is
+  well-understood and narrow.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: patch
+sidecar_retention: committed
+
+git_flow:
+  base_branch: dev
+  branch_strategy: per-epic
+
+planning_team:
+  matched_tags: [refactor, consistency]
+  roster: [developer]
+  per_tag_reasoning:
+    refactor: "Format migration onto an already-shipped shared module, no new behavior"
+  confidence: high
+  gate_decisions:
+    collaborative_review: skipped_solo_project
+    hv_planning: skipped_small_well_scoped
+    structured_outline: not_required
+  note: >
+    Small, well-understood single-story item explicitly deferred from
+    scalable-scan-engine as lowest priority. Proportionally lighter
+    planning treatment -- no design discussion or H/V plan, per the
+    epic's own framing as "a small follow-on."
+
+stories:
+  - id: ccsm-01-migrate-crawl-checkpoint
+    title: Re-point crawl_wallet_cluster()'s checkpoint at the shared store
+    complexity: low
+    depends_on: []
