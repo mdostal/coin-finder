@@ -52,6 +52,7 @@ from web.auto_unlock_history import (
 )
 from web.credential_scan_cache import credential_status_index, mark_address_extracted, run_credential_scan
 from web.scan_excludes import add_exclude, list_excludes, remove_exclude
+from web.staging_index import stage_and_index
 from web.scan_settings import (
     get_auto_profile,
     get_settings,
@@ -1978,6 +1979,38 @@ def _clamp_generations(raw):
         return DEFAULT_CRAWL_GENERATIONS
 
 
+def _stage_finding_source(source_path, coin, address, source_label, staged_already):
+    """
+    Auto-stages a finding's real backing file into DEFAULT_STAGING_DIR and
+    records a web.staging_index.py entry for it, so the finding still has
+    a local copy of its source if the original (an unplugged drive, an
+    unmounted cloud folder) later disappears.
+
+    Only called from the 3 job functions that pass a real source_path to
+    record_finding() today (_run_scan_wallet_dat_job,
+    _run_check_balances_job, _run_check_balances_selected_job) -- the
+    other 3 record_finding() call sites (crawl, fork-coin check, quick
+    lookup) are pure address-based discovery with no real file behind
+    them and must never reach this function.
+
+    :param staged_already: a set of source_path strings already staged
+        THIS job run -- one real file can back many findings (every
+        address a wallet.dat holds, or every coin/address a scan turns up
+        for one file), and this dedups the (relatively expensive, full-
+        file-read) hashing/copy work to once per distinct file per job.
+        stage_and_index() is itself idempotent (content-hash-keyed), so
+        skipping a repeat call here is an efficiency win, not a
+        correctness requirement -- a second real call for the same file
+        would resolve to the same staged_path anyway.
+    """
+    if not source_path or source_path in staged_already:
+        return
+    staged_already.add(source_path)
+    if not Path(source_path).is_file():
+        return
+    stage_and_index(source_path, coin, address, source_label, staging_dir=DEFAULT_STAGING_DIR)
+
+
 def _run_scan_wallet_dat_job(wallet_path, job_id):
     scan = scan_wallet_for_addresses(wallet_path)
     checked = check_addresses_balances(
@@ -1994,8 +2027,10 @@ def _run_scan_wallet_dat_job(wallet_path, job_id):
     for entry in significant:
         lines.append(f"- {entry['address']}: {entry['balance']}")
 
+    staged_already = set()
     for entry in checked["results"]:
         record_finding("Bitcoin", entry["address"], entry.get("balance"), source_path=wallet_path, source_label="scan_wallet_dat")
+        _stage_finding_source(wallet_path, "Bitcoin", entry["address"], "scan_wallet_dat", staged_already)
 
     return {
         "report": "\n".join(lines),
@@ -2783,10 +2818,12 @@ def _run_check_balances_job(output_dir, job_id, target_path=None):
     balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
     balances = _read_json(balances_path)
     if balances:
+        staged_already = set()
         for file_path, crypto_wallets in balances.items():
             for coin, addresses in crypto_wallets.items():
                 for address, balance in addresses.items():
                     record_finding(coin, address, balance, source_path=file_path, source_label="scan")
+                    _stage_finding_source(file_path, coin, address, "scan", staged_already)
 
     return {"output_dir": output_dir}
 
@@ -2838,10 +2875,12 @@ def _run_check_balances_selected_job(output_dir, selected_files, job_id, target_
 
     balances = _read_json(balances_path)
     if balances:
+        staged_already = set()
         for file_path, crypto_wallets in balances.items():
             for coin, addresses in crypto_wallets.items():
                 for address, balance in addresses.items():
                     record_finding(coin, address, balance, source_path=file_path, source_label="scan")
+                    _stage_finding_source(file_path, coin, address, "scan", staged_already)
 
     return {"output_dir": str(selection_dir)}
 
