@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-08-26
+
+### Fixed
+
+- **Critical: a symlink loop on disk could make a scan run forever**,
+  writing an ever-growing checkpoint file (confirmed real: a scan left
+  running unattended hit 13GB+ and 32.9 million recorded directories
+  before being caught) instead of finishing or failing. Scans now
+  correctly skip symlinked directories the same way a normal directory
+  walk always has, so a loop can no longer cause runaway disk growth or
+  an endless-seeming scan.
+
 ## [0.58.0] - 2026-08-19
 
 ### Added
