@@ -89,17 +89,36 @@ def _list_one_level(directory):
     Returns (dirs, files) -- the immediate (non-recursive) contents of
     directory -- by consuming exactly the first tuple os.walk(directory)
     yields and discarding the generator before it would ever recurse.
-    This reuses os.walk's own, already-battle-tested error/symlink
-    handling (onerror=None: a directory that can't be listed -- e.g.
-    permission denied, or a dead mount mid-listing -- silently yields
-    nothing, exactly like today's sequential walk, rather than raising
-    and taking down a worker thread) instead of reimplementing those
-    semantics by hand on top of os.scandir.
+    This reuses os.walk's own, already-battle-tested error handling
+    (onerror=None: a directory that can't be listed -- e.g. permission
+    denied, or a dead mount mid-listing -- silently yields nothing,
+    exactly like today's sequential walk, rather than raising and taking
+    down a worker thread) instead of reimplementing that by hand on top
+    of os.scandir.
+
+    Symlinked subdirectories are excluded from the returned dirs list --
+    confirmed live as a real, serious bug: os.walk's own symlink-loop
+    protection (followlinks=False) only applies during ITS OWN internal
+    recursion. Since this walker drives its own recursion by re-queueing
+    every name in `dirs` (see search_for_wallets' _process_directory),
+    consuming only os.walk's first yielded tuple never engages that
+    protection at all -- a real symlink cycle on this machine (found live
+    in ~/Library/Containers' sandbox structure) caused genuinely infinite
+    recursion, confirmed directly: 32.9 million distinct-looking path
+    strings and a 13GB+ checkpoint file after days of unattended running,
+    zero duplicate paths (each loop iteration produces a longer, unique
+    path), so the existing dedup-on-completed-directory logic could never
+    catch it. Filtering symlinks out of `dirs` here -- the one and only
+    place this walker decides what to recurse into -- restores the real
+    os.walk-with-followlinks=False semantic the original docstring
+    claimed but, given the one-tuple-only consumption pattern, never
+    actually delivered.
     """
     walked = next(os.walk(directory), None)
     if walked is None:
         return [], []
     _, dirs, files = walked
+    dirs = [d for d in dirs if not os.path.islink(os.path.join(directory, d))]
     return dirs, files
 
 

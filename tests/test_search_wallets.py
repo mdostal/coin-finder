@@ -1,9 +1,10 @@
+import os
 import sqlite3
 
 import pytest
 
 from tools.checkpoint_store import CheckpointPaused, clear_pause_for, request_pause_for
-from tools.search_wallets import DEFAULT_WALK_THREADS, search_for_wallets
+from tools.search_wallets import DEFAULT_WALK_THREADS, _list_one_level, search_for_wallets
 
 
 def _write_checkpoint_db(checkpoint_path, start_path, completed_dirs):
@@ -490,3 +491,50 @@ def test_walk_threads_of_one_behaves_like_a_single_worker(tmp_path):
     results = search_for_wallets(str(tmp_path), str(output_file), walk_threads=1)
 
     assert sorted(results) == expected
+
+
+def test_list_one_level_excludes_symlinked_directories_from_recursion():
+    """
+    Regression test for a real, live incident: a symlink cycle under a
+    real machine's ~/Library/Containers caused genuinely infinite
+    recursion in the parallel walker -- confirmed directly (a minimal
+    reproduction looped forever), and confirmed on the real machine via a
+    13GB+ checkpoint file holding 32.9 million distinct-looking path
+    strings after days of unattended running (each loop iteration
+    produces a longer, unique path, so the existing dedup-on-completed-
+    directory logic could never catch it -- os.walk's own followlinks=
+    False protection only applies during its OWN internal recursion,
+    which _list_one_level never lets happen since it only consumes the
+    first yielded tuple). A symlinked directory must never appear in the
+    dirs list this function returns, since that list is the walker's only
+    signal for what to recurse into.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        real_dir = os.path.join(tmp, "real_dir")
+        os.mkdir(real_dir)
+        os.symlink(tmp, os.path.join(real_dir, "loop_back"))
+
+        dirs, files = _list_one_level(tmp)
+        assert dirs == ["real_dir"]
+
+        dirs, files = _list_one_level(real_dir)
+        assert dirs == []  # loop_back is a symlink -- must not be queued for recursion
+
+
+def test_search_for_wallets_terminates_against_a_real_symlink_cycle(tmp_path):
+    """
+    End-to-end version of the regression above, through the real public
+    search_for_wallets() entry point rather than the internal helper --
+    proves the fix holds through the full walker, not just in isolation.
+    """
+    real_dir = tmp_path / "real_dir"
+    real_dir.mkdir()
+    (real_dir / "loop_back").symlink_to(tmp_path)
+    (tmp_path / "wallet.dat").write_bytes(b"x" * 100)
+    output_file = tmp_path / "out.txt"
+
+    results = search_for_wallets(str(tmp_path), str(output_file), walk_threads=2)
+
+    assert str(tmp_path / "wallet.dat") in results
