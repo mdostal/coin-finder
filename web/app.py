@@ -41,7 +41,7 @@ from web.native_dialogs import pick_path
 from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
-from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
+from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote, update_remote_credentials
 from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, get_cross_group_overlap, get_runs_graph_data, list_crawl_runs, record_crawl_run
 from web.scan_history import clear_scan_history, list_scan_history, record_scan
 from web.auto_unlock_history import (
@@ -1574,6 +1574,28 @@ def create_app(host="127.0.0.1"):
         add_target(remote_name, mount_point, kind)
         return redirect(url_for("targets_page"))
 
+    @app.route("/mounts/update-credentials", methods=["POST"])
+    def mounts_update_credentials():
+        """
+        Attaches a dedicated Google OAuth client to a remote that already
+        exists -- the actual fix for the mount dying every 20-30 minutes
+        under a shared, globally rate-limited default client (see
+        web/mounts.py's mount() docstring). Backgrounded the same way
+        wizard_cloud_connect() backgrounds create_remote(): the underlying
+        `rclone config update` call blocks on a real browser-based OAuth
+        handshake, which must never sit on the request thread.
+        """
+        remote_name = (request.form.get("remote_name") or "").strip()
+        client_id = (request.form.get("client_id") or "").strip()
+        client_secret = request.form.get("client_secret") or ""
+
+        if not remote_name:
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error="Missing remote name."), 400
+
+        job_id = create_job(kind="update-remote-credentials", label=remote_name)
+        start_job(job_id, _run_update_remote_credentials_job, job_id, remote_name, client_id, client_secret)
+        return redirect(url_for("item_result", job_id=job_id))
+
     @app.route("/vault")
     def vault_page():
         return render_template("vault.html", entries=list_vault_entries(), error=None)
@@ -2573,6 +2595,15 @@ def _run_connect_remote_job(job_id, remote_name, kind, client_id, client_secret,
         client_id=client_id,
         client_secret=client_secret,
         scope=scope,
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
+
+
+def _run_update_remote_credentials_job(job_id, remote_name, client_id, client_secret):
+    return update_remote_credentials(
+        remote_name,
+        client_id,
+        client_secret,
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
     )
 

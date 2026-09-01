@@ -172,3 +172,47 @@ def test_mounts_page_no_log_tail_for_a_healthy_mount(mock_remotes, mock_mounts, 
 
     assert resp.status_code == 200
     assert b"this is noise" not in resp.data
+
+
+@patch("web.app.start_job")
+@patch("web.app.create_job")
+def test_mounts_update_credentials_starts_a_background_job(mock_create_job, mock_start_job, client):
+    """
+    Mirrors test_wizard_cloud_connect_starts_a_background_job's pattern --
+    the underlying update_remote_credentials() call blocks on a real
+    browser-based OAuth handshake, same as create_remote(), so this route
+    must never run it inline on the request thread.
+    """
+    mock_create_job.return_value = "job-456"
+
+    resp = client.post(
+        "/mounts/update-credentials",
+        data={"remote_name": "gdrive", "client_id": "123456-abc.apps.googleusercontent.com", "client_secret": "shh"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/item-result/job-456"
+    mock_create_job.assert_called_once_with(kind="update-remote-credentials", label="gdrive")
+    mock_start_job.assert_called_once()
+    job_args = mock_start_job.call_args[0]
+    assert job_args[0] == "job-456"
+    # the actual work function is backgrounded with the submitted remote/credentials, not run inline
+    assert job_args[2:] == ("job-456", "gdrive", "123456-abc.apps.googleusercontent.com", "shh")
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_update_credentials_requires_a_remote_name(mock_remotes, mock_mounts, mock_status, client):
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post(
+        "/mounts/update-credentials",
+        data={"client_id": "123456-abc.apps.googleusercontent.com", "client_secret": "shh"},
+    )
+
+    assert resp.status_code == 400
+    assert b"Missing remote name" in resp.data

@@ -812,6 +812,25 @@ this app is a separate, later effort outside this project's own scope.
      the difference between "drive is empty" and "drive stopped responding
      partway through." This is a real, known limitation, not a false
      guarantee of resilience.
+  6. **If a Google Drive mount keeps dying every 20-30 minutes** under
+     sustained scanning, the cause is almost always rate limiting: by
+     default every remote authenticates through rclone's own shared Google
+     API client, whose request quota is global across every rclone user on
+     earth, not just you -- under heavy scanning that shared quota runs out
+     and Google starts rejecting requests. The durable fix is giving the
+     remote its own dedicated Google OAuth client (a free, personal quota
+     that's yours alone), attached in place without losing the remote's
+     name or anything already bound to it: on `/mounts`, expand **"Mount
+     keeps disconnecting? Attach a dedicated Google API client"** under the
+     remote in question. That panel walks through creating a Client ID and
+     Client Secret in Google Cloud Console step by step (enabling the
+     Drive API, configuring the OAuth consent screen, creating a Desktop
+     app OAuth client) for anyone who has never used Cloud Console before,
+     then re-authenticates that remote against the new client once you
+     submit the two values. The same fields are also available up front
+     when first connecting a new remote, under the wizard's "Advanced"
+     disclosure -- this is the same path, just for a remote you already
+     have.
 - **Setup wizard** (`/wizard`) -- "what do you want to scan?" and it routes
   you the rest of the way: a local folder hands straight to the regular
   scan form, a plugged-in physical drive shows you what's detected, Google
