@@ -1,0 +1,53 @@
+name: gdrive-mount-configuration
+title: Configurable GDrive mounts -- dedicated OAuth client, test-before-scan, tunable settings
+description: >
+  Fixes the actual root cause of the GDrive mount dying every 20-30
+  minutes under real scan load: the "Dostal Drive" remote authenticates
+  through rclone's shared default Google API client, whose quota is
+  global across every rclone user and gets rate-limited under sustained
+  scanning (confirmed live, and already documented in web/mounts.py's
+  mount() docstring as the known durable fix). Lets the user attach their
+  own dedicated Google Cloud OAuth client to an existing remote (not just
+  at first-time creation, which is all create_remote() supports today),
+  add a real "test connection" action so a mount config can be verified
+  before committing a real multi-hour scan to it, and expose the
+  previously-hardcoded --checkers/--tpslimit tuning as per-remote
+  settings so it can be tuned for multi-terabyte drives later without a
+  code change. Deliberately does not touch the separate (unmerged)
+  self-healing-mount-recovery epic's bounded-health-check / auto-recovery
+  / intervention-history work -- that epic's own shmr-02 story explicitly
+  marks a dedicated client_id as out of scope and calls it the natural
+  next step, which is this epic.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: minor
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Root cause confirmed via direct code
+      research (web/mounts.py's own docstring already names the fix) and
+      the user's own live, ~49-cycle-confirmed observation that the
+      shared-client mount cannot be reattached into stability. Design
+      discussion presented and confirmed by the user before story
+      decomposition. version_bump defaulted to minor (new user-facing
+      settings/actions, no breaking change) without a separate blocking
+      question, consistent with this project's "ship without re-asking"
+      standing preference.
+stories:
+  - id: gmc-01-attach-dedicated-oauth-credentials
+    title: Attach a dedicated Google OAuth client to an existing remote
+    complexity: medium
+    depends_on: []
+  - id: gmc-02-test-mount-connection
+    title: "Test connection" action before committing a real scan
+    complexity: medium
+    depends_on: []
+  - id: gmc-03-configurable-mount-tuning
+    title: Expose checkers/tpslimit as per-remote settings instead of hardcoded
+    complexity: low
+    depends_on: []

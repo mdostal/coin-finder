@@ -1,0 +1,108 @@
+id: gmc-03-configurable-mount-tuning
+epic: gdrive-mount-configuration
+title: Expose checkers/tpslimit as per-remote settings instead of hardcoded
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  mount() in web/mounts.py hardcodes `--checkers 16 --tpslimit 8` as a
+  literal string in the rclone nfsmount command (line ~198-204) -- there
+  is no mount-strategy or settings abstraction anywhere in the codebase
+  (confirmed: nfsmount is the only rclone mount subcommand referenced,
+  single hardcoded literal, no per-remote config). This was fine as a
+  one-size mitigation for the shared-client throttling problem, but once
+  gmc-01 gives a remote its own dedicated OAuth quota, the right
+  concurrency/rate settings genuinely differ by drive size and by how
+  aggressive the user wants to be -- and this needs to be tunable without
+  a code change, especially ahead of "the big multi-terabyte drives"
+  mentioned as the actual reason this epic exists.
+
+acceptance_criteria:
+  - "Given a configured remote, when the user opens its settings on the Mounts page, then they can view and edit checkers and tpslimit values for that remote specifically (not a single global constant)."
+  - "Given no settings have been saved for a remote, when it's mounted, then it falls back to the current defaults (16 checkers / 8 tpslimit) -- no behavior change for remotes that don't opt in."
+  - "Given settings are saved for a remote, when that remote is mounted (including via the Test connection action from gmc-02), then the actual rclone command uses those saved values, not the hardcoded defaults."
+  - "Given an invalid value (negative, zero, non-numeric) is submitted, when saved, then it's rejected with a clear error before ever reaching the rclone command line."
+
+steps:
+  - id: research
+    description: Confirm where per-remote settings should live given the existing mounts_state.json pattern (DEFAULT_STATE_PATH in web/mounts.py) -- whether to extend that store or add a small sibling settings store, and how mount() currently builds its argv so the new values slot in cleanly.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests for: mount() with no saved settings uses the current 16/8 defaults (regression guard); mount() with saved settings uses those values in the actual argv; invalid values (negative/zero/non-numeric) are rejected before any subprocess call.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: |
+      Extend web/mounts.py with a small per-remote settings store (checkers, tpslimit) and parameterize mount()'s hardcoded --checkers/--tpslimit values from it, defaulting to 16/8 when unset. Add a settings form to web/templates/mounts.html per configured remote. Wire the save route in web/app.py.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review implementation and tests for correctness and convention compliance
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack: {}
+  key_files:
+    - path: web/mounts.py
+      purpose: mount() (146-211) hardcodes the --checkers/--tpslimit argv this story must parameterize; DEFAULT_STATE_PATH + _load_state/_save_state (lines 10-25) is the existing JSON-store pattern to extend or mirror for per-remote settings.
+    - path: web/templates/mounts.html
+      purpose: "Configured remotes" table -- where the new per-remote tuning settings form needs to live, alongside gmc-01's credentials form and gmc-02's Test connection button.
+
+files_to_modify:
+  - file: web/mounts.py
+    change: Add a per-remote settings store (checkers, tpslimit) with validation; parameterize mount()'s hardcoded argv from it, defaulting to current 16/8 values.
+  - file: web/app.py
+    change: Add a route to save per-remote mount tuning settings.
+  - file: web/templates/mounts.html
+    change: Add a settings form (checkers, tpslimit) per configured remote.
+  - file: README.md
+    change: Document the tunable checkers/tpslimit settings in the Mounting Google Drive section.
+
+code_examples:
+  - title: Existing JSON-store pattern to extend for settings
+    file: web/mounts.py
+    snippet: |
+      DEFAULT_STATE_PATH = app_data_dir() / "mounts_state.json"
+      def _load_state(state_path=DEFAULT_STATE_PATH): ...
+      def _save_state(state, state_path=DEFAULT_STATE_PATH): ...
+  - title: Hardcoded argv this story parameterizes
+    file: web/mounts.py
+    snippet: |
+      ["rclone", "nfsmount", f"{remote_name}:", str(mount_point),
+       "--read-only", "--vfs-cache-mode", "minimal",
+       "--checkers", "16", "--tpslimit", "8",
+       "--drive-skip-dangling-shortcuts"]
+
+design_decisions:
+  - decision: Per-remote settings, not a single global constant.
+    rationale: Different drives (a small backup folder vs. a multi-terabyte archive) genuinely warrant different concurrency/rate tuning -- a global knob would force one tradeoff on every remote.
+  - decision: Default to the current 16/8 values when nothing is saved.
+    rationale: No behavior change for existing remotes that don't opt into tuning -- this story is additive, not a forced migration.
+
+cross_cutting:
+  - concern: documentation
+    action: "Document the tunable checkers/tpslimit settings in README.md's Mounting Google Drive section once implemented."
+
+metric:
+  applies: false
+  justification: "Settings-exposure story with no independent product metric -- its value is realized when actually tuned for a specific multi-terabyte drive later, which is future work outside this epic's scope."
+
+risks:
+  - severity: low
+    description: A user could set tpslimit/checkers aggressively high, reintroducing the exact rate-limiting this whole epic exists to fix, even on a dedicated client.
+    mitigation: "Keep the current 16/8 values as the pre-filled default in the settings form, not a blank field, so raising them is a deliberate choice rather than an accidental one."
+
+references:
+  - path: web/mounts.py
+    relevant_excerpt: |
+      # --checkers 32 triggered repeated real 403 RATE_LIMIT_EXCEEDED
+      # errors on the shared default client.
