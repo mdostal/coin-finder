@@ -13,7 +13,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 
 import run_pipeline
 from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
-from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, test_mount, unmount
+from web.mounts import get_mount_settings, install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, save_mount_settings, test_mount, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.check_wallet_balances import check_wallet_balances, load_service, _check_balance_with_retries
 from tools.checkpoint_store import clear_pause_for, request_pause_for
@@ -1608,6 +1608,32 @@ def create_app(host="127.0.0.1"):
         start_job(job_id, _run_update_remote_credentials_job, job_id, remote_name, client_id, client_secret)
         return redirect(url_for("item_result", job_id=job_id))
 
+    @app.route("/mounts/settings", methods=["POST"])
+    def mounts_settings():
+        """
+        Saves per-remote --checkers/--tpslimit tuning (gmc-03) -- a fast,
+        local JSON write (save_mount_settings()), so unlike
+        mounts_update_credentials()/mounts_test() this runs synchronously
+        on the request thread rather than through create_job()/start_job();
+        there's no blocking OAuth handshake or bounded mount+read cycle
+        here to keep off it, matching mounts_mount()'s own synchronous
+        pattern just above. Validation (positive integers only) happens
+        inside save_mount_settings() itself, before any value could ever
+        reach an rclone command line -- a ValueError from it is rendered
+        back as a 400, the same shape mounts_mount()'s own missing-field
+        400 already uses.
+        """
+        remote_name = (request.form.get("remote_name") or "").strip()
+        if not remote_name:
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error="Missing remote name."), 400
+
+        try:
+            save_mount_settings(remote_name, request.form.get("checkers"), request.form.get("tpslimit"))
+        except ValueError as e:
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error=str(e)), 400
+
+        return redirect(url_for("mounts_page"))
+
     @app.route("/mounts/test", methods=["POST"])
     def mounts_test():
         """
@@ -1926,6 +1952,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "mounts_remove": "sources",
     "mounts_bind": "sources",
     "mounts_test": "sources",
+    "mounts_settings": "sources",
     "drive_form": "sources",
     "drive_scan": "sources",
     "gmail_form": "sources",
@@ -2050,13 +2077,20 @@ def _split_lines(raw):
 
 def _remote_summaries():
     """
-    [{"name", "status"}, ...] for every configured rclone remote -- status
-    via remote_status()'s fast, local, per-remote check. list_remotes()
-    itself stays a bare name list (used as-is for the mount-point <select>
-    and the already-exists check) -- status is layered on only where a
-    template actually displays it.
+    [{"name", "status", "checkers", "tpslimit"}, ...] for every configured
+    rclone remote -- status via remote_status()'s fast, local, per-remote
+    check, checkers/tpslimit via get_mount_settings()'s effective (saved-or-
+    default) values (gmc-03) so the settings form on /mounts always
+    pre-fills with what a real mount would actually use, never a blank
+    field. list_remotes() itself stays a bare name list (used as-is for the
+    mount-point <select> and the already-exists check) -- everything else
+    is layered on only where a template actually displays it.
     """
-    return [{"name": name, "status": remote_status(name)} for name in list_remotes()]
+    summaries = []
+    for name in list_remotes():
+        settings = get_mount_settings(name)
+        summaries.append({"name": name, "status": remote_status(name), "checkers": settings["checkers"], "tpslimit": settings["tpslimit"]})
+    return summaries
 
 
 def _mounts_with_log_tail(lines=15):

@@ -322,3 +322,72 @@ def test_mounts_test_allows_a_new_test_once_the_prior_one_finished(
 
     assert resp.status_code == 302
     mock_create_job.assert_called_once_with(kind="test-mount", label="gdrive")
+
+
+# --- POST /mounts/settings (gmc-03) --------------------------------------
+
+
+@patch("web.app.save_mount_settings")
+def test_mounts_settings_saves_and_redirects(mock_save, client):
+    """
+    A fast, local JSON write -- unlike mounts_update_credentials()/
+    mounts_test(), this must run synchronously (no create_job()/
+    start_job() backgrounding) since there's no OAuth handshake or bounded
+    mount+read cycle to keep off the request thread.
+    """
+    resp = client.post("/mounts/settings", data={"remote_name": "gdrive", "checkers": "40", "tpslimit": "20"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/mounts"
+    mock_save.assert_called_once_with("gdrive", "40", "20")
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_settings_requires_a_remote_name(mock_remotes, mock_mounts, mock_status, client):
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/settings", data={"checkers": "40", "tpslimit": "20"})
+
+    assert resp.status_code == 400
+    assert b"Missing remote name" in resp.data
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.save_mount_settings")
+def test_mounts_settings_rejects_invalid_values_with_a_400_and_never_touches_rclone(mock_save, mock_remotes, mock_mounts, mock_status, client):
+    """save_mount_settings() itself raises ValueError for a bad value -- the route must surface that as a
+    real error, not a 500, and must never fall through to anything that could reach rclone."""
+    mock_save.side_effect = ValueError("checkers must be a positive number, got -1.")
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/settings", data={"remote_name": "gdrive", "checkers": "-1", "tpslimit": "8"})
+
+    assert resp.status_code == 400
+    assert b"checkers must be a positive number" in resp.data
+
+
+@patch("web.app.get_mount_settings")
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_page_prefills_settings_form_with_effective_values(mock_remotes, mock_mounts, mock_status, mock_get_settings, client):
+    """The settings form must show the current effective values (saved-or-default), never a blank field --
+    so raising checkers/tpslimit is a deliberate choice, not a blind guess."""
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+    mock_get_settings.return_value = {"checkers": 40, "tpslimit": 20}
+
+    resp = client.get("/mounts")
+
+    assert resp.status_code == 200
+    assert b'value="40"' in resp.data
+    assert b'value="20"' in resp.data

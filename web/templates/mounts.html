@@ -124,6 +124,26 @@ drive. Mounts are always read-only.</p>
               </form>
             </div>
           </details>
+
+          <details>
+            <summary>Mount tuning for "{{ r.name }}" (checkers / tpslimit)</summary>
+            <div style="margin-top:0.75rem">
+              <p class="subtle">How aggressively rclone lists "{{ r.name }}"'s contents while mounted. The
+              defaults below (16 / 8) are a safe starting point tuned against a real multi-terabyte Drive on
+              the shared default Google API client -- a small drive can often go higher, but raising these on
+              a remote still using the shared client risks the exact rate-limit disconnects the "Attach
+              dedicated credentials" panel above exists to fix, even on a dedicated client if pushed too far.
+              Applies to both a real Mount and Test connection above.</p>
+              <form method="post" action="{{ url_for('mounts_settings') }}" class="inline-form">
+                <input type="hidden" name="remote_name" value="{{ r.name }}">
+                <label>Checkers</label>
+                <input type="number" name="checkers" min="1" step="1" value="{{ r.checkers }}" required>
+                <label>Tpslimit</label>
+                <input type="number" name="tpslimit" min="1" step="1" value="{{ r.tpslimit }}" required>
+                <button type="submit">Save settings</button>
+              </form>
+            </div>
+          </details>
         </td>
       </tr>
       {% endfor %}

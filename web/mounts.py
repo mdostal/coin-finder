@@ -10,6 +10,21 @@ from web.paths import app_data_dir
 
 DEFAULT_STATE_PATH = app_data_dir() / "mounts_state.json"
 
+# A small sibling store, same JSON-file-keyed-by-remote-name shape as
+# DEFAULT_STATE_PATH/mounts_state.json (deliberately not folded into that
+# same file/dict -- mounts_state.json is churned on every mount/unmount and
+# only ever holds currently-running-mount bookkeeping, while this holds a
+# user's deliberate tuning choice that must persist across mounts/unmounts/
+# restarts untouched).
+DEFAULT_MOUNT_SETTINGS_PATH = app_data_dir() / "mount_settings.json"
+
+# gmc-03: the exact values mount()'s argv hardcoded before per-remote tuning
+# existed (see mount()'s own docstring for how 16/8 was arrived at live) --
+# now the fallback for any remote that hasn't opted into custom settings, so
+# adding this store is a no-op behavior change for every existing remote.
+DEFAULT_CHECKERS = 16
+DEFAULT_TPSLIMIT = 8
+
 
 def _load_state(state_path):
     state_path = Path(state_path)
@@ -24,6 +39,59 @@ def _save_state(state_path, state):
     state_path.parent.mkdir(parents=True, exist_ok=True)
     with open(state_path, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def _validate_positive_int(value, field_name):
+    """
+    Positive integers only, rejected here -- before this value can ever
+    reach an rclone command line -- rather than left to rclone itself to
+    reject (or silently misinterpret) a bad `--checkers`/`--tpslimit`
+    argument. `int()` itself already refuses a non-numeric string (and a
+    float-looking one like "1.5") by raising ValueError, so that check is
+    free; zero/negative need an explicit check since `int()` accepts them.
+    """
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} must be a whole number, got {value!r}.")
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be a positive number, got {parsed}.")
+    return parsed
+
+
+def get_mount_settings(remote_name, settings_path=DEFAULT_MOUNT_SETTINGS_PATH):
+    """
+    Effective per-remote mount tuning -- {"checkers", "tpslimit"} -- falling
+    back to DEFAULT_CHECKERS/DEFAULT_TPSLIMIT for any field (or the whole
+    remote) that has no saved override. Never raises: a missing or
+    unreadable-for-this-remote entry is exactly "use the defaults", not an
+    error.
+    """
+    settings = _load_state(settings_path)
+    entry = settings.get(remote_name, {})
+    return {
+        "checkers": entry.get("checkers", DEFAULT_CHECKERS),
+        "tpslimit": entry.get("tpslimit", DEFAULT_TPSLIMIT),
+    }
+
+
+def save_mount_settings(remote_name, checkers, tpslimit, settings_path=DEFAULT_MOUNT_SETTINGS_PATH):
+    """
+    Validates and persists a per-remote checkers/tpslimit override. Raises
+    ValueError (never reaches subprocess/rclone) for a negative, zero, or
+    non-numeric value -- validation happens before _save_state is ever
+    called, so an invalid submission never partially overwrites a
+    previously-saved good value.
+
+    :return: the validated {"checkers", "tpslimit"} that was saved.
+    """
+    checkers = _validate_positive_int(checkers, "checkers")
+    tpslimit = _validate_positive_int(tpslimit, "tpslimit")
+
+    settings = _load_state(settings_path)
+    settings[remote_name] = {"checkers": checkers, "tpslimit": tpslimit}
+    _save_state(settings_path, settings)
+    return {"checkers": checkers, "tpslimit": tpslimit}
 
 
 def is_rclone_installed():
@@ -144,7 +212,7 @@ def remove_remote(remote_name, state_path=DEFAULT_STATE_PATH):
     subprocess.run(["rclone", "config", "delete", remote_name], capture_output=True, text=True)
 
 
-def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None):
+def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None, settings_path=DEFAULT_MOUNT_SETTINGS_PATH):
     """
     Starts `rclone nfsmount <remote>: <mount_point>` as a background
     process. NOT `rclone mount` -- confirmed live (direct reproduction,
@@ -159,6 +227,14 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
     stderr is captured to a real log file (not discarded) -- confirmed
     live this was the difference between a bare, undiagnosable "ERROR"
     pill and an actionable error message.
+
+    --checkers/--tpslimit come from get_mount_settings(remote_name) --
+    DEFAULT_CHECKERS (16) / DEFAULT_TPSLIMIT (8) below for any remote that
+    hasn't saved its own values (gmc-03: a no-op behavior change for every
+    remote that doesn't opt in). The numbers below explain why those two
+    particular defaults were chosen, not why they're hardcoded -- they no
+    longer are; a multi-terabyte drive that needs different tuning can get
+    it from the settings form on /mounts without a code change.
 
     --checkers 16 (rclone's default is 8; this was 32 briefly, see below):
     a `find` scan over this mount is a pure metadata walk (readdir/stat,
@@ -194,13 +270,14 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{remote_name}.log"
     log_file = open(log_path, "w")
+    settings = get_mount_settings(remote_name, settings_path=settings_path)
     process = subprocess.Popen(
         [
             "rclone", "nfsmount", f"{remote_name}:", str(mount_point),
             "--read-only",
             "--vfs-cache-mode", "minimal",
-            "--checkers", "16",
-            "--tpslimit", "8",
+            "--checkers", str(settings["checkers"]),
+            "--tpslimit", str(settings["tpslimit"]),
             "--drive-skip-dangling-shortcuts",
         ],
         stdout=subprocess.DEVNULL,
@@ -310,7 +387,7 @@ def _log_tail(log_path, lines=20):
         return ""
 
 
-def test_mount(remote_name, timeout=DEFAULT_TEST_MOUNT_TIMEOUT_SECONDS, log_dir=None):
+def test_mount(remote_name, timeout=DEFAULT_TEST_MOUNT_TIMEOUT_SECONDS, log_dir=None, settings_path=DEFAULT_MOUNT_SETTINGS_PATH):
     """
     A bounded, real "does this remote actually hold up" check the user
     can run any time, instead of the only prior option -- starting a real
@@ -337,6 +414,13 @@ def test_mount(remote_name, timeout=DEFAULT_TEST_MOUNT_TIMEOUT_SECONDS, log_dir=
     a verification feature that can itself hang forever would defeat its
     own purpose.
 
+    gmc-03: mounts with the same get_mount_settings(remote_name)
+    checkers/tpslimit that a real mount() call would use -- a test that
+    passed under the hardcoded defaults but the real mount then used a
+    much more aggressive saved setting (or vice versa) would tell the user
+    nothing about whether the setting they're actually about to run with
+    holds up.
+
     :param remote_name: an existing rclone remote name (see list_remotes()).
     :param timeout: total seconds allowed for the whole mount-attach +
         read cycle before giving up and reporting a timeout failure.
@@ -344,6 +428,10 @@ def test_mount(remote_name, timeout=DEFAULT_TEST_MOUNT_TIMEOUT_SECONDS, log_dir=
         (defaults to the same directory real mounts log to, but under a
         "-test.log" filename so a test run never clobbers a real,
         currently-active mount's own diagnostic log for the same remote).
+    :param settings_path: where per-remote checkers/tpslimit overrides are
+        read from (see get_mount_settings()) -- defaults to
+        DEFAULT_MOUNT_SETTINGS_PATH, the same store a real mount() call
+        reads from.
     :return: {"ok": bool, "report": str} -- report carries rclone's real
         error text on failure (never a generic message), or real success
         detail (what was actually listed) on success.
@@ -352,6 +440,7 @@ def test_mount(remote_name, timeout=DEFAULT_TEST_MOUNT_TIMEOUT_SECONDS, log_dir=
     log_dir = Path(log_dir) if log_dir is not None else app_data_dir() / "mount-logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{remote_name}-test.log"
+    settings = get_mount_settings(remote_name, settings_path=settings_path)
 
     process = None
     log_file = open(log_path, "w")
@@ -362,6 +451,8 @@ def test_mount(remote_name, timeout=DEFAULT_TEST_MOUNT_TIMEOUT_SECONDS, log_dir=
                     "rclone", "nfsmount", f"{remote_name}:", str(mount_point),
                     "--read-only",
                     "--vfs-cache-mode", "minimal",
+                    "--checkers", str(settings["checkers"]),
+                    "--tpslimit", str(settings["tpslimit"]),
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=log_file,

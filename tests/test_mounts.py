@@ -3,11 +3,25 @@ import subprocess as subprocess_module
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Imported under an alias: pytest would otherwise try to collect and run
 # `test_mount` itself as a test function (its name matches the `test_*`
 # collection pattern) since importing it binds that exact name at module
 # scope here.
-from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, unmount
+from web.mounts import (
+    get_mount_settings,
+    install_rclone,
+    is_mounted,
+    is_rclone_installed,
+    list_mounts,
+    list_remotes,
+    mount,
+    remote_status,
+    remove_remote,
+    save_mount_settings,
+    unmount,
+)
 from web.mounts import test_mount as run_test_mount
 
 
@@ -39,7 +53,7 @@ def test_mount_starts_rclone_nfsmount_read_only(mock_popen, tmp_path):
     state_path = tmp_path / "mounts_state.json"
     mount_point = tmp_path / "mnt"
 
-    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path)
+    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     args = mock_popen.call_args[0][0]
     assert "rclone" in args
@@ -72,7 +86,7 @@ def test_mount_tunes_checkers_and_skips_dangling_shortcuts(mock_popen, tmp_path)
     state_path = tmp_path / "mounts_state.json"
     mount_point = tmp_path / "mnt"
 
-    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path)
+    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     args = mock_popen.call_args[0][0]
     assert "--checkers" in args
@@ -88,7 +102,7 @@ def test_mount_captures_stderr_to_a_log_file_not_devnull(mock_popen, tmp_path):
     state_path = tmp_path / "mounts_state.json"
     mount_point = tmp_path / "mnt"
 
-    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path)
+    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     kwargs = mock_popen.call_args[1]
     assert kwargs["stderr"] != subprocess_module.DEVNULL
@@ -141,7 +155,7 @@ def test_is_mounted_true_when_process_alive_and_mount_point_readable(mock_popen,
     mock_listdir.return_value = ["some_file.txt"]
     state_path = tmp_path / "mounts_state.json"
 
-    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path)
+    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     assert is_mounted("gdrive", state_path=state_path) is True
 
@@ -153,7 +167,7 @@ def test_is_mounted_false_when_process_is_dead(mock_popen, mock_kill, tmp_path):
     mock_kill.side_effect = OSError("no such process")
     state_path = tmp_path / "mounts_state.json"
 
-    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path)
+    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     assert is_mounted("gdrive", state_path=state_path) is False
 
@@ -168,7 +182,7 @@ def test_is_mounted_false_for_unknown_remote(tmp_path):
 def test_unmount_removes_state_entry(mock_popen, mock_kill, mock_run, tmp_path):
     mock_popen.return_value = MagicMock(pid=12345)
     state_path = tmp_path / "mounts_state.json"
-    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path)
+    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     unmount("gdrive", state_path=state_path)
 
@@ -184,7 +198,7 @@ def test_list_mounts_reflects_is_mounted_health(mock_popen, mock_kill, mock_list
     state_path = tmp_path / "mounts_state.json"
     mount_point = tmp_path / "mnt"
 
-    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path)
+    mount("gdrive", str(mount_point), state_path=state_path, log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     mounts = list_mounts(state_path=state_path)
     assert len(mounts) == 1
@@ -353,7 +367,7 @@ def test_test_mount_success_reports_pass_and_leaves_nothing_mounted(mock_sleep, 
 
     mock_run.side_effect = run_side_effect
 
-    result = run_test_mount("gdrive", log_dir=tmp_path)
+    result = run_test_mount("gdrive", log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     assert result["ok"] is True
     assert "PASS" in result["report"]
@@ -392,7 +406,7 @@ def test_test_mount_surfaces_real_rclone_error_text(mock_sleep, mock_popen, mock
     mock_popen.side_effect = popen_side_effect
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")  # diskutil unmount cleanup
 
-    result = run_test_mount("nonexistent", log_dir=tmp_path)
+    result = run_test_mount("nonexistent", log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     assert result["ok"] is False
     assert "didn't find section in config file" in result["report"]
@@ -422,7 +436,7 @@ def test_test_mount_times_out_instead_of_blocking_forever_on_a_wedged_read(mock_
 
     mock_run.side_effect = run_side_effect
 
-    result = run_test_mount("gdrive", timeout=5, log_dir=tmp_path)
+    result = run_test_mount("gdrive", timeout=5, log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     assert result["ok"] is False
     assert "did not finish" in result["report"] or "timed out" in result["report"].lower()
@@ -448,7 +462,7 @@ def test_test_mount_always_unmounts_even_when_the_read_fails(mock_sleep, mock_po
 
     mock_run.side_effect = run_side_effect
 
-    result = run_test_mount("gdrive", log_dir=tmp_path)
+    result = run_test_mount("gdrive", log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     assert result["ok"] is False
     assert "Input/output error" in result["report"]
@@ -464,7 +478,161 @@ def test_test_mount_reports_when_rclone_is_not_installed(mock_sleep, mock_popen,
     mock_popen.side_effect = FileNotFoundError()
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")  # diskutil unmount cleanup (a no-op here)
 
-    result = run_test_mount("gdrive", log_dir=tmp_path)
+    result = run_test_mount("gdrive", log_dir=tmp_path, settings_path=tmp_path / "mount_settings.json")
 
     assert result["ok"] is False
     assert "rclone isn't installed" in result["report"]
+
+
+# --- Per-remote mount settings (gmc-03) ---------------------------------
+#
+# checkers/tpslimit used to be a single hardcoded literal in mount()'s own
+# argv (16 / 8 -- see mount()'s docstring for how those two numbers were
+# arrived at live). This is a small per-remote settings store (same
+# JSON-file-keyed-by-remote-name shape as mounts_state.json) so a
+# multi-terabyte drive can be tuned differently from a small one without a
+# code change -- while a remote that never opts in keeps getting the exact
+# same 16/8 it always did.
+
+
+def test_get_mount_settings_defaults_when_nothing_saved(tmp_path):
+    settings_path = tmp_path / "mount_settings.json"  # never written to
+
+    assert get_mount_settings("gdrive", settings_path=settings_path) == {"checkers": 16, "tpslimit": 8}
+
+
+def test_get_mount_settings_returns_saved_values(tmp_path):
+    settings_path = tmp_path / "mount_settings.json"
+    save_mount_settings("gdrive", 40, 20, settings_path=settings_path)
+
+    assert get_mount_settings("gdrive", settings_path=settings_path) == {"checkers": 40, "tpslimit": 20}
+
+
+def test_get_mount_settings_saved_values_are_per_remote(tmp_path):
+    """A saved override for one remote must never leak onto another remote's defaults."""
+    settings_path = tmp_path / "mount_settings.json"
+    save_mount_settings("gdrive", 40, 20, settings_path=settings_path)
+
+    assert get_mount_settings("gcs-bucket", settings_path=settings_path) == {"checkers": 16, "tpslimit": 8}
+
+
+def test_save_mount_settings_accepts_string_form_values(tmp_path):
+    """Form data always arrives as strings -- save_mount_settings() must coerce, not reject, a valid numeric string."""
+    settings_path = tmp_path / "mount_settings.json"
+
+    saved = save_mount_settings("gdrive", "40", "20", settings_path=settings_path)
+
+    assert saved == {"checkers": 40, "tpslimit": 20}
+    assert json.loads(settings_path.read_text())["gdrive"] == {"checkers": 40, "tpslimit": 20}
+
+
+@pytest.mark.parametrize("bad_checkers", [-1, 0, "-5", "0", "abc", "1.5", None, ""])
+def test_save_mount_settings_rejects_invalid_checkers(bad_checkers, tmp_path):
+    settings_path = tmp_path / "mount_settings.json"
+
+    with pytest.raises(ValueError):
+        save_mount_settings("gdrive", bad_checkers, 8, settings_path=settings_path)
+
+    assert not settings_path.exists()  # rejected before ever being persisted
+
+
+@pytest.mark.parametrize("bad_tpslimit", [-1, 0, "-5", "0", "abc", "1.5", None, ""])
+def test_save_mount_settings_rejects_invalid_tpslimit(bad_tpslimit, tmp_path):
+    settings_path = tmp_path / "mount_settings.json"
+
+    with pytest.raises(ValueError):
+        save_mount_settings("gdrive", 16, bad_tpslimit, settings_path=settings_path)
+
+    assert not settings_path.exists()
+
+
+def test_save_mount_settings_invalid_value_never_reaches_a_subprocess_call():
+    """Invalid values must be rejected before any subprocess is ever invoked -- validation is pure, no rclone call involved at all."""
+    with patch("web.mounts.subprocess.run") as mock_run, patch("web.mounts.subprocess.Popen") as mock_popen:
+        with pytest.raises(ValueError):
+            save_mount_settings("gdrive", -1, 8, settings_path="/tmp/does-not-matter-for-this-test.json")
+
+    mock_run.assert_not_called()
+    mock_popen.assert_not_called()
+
+
+@patch("web.mounts.subprocess.Popen")
+def test_mount_uses_defaults_when_no_settings_saved(mock_popen, tmp_path):
+    """Regression guard: a remote that has never opted into custom tuning must keep getting exactly the
+    same --checkers 16 --tpslimit 8 mount() has always hardcoded -- no behavior change for it."""
+    mock_popen.return_value = MagicMock(pid=12345)
+    state_path = tmp_path / "mounts_state.json"
+    settings_path = tmp_path / "mount_settings.json"  # never written to
+
+    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path, settings_path=settings_path)
+
+    args = mock_popen.call_args[0][0]
+    assert args[args.index("--checkers") + 1] == "16"
+    assert args[args.index("--tpslimit") + 1] == "8"
+
+
+@patch("web.mounts.subprocess.Popen")
+def test_mount_uses_saved_settings_when_present(mock_popen, tmp_path):
+    """The actual rclone argv must reflect a saved per-remote override, not the hardcoded defaults."""
+    mock_popen.return_value = MagicMock(pid=12345)
+    state_path = tmp_path / "mounts_state.json"
+    settings_path = tmp_path / "mount_settings.json"
+    save_mount_settings("gdrive", 40, 20, settings_path=settings_path)
+
+    mount("gdrive", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path, settings_path=settings_path)
+
+    args = mock_popen.call_args[0][0]
+    assert args[args.index("--checkers") + 1] == "40"
+    assert args[args.index("--tpslimit") + 1] == "20"
+
+
+@patch("web.mounts.subprocess.Popen")
+def test_mount_saved_settings_for_one_remote_do_not_affect_another(mock_popen, tmp_path):
+    mock_popen.return_value = MagicMock(pid=12345)
+    state_path = tmp_path / "mounts_state.json"
+    settings_path = tmp_path / "mount_settings.json"
+    save_mount_settings("gdrive", 40, 20, settings_path=settings_path)
+
+    mount("gcs-bucket", str(tmp_path / "mnt"), state_path=state_path, log_dir=tmp_path, settings_path=settings_path)
+
+    args = mock_popen.call_args[0][0]
+    assert args[args.index("--checkers") + 1] == "16"
+    assert args[args.index("--tpslimit") + 1] == "8"
+
+
+@patch("web.mounts.subprocess.run")
+@patch("web.mounts.subprocess.Popen")
+@patch("web.mounts.time.sleep")
+def test_test_mount_uses_defaults_when_no_settings_saved(mock_sleep, mock_popen, mock_run, tmp_path):
+    """A Test connection run for a remote with no saved tuning must reflect the same 16/8 default a real mount would use."""
+    proc = MagicMock()
+    proc.poll.return_value = None
+    mock_popen.return_value = proc
+    mock_run.return_value = MagicMock(returncode=0, stdout="total 0\n", stderr="")
+    settings_path = tmp_path / "mount_settings.json"  # never written to
+
+    run_test_mount("gdrive", log_dir=tmp_path, settings_path=settings_path)
+
+    args = mock_popen.call_args[0][0]
+    assert args[args.index("--checkers") + 1] == "16"
+    assert args[args.index("--tpslimit") + 1] == "8"
+
+
+@patch("web.mounts.subprocess.run")
+@patch("web.mounts.subprocess.Popen")
+@patch("web.mounts.time.sleep")
+def test_test_mount_uses_saved_settings(mock_sleep, mock_popen, mock_run, tmp_path):
+    """Test connection must reflect a saved per-remote override too, not always the hardcoded defaults --
+    otherwise a passing test would tell the user nothing about the settings a real mount would actually use."""
+    proc = MagicMock()
+    proc.poll.return_value = None
+    mock_popen.return_value = proc
+    mock_run.return_value = MagicMock(returncode=0, stdout="total 0\n", stderr="")
+    settings_path = tmp_path / "mount_settings.json"
+    save_mount_settings("gdrive", 40, 20, settings_path=settings_path)
+
+    run_test_mount("gdrive", log_dir=tmp_path, settings_path=settings_path)
+
+    args = mock_popen.call_args[0][0]
+    assert args[args.index("--checkers") + 1] == "40"
+    assert args[args.index("--tpslimit") + 1] == "20"
