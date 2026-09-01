@@ -831,6 +831,17 @@ this app is a separate, later effort outside this project's own scope.
      when first connecting a new remote, under the wizard's "Advanced"
      disclosure -- this is the same path, just for a remote you already
      have.
+  7. **Test connection**, next to each configured remote on `/mounts`,
+     checks whether a fix (e.g. attaching a dedicated Google API client
+     above) actually worked -- without starting a real, possibly
+     multi-hour find/check-balances job and waiting to find out. It
+     mounts the remote to a throwaway location (never your real,
+     configured mount point for it), does one real, bounded read through
+     that mount, and always unmounts again -- reporting a real pass with
+     what was listed, or a real fail with rclone's actual error text (not
+     a generic message). It times out rather than hanging if the mount
+     itself is wedged, and refuses (409) a second concurrent test against
+     the same remote.
 - **Setup wizard** (`/wizard`) -- "what do you want to scan?" and it routes
   you the rest of the way: a local folder hands straight to the regular
   scan form, a plugged-in physical drive shows you what's detected, Google

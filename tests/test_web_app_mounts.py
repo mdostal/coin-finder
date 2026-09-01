@@ -216,3 +216,109 @@ def test_mounts_update_credentials_requires_a_remote_name(mock_remotes, mock_mou
 
     assert resp.status_code == 400
     assert b"Missing remote name" in resp.data
+
+
+# --- POST /mounts/test (gmc-02) -----------------------------------------
+
+
+@patch("web.app.list_jobs")
+@patch("web.app.start_job")
+@patch("web.app.create_job")
+def test_mounts_test_starts_a_background_job(mock_create_job, mock_start_job, mock_list_jobs, client):
+    """
+    A real mount+read cycle can take up to test_mount()'s own timeout --
+    same as mounts_update_credentials(), this must never run inline on
+    the request thread.
+    """
+    mock_list_jobs.return_value = []
+    mock_create_job.return_value = "job-789"
+
+    resp = client.post("/mounts/test", data={"remote_name": "gdrive"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/item-result/job-789"
+    mock_create_job.assert_called_once_with(kind="test-mount", label="gdrive")
+    mock_start_job.assert_called_once()
+    job_args = mock_start_job.call_args[0]
+    assert job_args[0] == "job-789"
+    assert job_args[2:] == ("gdrive",)
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_test_requires_a_remote_name(mock_remotes, mock_mounts, mock_status, client):
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/test", data={})
+
+    assert resp.status_code == 400
+    assert b"Missing remote name" in resp.data
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.create_job")
+@patch("web.app.list_jobs")
+def test_mounts_test_refuses_a_second_concurrent_test_for_the_same_remote(
+    mock_list_jobs, mock_create_job, mock_remotes, mock_mounts, mock_status, client
+):
+    """
+    Mirrors mounts_bind()'s existing 409 refusal on an unhealthy mount --
+    a test-mount could itself trip the same rate limiting it exists to
+    detect if two ran concurrently against the same remote.
+    """
+    mock_list_jobs.return_value = [{"job_id": "job-1", "kind": "test-mount", "label": "gdrive", "status": "running"}]
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/test", data={"remote_name": "gdrive"}, follow_redirects=False)
+
+    assert resp.status_code == 409
+    mock_create_job.assert_not_called()
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.start_job")
+@patch("web.app.create_job")
+@patch("web.app.list_jobs")
+def test_mounts_test_allows_a_test_for_a_different_remote_while_one_is_running(
+    mock_list_jobs, mock_create_job, mock_start_job, mock_remotes, mock_mounts, mock_status, client
+):
+    mock_list_jobs.return_value = [{"job_id": "job-1", "kind": "test-mount", "label": "gdrive", "status": "running"}]
+    mock_create_job.return_value = "job-2"
+    mock_remotes.return_value = ["gdrive", "gcs-bucket"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/test", data={"remote_name": "gcs-bucket"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    mock_create_job.assert_called_once_with(kind="test-mount", label="gcs-bucket")
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.start_job")
+@patch("web.app.create_job")
+@patch("web.app.list_jobs")
+def test_mounts_test_allows_a_new_test_once_the_prior_one_finished(
+    mock_list_jobs, mock_create_job, mock_start_job, mock_remotes, mock_mounts, mock_status, client
+):
+    mock_list_jobs.return_value = [{"job_id": "job-1", "kind": "test-mount", "label": "gdrive", "status": "done"}]
+    mock_create_job.return_value = "job-2"
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/test", data={"remote_name": "gdrive"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    mock_create_job.assert_called_once_with(kind="test-mount", label="gdrive")

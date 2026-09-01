@@ -75,6 +75,10 @@ drive. Mounts are always read-only.</p>
         <td>{{ r.name }}</td>
         <td>{{ m.status_pill("done" if r.status == "connected" else "error") }} {{ r.status }}</td>
         <td>
+          <form method="post" action="{{ url_for('mounts_test') }}" style="display:inline">
+            <input type="hidden" name="remote_name" value="{{ r.name }}">
+            <button type="submit" class="btn-secondary">Test connection</button>
+          </form>
           <form method="post" action="{{ url_for('mounts_remove') }}" style="display:inline" onsubmit="return confirm('Remove this connection? This deletes it from rclone entirely -- you\'ll need to reconnect from the wizard to use it again.');">
             <input type="hidden" name="remote_name" value="{{ r.name }}">
             <button type="submit" class="btn-secondary">Remove</button>
@@ -83,6 +87,9 @@ drive. Mounts are always read-only.</p>
       </tr>
       <tr>
         <td colspan="3" style="padding-top:0">
+          <p class="subtle">"Test connection" mounts "{{ r.name }}" to a throwaway location, reads its
+          contents for real, then unmounts again -- a quick, safe way to check a fix actually worked
+          without starting a real scan and waiting to find out.</p>
           <details>
             <summary>Mount keeps disconnecting? Attach a dedicated Google API client to "{{ r.name }}"</summary>
             <div style="margin-top:0.75rem">

@@ -13,7 +13,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 
 import run_pipeline
 from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
-from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, unmount
+from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, test_mount, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.check_wallet_balances import check_wallet_balances, load_service, _check_balance_with_retries
 from tools.checkpoint_store import clear_pause_for, request_pause_for
@@ -256,6 +256,18 @@ def create_app(host="127.0.0.1"):
         target_checkpoint_path = _balance_checkpoint_path(output_dir)
         for job in list_jobs():
             if job.get("kind") == "check-balances" and job.get("checkpoint_path") == target_checkpoint_path and job.get("status") == "running":
+                return job["job_id"]
+        return None
+
+    def _running_test_mount_job_for(remote_name):
+        # Mirrors _running_find_job_for/_running_check_balances_job_for
+        # immediately above, for the same class of bug: a test-mount
+        # could itself trip the same rate limiting it exists to detect if
+        # two ran concurrently against the same remote (see
+        # test_mount()'s docstring in web/mounts.py). Refuses a second
+        # concurrent test instead of racing.
+        for job in list_jobs():
+            if job.get("kind") == "test-mount" and job.get("label") == remote_name and job.get("status") == "running":
                 return job["job_id"]
         return None
 
@@ -1596,6 +1608,41 @@ def create_app(host="127.0.0.1"):
         start_job(job_id, _run_update_remote_credentials_job, job_id, remote_name, client_id, client_secret)
         return redirect(url_for("item_result", job_id=job_id))
 
+    @app.route("/mounts/test", methods=["POST"])
+    def mounts_test():
+        """
+        Bounded, real "does this actually hold up" check the user can run
+        any time -- mounts remote_name to a throwaway temp directory, does
+        a real read through it, and unmounts again (see test_mount()'s
+        docstring in web/mounts.py). Backgrounded the same way
+        mounts_update_credentials() backgrounds update_remote_credentials():
+        a real mount+read cycle can take up to test_mount()'s own timeout,
+        which must never sit on the request thread. Refuses (409) a second
+        concurrent test against the same remote, mirroring mounts_bind()'s
+        refusal on an unhealthy mount -- a test-mount could itself trip the
+        same rate limiting it exists to detect if run back-to-back against
+        the same remote.
+        """
+        remote_name = (request.form.get("remote_name") or "").strip()
+        if not remote_name:
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error="Missing remote name."), 400
+
+        existing_job_id = _running_test_mount_job_for(remote_name)
+        if existing_job_id:
+            return (
+                render_template(
+                    "mounts.html",
+                    remotes=_remote_summaries(),
+                    mounts=_mounts_with_log_tail(),
+                    error=f"A connection test is already running for '{remote_name}' -- wait for it to finish before starting another.",
+                ),
+                409,
+            )
+
+        job_id = create_job(kind="test-mount", label=remote_name)
+        start_job(job_id, _run_test_mount_job, remote_name)
+        return redirect(url_for("item_result", job_id=job_id))
+
     @app.route("/vault")
     def vault_page():
         return render_template("vault.html", entries=list_vault_entries(), error=None)
@@ -1878,6 +1925,7 @@ _NAV_GROUP_BY_ENDPOINT = {
     "mounts_unmount": "sources",
     "mounts_remove": "sources",
     "mounts_bind": "sources",
+    "mounts_test": "sources",
     "drive_form": "sources",
     "drive_scan": "sources",
     "gmail_form": "sources",
@@ -2606,6 +2654,10 @@ def _run_update_remote_credentials_job(job_id, remote_name, client_id, client_se
         client_secret,
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
     )
+
+
+def _run_test_mount_job(remote_name):
+    return test_mount(remote_name)
 
 
 def _run_drive_scan_job(output_dir, query, job_id):

@@ -3,7 +3,12 @@ import subprocess as subprocess_module
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+# Imported under an alias: pytest would otherwise try to collect and run
+# `test_mount` itself as a test function (its name matches the `test_*`
+# collection pattern) since importing it binds that exact name at module
+# scope here.
 from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, unmount
+from web.mounts import test_mount as run_test_mount
 
 
 @patch("web.mounts.subprocess.run")
@@ -312,3 +317,154 @@ def test_remove_remote_skips_unmount_when_not_mounted(mock_run, mock_is_mounted,
     remove_remote("gdrive", state_path=state_path)
 
     mock_unmount.assert_not_called()
+
+
+# --- test_mount() ------------------------------------------------------
+#
+# gmc-02: a bounded, real "does this remote actually hold up" check the
+# user can run instead of starting a real find/check-balances job and
+# waiting to find out. Every real subprocess call (Popen, run) is mocked
+# -- no real rclone or Google API calls, and no real mount points are
+# ever created on this machine (the "mount point" test_mount() creates
+# via tempfile.mkdtemp is a real local temp dir, which is fine and
+# always cleaned up -- it's the FUSE mount subprocess itself that's
+# mocked out). `time.sleep` is also mocked so tests never actually wait
+# out the fixed attach grace or any timeout.
+
+
+@patch("web.mounts.subprocess.run")
+@patch("web.mounts.subprocess.Popen")
+@patch("web.mounts.time.sleep")
+def test_test_mount_success_reports_pass_and_leaves_nothing_mounted(mock_sleep, mock_popen, mock_run, tmp_path):
+    """
+    A successful test reports pass + real detail (what was actually
+    listed, not a bare boolean) and leaves nothing mounted afterward --
+    unlike mount(), which leaves a mount running, test_mount() always
+    tears its own throwaway mount back down before returning.
+    """
+    proc = MagicMock()
+    proc.poll.return_value = None  # still running -- the mount attempt "succeeded"
+    mock_popen.return_value = proc
+
+    def run_side_effect(args, **kwargs):
+        if args[0] == "ls":
+            return MagicMock(returncode=0, stdout="total 8\nfile1.txt\nfile2.txt\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")  # diskutil unmount
+
+    mock_run.side_effect = run_side_effect
+
+    result = run_test_mount("gdrive", log_dir=tmp_path)
+
+    assert result["ok"] is True
+    assert "PASS" in result["report"]
+    assert "2 entries" in result["report"]
+
+    mount_point = Path(mock_popen.call_args[0][0][3])
+    assert not mount_point.exists()  # throwaway dir cleaned up, never left behind
+
+    unmount_calls = [c[0][0] for c in mock_run.call_args_list if c[0][0][:2] == ["diskutil", "unmount"]]
+    assert len(unmount_calls) == 1
+    assert unmount_calls[0][2] == str(mount_point)
+
+    # never the user's real configured mount point -- always a throwaway one
+    assert "coin-finder-test-mount-gdrive-" in str(mount_point)
+
+
+@patch("web.mounts.subprocess.run")
+@patch("web.mounts.subprocess.Popen")
+@patch("web.mounts.time.sleep")
+def test_test_mount_surfaces_real_rclone_error_text(mock_sleep, mock_popen, mock_run, tmp_path):
+    """
+    A real rclone failure (simulated here via a nonexistent remote name,
+    which makes rclone exit immediately with a real config-lookup error)
+    must surface rclone's actual error text, not a generic failure
+    message -- the same "don't discard real diagnostics" principle the
+    nfsmount-fix epic already established for the real mount path.
+    """
+
+    def popen_side_effect(args, stdout=None, stderr=None):
+        stderr.write('Failed to create file system for "nonexistent:": didn\'t find section in config file\n')
+        stderr.flush()
+        proc = MagicMock()
+        proc.poll.return_value = 1  # rclone already exited -- the mount attempt failed
+        return proc
+
+    mock_popen.side_effect = popen_side_effect
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")  # diskutil unmount cleanup
+
+    result = run_test_mount("nonexistent", log_dir=tmp_path)
+
+    assert result["ok"] is False
+    assert "didn't find section in config file" in result["report"]
+
+
+@patch("web.mounts.subprocess.run")
+@patch("web.mounts.subprocess.Popen")
+@patch("web.mounts.time.sleep")
+def test_test_mount_times_out_instead_of_blocking_forever_on_a_wedged_read(mock_sleep, mock_popen, mock_run, tmp_path):
+    """
+    Regression coverage for the exact failure mode is_mounted()'s own
+    unbounded os.listdir() suffers from: the read against a wedged FUSE
+    mount must time out, not hang the caller forever. Enforced here via
+    subprocess.run's own `timeout=` (simulated via TimeoutExpired) --
+    no real waiting happens in this test (time.sleep is mocked, and
+    TimeoutExpired is raised synchronously by the mock rather than after
+    any real delay).
+    """
+    proc = MagicMock()
+    proc.poll.return_value = None  # process alive -- the mount step "succeeded"
+    mock_popen.return_value = proc
+
+    def run_side_effect(args, **kwargs):
+        if args[0] == "ls":
+            raise subprocess_module.TimeoutExpired(cmd=args, timeout=kwargs.get("timeout"))
+        return MagicMock(returncode=0, stdout="", stderr="")  # diskutil unmount cleanup
+
+    mock_run.side_effect = run_side_effect
+
+    result = run_test_mount("gdrive", timeout=5, log_dir=tmp_path)
+
+    assert result["ok"] is False
+    assert "did not finish" in result["report"] or "timed out" in result["report"].lower()
+
+    # the request thread was never blocked on the wedged process itself --
+    # it's force-terminated as part of cleanup, not left running.
+    proc.terminate.assert_called_once()
+
+
+@patch("web.mounts.subprocess.run")
+@patch("web.mounts.subprocess.Popen")
+@patch("web.mounts.time.sleep")
+def test_test_mount_always_unmounts_even_when_the_read_fails(mock_sleep, mock_popen, mock_run, tmp_path):
+    """The finally-block unmount must run on every exit path, not just the success path."""
+    proc = MagicMock()
+    proc.poll.return_value = None
+    mock_popen.return_value = proc
+
+    def run_side_effect(args, **kwargs):
+        if args[0] == "ls":
+            return MagicMock(returncode=1, stdout="", stderr="ls: cannot access: Input/output error")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = run_side_effect
+
+    result = run_test_mount("gdrive", log_dir=tmp_path)
+
+    assert result["ok"] is False
+    assert "Input/output error" in result["report"]
+
+    unmount_calls = [c[0][0] for c in mock_run.call_args_list if c[0][0][:2] == ["diskutil", "unmount"]]
+    assert len(unmount_calls) == 1
+
+
+@patch("web.mounts.subprocess.run")
+@patch("web.mounts.subprocess.Popen")
+@patch("web.mounts.time.sleep")
+def test_test_mount_reports_when_rclone_is_not_installed(mock_sleep, mock_popen, mock_run, tmp_path):
+    mock_popen.side_effect = FileNotFoundError()
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")  # diskutil unmount cleanup (a no-op here)
+
+    result = run_test_mount("gdrive", log_dir=tmp_path)
+
+    assert result["ok"] is False
+    assert "rclone isn't installed" in result["report"]
