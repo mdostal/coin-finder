@@ -75,10 +75,75 @@ drive. Mounts are always read-only.</p>
         <td>{{ r.name }}</td>
         <td>{{ m.status_pill("done" if r.status == "connected" else "error") }} {{ r.status }}</td>
         <td>
+          <form method="post" action="{{ url_for('mounts_test') }}" style="display:inline">
+            <input type="hidden" name="remote_name" value="{{ r.name }}">
+            <button type="submit" class="btn-secondary">Test connection</button>
+          </form>
           <form method="post" action="{{ url_for('mounts_remove') }}" style="display:inline" onsubmit="return confirm('Remove this connection? This deletes it from rclone entirely -- you\'ll need to reconnect from the wizard to use it again.');">
             <input type="hidden" name="remote_name" value="{{ r.name }}">
             <button type="submit" class="btn-secondary">Remove</button>
           </form>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="3" style="padding-top:0">
+          <p class="subtle">"Test connection" mounts "{{ r.name }}" to a throwaway location, reads its
+          contents for real, then unmounts again -- a quick, safe way to check a fix actually worked
+          without starting a real scan and waiting to find out.</p>
+          <details>
+            <summary>Mount keeps disconnecting? Attach a dedicated Google API client to "{{ r.name }}"</summary>
+            <div style="margin-top:0.75rem">
+              <p class="subtle">By default every remote signs in through rclone's own shared Google API
+              client -- its request quota is shared across every rclone user on earth, not just you. Under
+              sustained scanning that shared quota can run out (Google replies with a rate-limit error), which
+              looks like the mount randomly dying every 20-30 minutes. Giving "{{ r.name }}" its own dedicated
+              client (free, from your own Google account) gives it its own private quota and fixes this for
+              good.</p>
+
+              <p class="subtle"><strong>Getting a Client ID and Client Secret from Google Cloud Console</strong>
+              (first time only -- five minutes, all done in your browser):</p>
+              <ol class="subtle">
+                <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> and sign in with the same Google account this Drive belongs to. Click the project dropdown at the top and choose <strong>New Project</strong> (any name, e.g. "coin-finder") -- or reuse an existing project if you already have one.</li>
+                <li>Enable the Drive API: with that project selected, use the search bar at the top and search for <strong>Google Drive API</strong>, open it, then click <strong>Enable</strong>.</li>
+                <li>Configure the consent screen: in the left sidebar go to <strong>APIs &amp; Services &rarr; OAuth consent screen</strong>. Choose <strong>External</strong> (unless you have a Google Workspace account), fill in an app name (anything) and your own email as the support and contact email, then save. You can leave scopes and test users on their defaults -- you don't need to publish it.</li>
+                <li>Create the client: go to <strong>APIs &amp; Services &rarr; Credentials</strong>, click <strong>+ Create Credentials &rarr; OAuth client ID</strong>, and set Application type to <strong>Desktop app</strong>. Give it any name and click Create.</li>
+                <li>Copy the two values shown -- <strong>Client ID</strong> and <strong>Client secret</strong> -- straight from that confirmation screen (or later from the client's own detail page under Credentials). Paste the two plain values into the fields below. <strong>Do not</strong> upload or paste the contents of a downloaded <code>client_secret_....json</code> file -- this form needs just the two bare strings shown on the page, not the JSON file.</li>
+              </ol>
+
+              <form method="post" action="{{ url_for('mounts_update_credentials') }}">
+                <input type="hidden" name="remote_name" value="{{ r.name }}">
+                <label>Client ID</label>
+                <input type="text" name="client_id" autocomplete="off" placeholder="123...-abc...apps.googleusercontent.com" required>
+                <label>Client Secret</label>
+                <input type="password" name="client_secret" autocomplete="off" required>
+                <p class="subtle">Submitting opens your browser to re-sign in to Google with the new client
+                and approve access again -- the same "Allow" screen as before. "{{ r.name }}" keeps its name
+                and everything already bound to it; only its Google API client changes. Your client secret is
+                stored in the vault (Portunus), never in this app's own plaintext state.</p>
+                <button type="submit">Attach dedicated credentials</button>
+              </form>
+            </div>
+          </details>
+
+          <details>
+            <summary>Mount tuning for "{{ r.name }}" (checkers / tpslimit)</summary>
+            <div style="margin-top:0.75rem">
+              <p class="subtle">How aggressively rclone lists "{{ r.name }}"'s contents while mounted. The
+              defaults below (16 / 8) are a safe starting point tuned against a real multi-terabyte Drive on
+              the shared default Google API client -- a small drive can often go higher, but raising these on
+              a remote still using the shared client risks the exact rate-limit disconnects the "Attach
+              dedicated credentials" panel above exists to fix, even on a dedicated client if pushed too far.
+              Applies to both a real Mount and Test connection above.</p>
+              <form method="post" action="{{ url_for('mounts_settings') }}" class="inline-form">
+                <input type="hidden" name="remote_name" value="{{ r.name }}">
+                <label>Checkers</label>
+                <input type="number" name="checkers" min="1" step="1" value="{{ r.checkers }}" required>
+                <label>Tpslimit</label>
+                <input type="number" name="tpslimit" min="1" step="1" value="{{ r.tpslimit }}" required>
+                <button type="submit">Save settings</button>
+              </form>
+            </div>
+          </details>
         </td>
       </tr>
       {% endfor %}

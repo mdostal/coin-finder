@@ -12,6 +12,7 @@
 /web/bound_targets.json
 /web/scan_excludes.json
 /web/mounts_state.json
+/web/mount_settings.json
 /web/findings.db
 /web/crawl_runs.db
 /web/scan_index.db
@@ -291,6 +292,8 @@ cython_debug/
 !.pHive/epics/staging-copy-with-original-path-index/**
 !.pHive/epics/incremental-balance-check-writes/
 !.pHive/epics/incremental-balance-check-writes/**
+!.pHive/epics/gdrive-mount-configuration/
+!.pHive/epics/gdrive-mount-configuration/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

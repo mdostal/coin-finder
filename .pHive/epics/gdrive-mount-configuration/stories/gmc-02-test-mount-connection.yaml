@@ -1,0 +1,123 @@
+id: gmc-02-test-mount-connection
+epic: gdrive-mount-configuration
+title: "Test connection" action before committing a real scan
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  No "test connection" flow exists anywhere in the app today (confirmed by
+  grep -- zero hits for test_connection/testConnection across web/*.py and
+  templates). The only way to find out a mount configuration doesn't hold
+  up under load is to start a real find/check-balances job against it and
+  wait -- which is exactly how ~49 manual reattach cycles got burned on
+  the old shared-client mount. This story adds a bounded, real
+  verification the user can run any time: mount, do an actual read
+  (not just check the exit code), report pass/fail with rclone's real
+  error text, and unmount again -- all before any real job touches it.
+
+  This becomes the concrete way to verify gmc-01's dedicated-credentials
+  fix actually worked, without having to babysit a real multi-hour scan
+  to find out.
+
+acceptance_criteria:
+  - "Given a configured remote, when the user clicks Test connection, then the app mounts it, performs a real bounded read (not just an rclone exit code check), and reports pass/fail."
+  - "Given the test succeeds, when it finishes, then the mount is cleanly unmounted again (this is a verification, not a background mount left running) and the real success detail (e.g. directory count / sample listing) is shown."
+  - "Given the test fails (auth error, RATE_LIMIT_EXCEEDED, timeout), when it finishes, then rclone's actual error text is shown to the user, not a generic failure message -- this is the same 'don't discard real diagnostics' principle the nfsmount-fix epic already established for the real mount path."
+  - "Given the mount itself hangs (the same wedged-FUSE failure mode is_mounted() suffers from today), when the test runs, then it times out and reports a timeout rather than hanging the request indefinitely."
+  - "Given a test is already running for a remote, when the user clicks Test connection again, then a second concurrent test against the same remote is refused (409), mirroring the existing pattern where Add to targets refuses on an unhealthy mount."
+
+steps:
+  - id: research
+    description: Confirm how to bound an rclone mount+read cycle with a hard timeout (subprocess timeout on the read; a way to force-kill+unmount the mount process if the read itself wedges) reusing mount()/unmount()'s existing subprocess patterns in web/mounts.py.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests for: a successful test reports pass + real detail and leaves nothing mounted afterward; a real rclone error (simulate via a bad remote name) surfaces its actual text; a hung read times out instead of blocking forever; a concurrent second test against the same remote is refused.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: |
+      Add a test_mount(remote_name, timeout=...) function in web/mounts.py that mounts to a throwaway temp mount point, does a bounded real read, always unmounts in a finally block, and returns a structured pass/fail + detail result. Wire POST /mounts/test route in web/app.py (backgrounded like other mount actions, guarded against concurrent runs the same way the existing _running_check_balances_job_for-style guards work elsewhere in the app). Add the "Test connection" button + result display to web/templates/mounts.html.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review implementation and tests for correctness and convention compliance
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack: {}
+  key_files:
+    - path: web/mounts.py
+      purpose: mount() (146-211) and unmount() (214-234) are the subprocess patterns to reuse -- test_mount() wraps a mount+read+unmount cycle with a hard timeout instead of leaving a mount running.
+    - path: web/mounts.py
+      purpose: is_mounted() (237-261)'s unbounded os.listdir() is the exact hang failure mode this story's timeout must not repeat.
+    - path: web/app.py
+      purpose: Existing /mounts/* routes (1517-1575) show the route + job-backgrounding + concurrency-guard conventions to follow for the new /mounts/test route.
+    - path: web/templates/mounts.html
+      purpose: "Active mounts"/"Configured remotes" tables -- where the new Test connection action + result display need to live.
+
+files_to_modify:
+  - file: web/mounts.py
+    change: Add test_mount(remote_name, timeout=...) -- bounded mount + real read + always-unmount, structured pass/fail result.
+  - file: web/app.py
+    change: Add POST /mounts/test route with a concurrency guard (refuse 409 on an already-running test for that remote).
+  - file: web/templates/mounts.html
+    change: Add "Test connection" button per configured remote + real pass/fail/error display.
+  - file: README.md
+    change: Document the Test connection action in the Mounting Google Drive section.
+
+code_examples:
+  - title: Existing mount() subprocess + log pattern to base test_mount() on
+    file: web/mounts.py
+    snippet: |
+      subprocess.Popen(
+          ["rclone", "nfsmount", f"{remote_name}:", str(mount_point),
+           "--read-only", "--vfs-cache-mode", "minimal",
+           "--checkers", "16", "--tpslimit", "8",
+           "--drive-skip-dangling-shortcuts"],
+          stdout=subprocess.DEVNULL, stderr=log_file,
+      )
+      # unmount(): diskutil unmount first, falls back to plain umount
+
+design_decisions:
+  - decision: Test mounts to a throwaway temp directory, not the user's real configured mount point.
+    rationale: A test must never interfere with (or get confused with) a real, currently-bound mount for the same remote.
+  - decision: Hard timeout on the whole test cycle, not just the mount step.
+    rationale: is_mounted()'s existing unbounded os.listdir() is a documented real failure mode (see shmr-01 on the self-healing-mount-recovery branch) -- a test feature that can itself hang defeats its own purpose.
+
+cross_cutting:
+  - concern: documentation
+    action: "Document the Test connection action in README.md's Mounting Google Drive section once implemented."
+
+metric:
+  applies: true
+  name: gdrive_mount.rate_limit_errors_per_hour
+  direction: down
+  unit: errors/hour
+  baseline: "~2-3 (mount dying every 20-30min under real scan load, pre-fix)"
+  target: 0
+  window: first real find job run against gmc-01's dedicated-credential remote, post gmc-02/gmc-03
+  source:
+    kind: manual
+    ref: "watch the mount log at ~/Library/Application Support/coin-finder/mount-logs/<remote>.log during a real scan for RATE_LIMIT_EXCEEDED / 403 lines"
+  verify_at: "first real GDrive find job dispatched after this epic ships"
+  owner: developer
+
+risks:
+  - severity: medium
+    description: A test-mount could itself trigger the same rate-limiting it's trying to detect, if run repeatedly.
+    mitigation: The concurrency guard (refuse a second concurrent test) plus a short, single bounded read (not a directory-tree walk) keeps each test's API footprint minimal.
+
+references:
+  - path: .pHive/epics/nfsmount-fix/epic.yaml
+    relevant_excerpt: |
+      Switches the mount mechanism and captures real diagnostics instead
+      of discarding them.

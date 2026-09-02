@@ -153,3 +153,165 @@ def create_remote(remote_name, kind="gdrive", client_id="", client_secret="", sc
 
     progress_callback(total_steps, total_steps, "Done")
     return {"ok": True, "report": f"Connected -- '{remote_name}' is ready. Head to the Mounts page to attach and scan it."}
+
+
+def _rclone_config_file_path():
+    """
+    Asks rclone itself where its config file lives (`rclone config file`)
+    instead of hardcoding ~/.config/rclone/rclone.conf -- respects
+    RCLONE_CONFIG/XDG_CONFIG_HOME the same way rclone's own commands do.
+    This is the only reliable way to find the exact file
+    update_remote_credentials() must snapshot before risking a partial
+    rewrite of an already-working remote.
+
+    :return: the config file path as a string, or None if it couldn't be
+        determined -- update_remote_credentials() then skips its
+        backup/restore safety net entirely rather than guessing a path.
+    """
+    result = subprocess.run(["rclone", "config", "file"], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return lines[-1] if lines else None
+
+
+def _restore_config_backup(config_path, backup_content):
+    """
+    Rewrites rclone's config file back to its exact pre-update content --
+    the rollback update_remote_credentials() runs on any failure. A
+    full-file restore (not a second `rclone config update` back to the
+    old values) is used deliberately: it's the only way to also correctly
+    restore (or remove) any OAuth token rclone rewrote mid-attempt, which
+    a value-by-value update back could not safely reconstruct. A no-op if
+    no backup was ever captured (config_path/backup_content is None).
+    """
+    if config_path and backup_content is not None:
+        Path(config_path).write_text(backup_content)
+
+
+def update_remote_credentials(remote_name, client_id, client_secret, progress_callback=None):
+    """
+    Attaches (or replaces) a dedicated Google OAuth client on a remote that
+    already exists, via `rclone config update` -- never delete-and-recreate,
+    so the remote's name and anything already bound to it (mount history,
+    scan targets) survive. This is the fix for the actual root cause
+    documented in web/mounts.py's mount() docstring: a remote with no
+    client_id authenticates through rclone's shared default Google API
+    client, whose request quota is global across every rclone user on
+    earth -- the confirmed cause of the mount dying every 20-30 minutes
+    under sustained scan load.
+
+    Unlike create_remote(), client_id and client_secret are both required
+    here -- there's no "leave it blank for the default" option, since the
+    whole point of calling this is to move a remote OFF the default shared
+    client. Validation (_looks_like_google_client_id) and the vault-backed
+    secret handling exactly mirror create_remote()'s.
+
+    Per `rclone config update --help`, updating a remote's client_id/
+    client_secret also refreshes its OAuth token -- there is no separate
+    "re-auth" step to wire up here; the single `rclone config update` call
+    below opens the browser and completes it, same as `rclone config
+    create` does for a brand-new remote.
+
+    Before touching anything, this snapshots rclone's whole config file
+    (see _rclone_config_file_path()/_restore_config_backup()). If the
+    update command fails, or the post-update verification read (`rclone
+    lsd`, the same pattern create_remote() uses) fails, the snapshot is
+    written straight back -- restoring the remote to its exact prior
+    working state. This is deliberately NOT create_remote()'s
+    delete-on-failure cleanup: that function is cleaning up a just-
+    created, not-yet-trusted remote; this one is one bad credential
+    update away from destroying a remote that was already working, so a
+    failure here must never delete or rename it.
+
+    :param remote_name: an existing rclone remote name (see list_remotes()).
+    :param client_id: required -- must look like a real Google OAuth
+        client ID (ends in .apps.googleusercontent.com).
+    :param client_secret: required, paired with client_id.
+    :param progress_callback: optional callable(current, total, message).
+    :return: {"ok": bool, "report": str}
+    """
+    if progress_callback is None:
+        progress_callback = lambda current, total, message="": None
+
+    if not client_id or not _looks_like_google_client_id(client_id):
+        return {
+            "ok": False,
+            "report": (
+                f"'{client_id}' doesn't look like a real Google OAuth client ID -- those always end in "
+                "\".apps.googleusercontent.com\" (get the real value from Google Cloud Console's OAuth "
+                "client detail page)."
+            ),
+        }
+
+    if not client_secret:
+        return {
+            "ok": False,
+            "report": "Enter the client secret Google Cloud Console shows next to this client ID -- both are required together.",
+        }
+
+    if remote_name not in list_remotes():
+        return {"ok": False, "report": f"No remote named '{remote_name}' exists yet -- connect it first from the Mounts page."}
+
+    total_steps = 4
+    progress_callback(1, total_steps, "Backing up the current configuration")
+    config_path = _rclone_config_file_path()
+    backup_content = None
+    if config_path and Path(config_path).exists():
+        backup_content = Path(config_path).read_text()
+
+    progress_callback(2, total_steps, "Storing your client secret in the vault")
+    secret_name = _vault_secret_name(remote_name)
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write(client_secret)
+        secret_path = f.name
+    try:
+        add_vault_entry(secret_name, secret_path, description=f"rclone client secret for remote '{remote_name}'")
+    finally:
+        Path(secret_path).unlink(missing_ok=True)
+
+    [(_, resolved_secret)] = resolve_vault_entries_with_values([secret_name])
+
+    progress_callback(
+        3, total_steps,
+        "Updating the remote and re-authenticating with Google -- approve access there, this will finish automatically",
+    )
+    try:
+        result = subprocess.run(
+            ["rclone", "config", "update", remote_name, "client_id", client_id, "client_secret", resolved_secret],
+            capture_output=True, text=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        _restore_config_backup(config_path, backup_content)
+        return {
+            "ok": False,
+            "report": f"Timed out waiting for the Google sign-in to complete (5 minutes). '{remote_name}' was left unchanged -- try again from the Mounts page.",
+        }
+    finally:
+        resolved_secret = None  # best-effort scrub of the one local reference to the raw value
+
+    if result.returncode != 0:
+        _restore_config_backup(config_path, backup_content)
+        return {
+            "ok": False,
+            "report": f"rclone could not update '{remote_name}':\n{result.stderr.strip() or result.stdout.strip()}\n'{remote_name}' was left unchanged.",
+        }
+
+    progress_callback(total_steps, total_steps, "Verifying the connection actually works")
+    verify = subprocess.run(["rclone", "lsd", f"{remote_name}:", "--max-depth", "1"], capture_output=True, text=True, timeout=VERIFY_TIMEOUT_SECONDS)
+    if verify.returncode != 0:
+        _restore_config_backup(config_path, backup_content)
+        return {
+            "ok": False,
+            "report": (
+                f"'{remote_name}' didn't finish signing in with the new client -- rclone couldn't read anything from it just now. "
+                f"'{remote_name}' was restored to its previous working state; try again from the Mounts page.\n"
+                f"{verify.stderr.strip() or verify.stdout.strip()}"
+            ),
+        }
+
+    progress_callback(total_steps, total_steps, "Done")
+    return {
+        "ok": True,
+        "report": f"'{remote_name}' now uses your dedicated Google OAuth client. Head to the Mounts page to reattach and scan it.",
+    }

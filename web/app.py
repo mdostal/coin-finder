@@ -13,7 +13,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 
 import run_pipeline
 from web.bound_targets import add_target, list_mounted_volumes, list_targets, remove_target
-from web.mounts import install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, unmount
+from web.mounts import get_mount_settings, install_rclone, is_mounted, is_rclone_installed, list_mounts, list_remotes, mount, remote_status, remove_remote, save_mount_settings, test_mount, unmount
 from tools.check_fork_coins import check_fork_coins_for_addresses, render_fork_coin_report
 from tools.check_wallet_balances import check_wallet_balances, load_service, _check_balance_with_retries
 from tools.checkpoint_store import clear_pause_for, request_pause_for
@@ -41,7 +41,7 @@ from web.native_dialogs import pick_path
 from web.paths import app_data_dir, is_frozen
 from web.update import check_for_update, perform_update
 from web.vault import add_vault_entry, edit_vault_entry, list_vault_entries, resolve_vault_entries_with_values, revoke_vault_entry
-from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote
+from web.rclone_wizard import DEFAULT_SCOPE, SCOPE_CHOICES, create_remote, update_remote_credentials
 from web.crawl_runs import clear_all_crawl_runs, compute_confidence_scores, find_overlap_addresses, get_cross_group_overlap, get_runs_graph_data, list_crawl_runs, record_crawl_run
 from web.scan_history import clear_scan_history, list_scan_history, record_scan
 from web.auto_unlock_history import (
@@ -256,6 +256,18 @@ def create_app(host="127.0.0.1"):
         target_checkpoint_path = _balance_checkpoint_path(output_dir)
         for job in list_jobs():
             if job.get("kind") == "check-balances" and job.get("checkpoint_path") == target_checkpoint_path and job.get("status") == "running":
+                return job["job_id"]
+        return None
+
+    def _running_test_mount_job_for(remote_name):
+        # Mirrors _running_find_job_for/_running_check_balances_job_for
+        # immediately above, for the same class of bug: a test-mount
+        # could itself trip the same rate limiting it exists to detect if
+        # two ran concurrently against the same remote (see
+        # test_mount()'s docstring in web/mounts.py). Refuses a second
+        # concurrent test instead of racing.
+        for job in list_jobs():
+            if job.get("kind") == "test-mount" and job.get("label") == remote_name and job.get("status") == "running":
                 return job["job_id"]
         return None
 
@@ -1574,6 +1586,89 @@ def create_app(host="127.0.0.1"):
         add_target(remote_name, mount_point, kind)
         return redirect(url_for("targets_page"))
 
+    @app.route("/mounts/update-credentials", methods=["POST"])
+    def mounts_update_credentials():
+        """
+        Attaches a dedicated Google OAuth client to a remote that already
+        exists -- the actual fix for the mount dying every 20-30 minutes
+        under a shared, globally rate-limited default client (see
+        web/mounts.py's mount() docstring). Backgrounded the same way
+        wizard_cloud_connect() backgrounds create_remote(): the underlying
+        `rclone config update` call blocks on a real browser-based OAuth
+        handshake, which must never sit on the request thread.
+        """
+        remote_name = (request.form.get("remote_name") or "").strip()
+        client_id = (request.form.get("client_id") or "").strip()
+        client_secret = request.form.get("client_secret") or ""
+
+        if not remote_name:
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error="Missing remote name."), 400
+
+        job_id = create_job(kind="update-remote-credentials", label=remote_name)
+        start_job(job_id, _run_update_remote_credentials_job, job_id, remote_name, client_id, client_secret)
+        return redirect(url_for("item_result", job_id=job_id))
+
+    @app.route("/mounts/settings", methods=["POST"])
+    def mounts_settings():
+        """
+        Saves per-remote --checkers/--tpslimit tuning (gmc-03) -- a fast,
+        local JSON write (save_mount_settings()), so unlike
+        mounts_update_credentials()/mounts_test() this runs synchronously
+        on the request thread rather than through create_job()/start_job();
+        there's no blocking OAuth handshake or bounded mount+read cycle
+        here to keep off it, matching mounts_mount()'s own synchronous
+        pattern just above. Validation (positive integers only) happens
+        inside save_mount_settings() itself, before any value could ever
+        reach an rclone command line -- a ValueError from it is rendered
+        back as a 400, the same shape mounts_mount()'s own missing-field
+        400 already uses.
+        """
+        remote_name = (request.form.get("remote_name") or "").strip()
+        if not remote_name:
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error="Missing remote name."), 400
+
+        try:
+            save_mount_settings(remote_name, request.form.get("checkers"), request.form.get("tpslimit"))
+        except ValueError as e:
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error=str(e)), 400
+
+        return redirect(url_for("mounts_page"))
+
+    @app.route("/mounts/test", methods=["POST"])
+    def mounts_test():
+        """
+        Bounded, real "does this actually hold up" check the user can run
+        any time -- mounts remote_name to a throwaway temp directory, does
+        a real read through it, and unmounts again (see test_mount()'s
+        docstring in web/mounts.py). Backgrounded the same way
+        mounts_update_credentials() backgrounds update_remote_credentials():
+        a real mount+read cycle can take up to test_mount()'s own timeout,
+        which must never sit on the request thread. Refuses (409) a second
+        concurrent test against the same remote, mirroring mounts_bind()'s
+        refusal on an unhealthy mount -- a test-mount could itself trip the
+        same rate limiting it exists to detect if run back-to-back against
+        the same remote.
+        """
+        remote_name = (request.form.get("remote_name") or "").strip()
+        if not remote_name:
+            return render_template("mounts.html", remotes=_remote_summaries(), mounts=_mounts_with_log_tail(), error="Missing remote name."), 400
+
+        existing_job_id = _running_test_mount_job_for(remote_name)
+        if existing_job_id:
+            return (
+                render_template(
+                    "mounts.html",
+                    remotes=_remote_summaries(),
+                    mounts=_mounts_with_log_tail(),
+                    error=f"A connection test is already running for '{remote_name}' -- wait for it to finish before starting another.",
+                ),
+                409,
+            )
+
+        job_id = create_job(kind="test-mount", label=remote_name)
+        start_job(job_id, _run_test_mount_job, remote_name)
+        return redirect(url_for("item_result", job_id=job_id))
+
     @app.route("/vault")
     def vault_page():
         return render_template("vault.html", entries=list_vault_entries(), error=None)
@@ -1856,6 +1951,8 @@ _NAV_GROUP_BY_ENDPOINT = {
     "mounts_unmount": "sources",
     "mounts_remove": "sources",
     "mounts_bind": "sources",
+    "mounts_test": "sources",
+    "mounts_settings": "sources",
     "drive_form": "sources",
     "drive_scan": "sources",
     "gmail_form": "sources",
@@ -1980,13 +2077,20 @@ def _split_lines(raw):
 
 def _remote_summaries():
     """
-    [{"name", "status"}, ...] for every configured rclone remote -- status
-    via remote_status()'s fast, local, per-remote check. list_remotes()
-    itself stays a bare name list (used as-is for the mount-point <select>
-    and the already-exists check) -- status is layered on only where a
-    template actually displays it.
+    [{"name", "status", "checkers", "tpslimit"}, ...] for every configured
+    rclone remote -- status via remote_status()'s fast, local, per-remote
+    check, checkers/tpslimit via get_mount_settings()'s effective (saved-or-
+    default) values (gmc-03) so the settings form on /mounts always
+    pre-fills with what a real mount would actually use, never a blank
+    field. list_remotes() itself stays a bare name list (used as-is for the
+    mount-point <select> and the already-exists check) -- everything else
+    is layered on only where a template actually displays it.
     """
-    return [{"name": name, "status": remote_status(name)} for name in list_remotes()]
+    summaries = []
+    for name in list_remotes():
+        settings = get_mount_settings(name)
+        summaries.append({"name": name, "status": remote_status(name), "checkers": settings["checkers"], "tpslimit": settings["tpslimit"]})
+    return summaries
 
 
 def _mounts_with_log_tail(lines=15):
@@ -2575,6 +2679,19 @@ def _run_connect_remote_job(job_id, remote_name, kind, client_id, client_secret,
         scope=scope,
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
     )
+
+
+def _run_update_remote_credentials_job(job_id, remote_name, client_id, client_secret):
+    return update_remote_credentials(
+        remote_name,
+        client_id,
+        client_secret,
+        progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
+    )
+
+
+def _run_test_mount_job(remote_name):
+    return test_mount(remote_name)
 
 
 def _run_drive_scan_job(output_dir, query, job_id):

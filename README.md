@@ -812,6 +812,52 @@ this app is a separate, later effort outside this project's own scope.
      the difference between "drive is empty" and "drive stopped responding
      partway through." This is a real, known limitation, not a false
      guarantee of resilience.
+  6. **If a Google Drive mount keeps dying every 20-30 minutes** under
+     sustained scanning, the cause is almost always rate limiting: by
+     default every remote authenticates through rclone's own shared Google
+     API client, whose request quota is global across every rclone user on
+     earth, not just you -- under heavy scanning that shared quota runs out
+     and Google starts rejecting requests. The durable fix is giving the
+     remote its own dedicated Google OAuth client (a free, personal quota
+     that's yours alone), attached in place without losing the remote's
+     name or anything already bound to it: on `/mounts`, expand **"Mount
+     keeps disconnecting? Attach a dedicated Google API client"** under the
+     remote in question. That panel walks through creating a Client ID and
+     Client Secret in Google Cloud Console step by step (enabling the
+     Drive API, configuring the OAuth consent screen, creating a Desktop
+     app OAuth client) for anyone who has never used Cloud Console before,
+     then re-authenticates that remote against the new client once you
+     submit the two values. The same fields are also available up front
+     when first connecting a new remote, under the wizard's "Advanced"
+     disclosure -- this is the same path, just for a remote you already
+     have.
+  7. **Test connection**, next to each configured remote on `/mounts`,
+     checks whether a fix (e.g. attaching a dedicated Google API client
+     above) actually worked -- without starting a real, possibly
+     multi-hour find/check-balances job and waiting to find out. It
+     mounts the remote to a throwaway location (never your real,
+     configured mount point for it), does one real, bounded read through
+     that mount, and always unmounts again -- reporting a real pass with
+     what was listed, or a real fail with rclone's actual error text (not
+     a generic message). It times out rather than hanging if the mount
+     itself is wedged, and refuses (409) a second concurrent test against
+     the same remote.
+  8. **Mount tuning (checkers / tpslimit)**, under "Mount tuning" next to
+     each configured remote on `/mounts`, controls how aggressively rclone
+     lists that remote's contents while mounted -- `--checkers` (how many
+     concurrent directory listers) and `--tpslimit` (a cap on total Drive
+     API transactions/sec). These are **per-remote**, not a single global
+     setting: a small backup folder and a multi-terabyte archive genuinely
+     warrant different tuning. The form is pre-filled with the current
+     effective values -- 16 / 8 when a remote hasn't saved its own, the
+     same numbers this app always used before this setting existed, so
+     raising them is a deliberate choice, not a blank-field guess. Applies
+     to both a real Mount and a Test connection run, so a test reflects
+     the exact settings a real mount would use. Only positive whole
+     numbers are accepted (rejected before it ever reaches rclone
+     otherwise); pushing these too high risks reintroducing the same
+     rate-limit disconnects the dedicated-credentials panel above exists
+     to fix, even on a dedicated client.
 - **Setup wizard** (`/wizard`) -- "what do you want to scan?" and it routes
   you the rest of the way: a local folder hands straight to the regular
   scan form, a plugged-in physical drive shows you what's detected, Google

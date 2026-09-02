@@ -2,12 +2,28 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 from web.paths import app_data_dir
 
 DEFAULT_STATE_PATH = app_data_dir() / "mounts_state.json"
+
+# A small sibling store, same JSON-file-keyed-by-remote-name shape as
+# DEFAULT_STATE_PATH/mounts_state.json (deliberately not folded into that
+# same file/dict -- mounts_state.json is churned on every mount/unmount and
+# only ever holds currently-running-mount bookkeeping, while this holds a
+# user's deliberate tuning choice that must persist across mounts/unmounts/
+# restarts untouched).
+DEFAULT_MOUNT_SETTINGS_PATH = app_data_dir() / "mount_settings.json"
+
+# gmc-03: the exact values mount()'s argv hardcoded before per-remote tuning
+# existed (see mount()'s own docstring for how 16/8 was arrived at live) --
+# now the fallback for any remote that hasn't opted into custom settings, so
+# adding this store is a no-op behavior change for every existing remote.
+DEFAULT_CHECKERS = 16
+DEFAULT_TPSLIMIT = 8
 
 
 def _load_state(state_path):
@@ -23,6 +39,59 @@ def _save_state(state_path, state):
     state_path.parent.mkdir(parents=True, exist_ok=True)
     with open(state_path, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def _validate_positive_int(value, field_name):
+    """
+    Positive integers only, rejected here -- before this value can ever
+    reach an rclone command line -- rather than left to rclone itself to
+    reject (or silently misinterpret) a bad `--checkers`/`--tpslimit`
+    argument. `int()` itself already refuses a non-numeric string (and a
+    float-looking one like "1.5") by raising ValueError, so that check is
+    free; zero/negative need an explicit check since `int()` accepts them.
+    """
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} must be a whole number, got {value!r}.")
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be a positive number, got {parsed}.")
+    return parsed
+
+
+def get_mount_settings(remote_name, settings_path=DEFAULT_MOUNT_SETTINGS_PATH):
+    """
+    Effective per-remote mount tuning -- {"checkers", "tpslimit"} -- falling
+    back to DEFAULT_CHECKERS/DEFAULT_TPSLIMIT for any field (or the whole
+    remote) that has no saved override. Never raises: a missing or
+    unreadable-for-this-remote entry is exactly "use the defaults", not an
+    error.
+    """
+    settings = _load_state(settings_path)
+    entry = settings.get(remote_name, {})
+    return {
+        "checkers": entry.get("checkers", DEFAULT_CHECKERS),
+        "tpslimit": entry.get("tpslimit", DEFAULT_TPSLIMIT),
+    }
+
+
+def save_mount_settings(remote_name, checkers, tpslimit, settings_path=DEFAULT_MOUNT_SETTINGS_PATH):
+    """
+    Validates and persists a per-remote checkers/tpslimit override. Raises
+    ValueError (never reaches subprocess/rclone) for a negative, zero, or
+    non-numeric value -- validation happens before _save_state is ever
+    called, so an invalid submission never partially overwrites a
+    previously-saved good value.
+
+    :return: the validated {"checkers", "tpslimit"} that was saved.
+    """
+    checkers = _validate_positive_int(checkers, "checkers")
+    tpslimit = _validate_positive_int(tpslimit, "tpslimit")
+
+    settings = _load_state(settings_path)
+    settings[remote_name] = {"checkers": checkers, "tpslimit": tpslimit}
+    _save_state(settings_path, settings)
+    return {"checkers": checkers, "tpslimit": tpslimit}
 
 
 def is_rclone_installed():
@@ -143,7 +212,7 @@ def remove_remote(remote_name, state_path=DEFAULT_STATE_PATH):
     subprocess.run(["rclone", "config", "delete", remote_name], capture_output=True, text=True)
 
 
-def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None):
+def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None, settings_path=DEFAULT_MOUNT_SETTINGS_PATH):
     """
     Starts `rclone nfsmount <remote>: <mount_point>` as a background
     process. NOT `rclone mount` -- confirmed live (direct reproduction,
@@ -158,6 +227,14 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
     stderr is captured to a real log file (not discarded) -- confirmed
     live this was the difference between a bare, undiagnosable "ERROR"
     pill and an actionable error message.
+
+    --checkers/--tpslimit come from get_mount_settings(remote_name) --
+    DEFAULT_CHECKERS (16) / DEFAULT_TPSLIMIT (8) below for any remote that
+    hasn't saved its own values (gmc-03: a no-op behavior change for every
+    remote that doesn't opt in). The numbers below explain why those two
+    particular defaults were chosen, not why they're hardcoded -- they no
+    longer are; a multi-terabyte drive that needs different tuning can get
+    it from the settings form on /mounts without a code change.
 
     --checkers 16 (rclone's default is 8; this was 32 briefly, see below):
     a `find` scan over this mount is a pure metadata walk (readdir/stat,
@@ -193,13 +270,14 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{remote_name}.log"
     log_file = open(log_path, "w")
+    settings = get_mount_settings(remote_name, settings_path=settings_path)
     process = subprocess.Popen(
         [
             "rclone", "nfsmount", f"{remote_name}:", str(mount_point),
             "--read-only",
             "--vfs-cache-mode", "minimal",
-            "--checkers", "16",
-            "--tpslimit", "8",
+            "--checkers", str(settings["checkers"]),
+            "--tpslimit", str(settings["tpslimit"]),
             "--drive-skip-dangling-shortcuts",
         ],
         stdout=subprocess.DEVNULL,
@@ -211,25 +289,38 @@ def mount(remote_name, mount_point, state_path=DEFAULT_STATE_PATH, log_dir=None)
     _save_state(state_path, state)
 
 
+def _unmount_path(mount_point):
+    """
+    The actual diskutil-first-then-umount-fallback OS mechanics, factored
+    out of unmount() so test_mount() can reuse it directly against a raw
+    path -- test_mount()'s throwaway mount is never written to
+    mounts_state.json (it's not a tracked, real mount), so it can't go
+    through unmount()'s remote_name-keyed lookup; worse, calling
+    unmount(remote_name) from test_mount() would risk tearing down a
+    REAL, currently-tracked mount for that same remote if one happens to
+    be active at the same time. Confirmed live: plain `umount` fails on
+    this NFS-served mount with "Resource busy -- try 'diskutil unmount'"
+    even when nothing is actually reading from it -- macOS's own error
+    message names the real fix. `diskutil unmount` is tried first; a
+    plain `umount` is the fallback for any platform where `diskutil`
+    isn't on PATH.
+    """
+    result = subprocess.run(["diskutil", "unmount", str(mount_point)], capture_output=True)
+    if result.returncode != 0:
+        subprocess.run(["umount", str(mount_point)], capture_output=True)
+
+
 def unmount(remote_name, state_path=DEFAULT_STATE_PATH):
     """
     Unmounts and drops the tracked state entry. A no-op for an untracked
     remote.
-
-    Confirmed live: plain `umount` fails on this NFS-served mount with
-    "Resource busy -- try 'diskutil unmount'" even when nothing is
-    actually reading from it -- macOS's own error message names the
-    real fix. `diskutil unmount` is tried first; a plain `umount` is
-    the fallback for any platform where `diskutil` isn't on PATH.
     """
     state = _load_state(state_path)
     entry = state.get(remote_name)
     if entry is None:
         return
 
-    result = subprocess.run(["diskutil", "unmount", entry["mount_point"]], capture_output=True)
-    if result.returncode != 0:
-        subprocess.run(["umount", entry["mount_point"]], capture_output=True)
+    _unmount_path(entry["mount_point"])
     del state[remote_name]
     _save_state(state_path, state)
 
@@ -276,3 +367,138 @@ def list_mounts(state_path=DEFAULT_STATE_PATH):
         }
         for name, entry in state.items()
     ]
+
+
+DEFAULT_TEST_MOUNT_TIMEOUT_SECONDS = 30
+
+# rclone nfsmount's Popen call returns immediately, well before the NFS
+# mount is actually bound -- this is how long test_mount() waits before
+# its first (and only) read attempt. Small relative to the overall
+# timeout on purpose: the read itself is where the real, unbounded time
+# should go, not this fixed startup grace.
+_TEST_MOUNT_ATTACH_GRACE_SECONDS = 2
+
+
+def _log_tail(log_path, lines=20):
+    try:
+        with open(log_path) as f:
+            return "".join(f.readlines()[-lines:]).strip()
+    except OSError:
+        return ""
+
+
+def test_mount(remote_name, timeout=DEFAULT_TEST_MOUNT_TIMEOUT_SECONDS, log_dir=None, settings_path=DEFAULT_MOUNT_SETTINGS_PATH):
+    """
+    A bounded, real "does this remote actually hold up" check the user
+    can run any time, instead of the only prior option -- starting a real
+    find/check-balances job and waiting to find out, which is how ~49
+    manual reattach cycles got burned on the old shared-client mount (see
+    web/mounts.py's mount() docstring for the root cause that fix
+    addressed). Mounts remote_name to a THROWAWAY temp directory (never
+    the caller's real, configured mount point for that remote -- a test
+    must never collide with, or be confused with, a currently-bound real
+    mount for the same remote), performs one real, bounded directory
+    listing through that mount (not just an rclone exit-code check --
+    rclone nfsmount can report success and still serve a wedged/broken
+    filesystem), and ALWAYS unmounts and cleans up the temp directory
+    again before returning, on every exit path.
+
+    Hard-bounded on the whole cycle via `timeout`. The mount step itself
+    is a non-blocking subprocess.Popen (same pattern as mount()), so it
+    can't hang this function; the actual read is run as its own
+    subprocess (`ls` against the mounted path) with subprocess.run's own
+    `timeout=`, so if the FUSE mount is wedged, it's that read subprocess
+    that hangs and gets killed when its timeout elapses -- never this
+    function's own thread. This is deliberately NOT is_mounted()'s
+    unbounded os.listdir() (web/mounts.py's own documented failure mode):
+    a verification feature that can itself hang forever would defeat its
+    own purpose.
+
+    gmc-03: mounts with the same get_mount_settings(remote_name)
+    checkers/tpslimit that a real mount() call would use -- a test that
+    passed under the hardcoded defaults but the real mount then used a
+    much more aggressive saved setting (or vice versa) would tell the user
+    nothing about whether the setting they're actually about to run with
+    holds up.
+
+    :param remote_name: an existing rclone remote name (see list_remotes()).
+    :param timeout: total seconds allowed for the whole mount-attach +
+        read cycle before giving up and reporting a timeout failure.
+    :param log_dir: where to write rclone's stderr for this test run
+        (defaults to the same directory real mounts log to, but under a
+        "-test.log" filename so a test run never clobbers a real,
+        currently-active mount's own diagnostic log for the same remote).
+    :param settings_path: where per-remote checkers/tpslimit overrides are
+        read from (see get_mount_settings()) -- defaults to
+        DEFAULT_MOUNT_SETTINGS_PATH, the same store a real mount() call
+        reads from.
+    :return: {"ok": bool, "report": str} -- report carries rclone's real
+        error text on failure (never a generic message), or real success
+        detail (what was actually listed) on success.
+    """
+    mount_point = Path(tempfile.mkdtemp(prefix=f"coin-finder-test-mount-{remote_name}-"))
+    log_dir = Path(log_dir) if log_dir is not None else app_data_dir() / "mount-logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{remote_name}-test.log"
+    settings = get_mount_settings(remote_name, settings_path=settings_path)
+
+    process = None
+    log_file = open(log_path, "w")
+    try:
+        try:
+            process = subprocess.Popen(
+                [
+                    "rclone", "nfsmount", f"{remote_name}:", str(mount_point),
+                    "--read-only",
+                    "--vfs-cache-mode", "minimal",
+                    "--checkers", str(settings["checkers"]),
+                    "--tpslimit", str(settings["tpslimit"]),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=log_file,
+            )
+        except FileNotFoundError:
+            return {"ok": False, "report": "FAIL -- rclone isn't installed (or isn't on PATH) -- install it from the Mounts page first."}
+
+        time.sleep(min(_TEST_MOUNT_ATTACH_GRACE_SECONDS, timeout))
+        log_file.flush()
+
+        if process.poll() is not None:
+            # Exited already -- the mount attempt itself failed outright
+            # (e.g. a bad/nonexistent remote name). rclone's real error
+            # text lives in the log file this Popen call wrote to, never
+            # discarded for a generic message.
+            return {
+                "ok": False,
+                "report": f"FAIL -- rclone exited before '{remote_name}' finished mounting:\n{_log_tail(log_path)}",
+            }
+
+        remaining = max(timeout - _TEST_MOUNT_ATTACH_GRACE_SECONDS, 1)
+        try:
+            listing = subprocess.run(["ls", "-la", str(mount_point)], capture_output=True, text=True, timeout=remaining)
+        except subprocess.TimeoutExpired:
+            return {
+                "ok": False,
+                "report": (
+                    f"FAIL -- '{remote_name}' mounted, but reading its contents did not finish within {timeout}s -- "
+                    "the mount may be wedged under load, the exact failure this test exists to catch."
+                ),
+            }
+
+        if listing.returncode != 0:
+            return {
+                "ok": False,
+                "report": f"FAIL -- '{remote_name}' mounted, but reading its contents failed:\n{listing.stderr.strip() or listing.stdout.strip()}",
+            }
+
+        entries = [line for line in listing.stdout.splitlines()[1:] if line.strip()]  # skip ls -la's leading "total N" line
+        return {
+            "ok": True,
+            "report": f"PASS -- mounted '{remote_name}' and listed its contents successfully ({len(entries)} entr{'y' if len(entries) == 1 else 'ies'} at the top level).",
+        }
+    finally:
+        log_file.close()
+        _unmount_path(mount_point)
+        if process is not None and process.poll() is None:
+            process.terminate()
+        shutil.rmtree(mount_point, ignore_errors=True)

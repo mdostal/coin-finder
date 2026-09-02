@@ -172,3 +172,222 @@ def test_mounts_page_no_log_tail_for_a_healthy_mount(mock_remotes, mock_mounts, 
 
     assert resp.status_code == 200
     assert b"this is noise" not in resp.data
+
+
+@patch("web.app.start_job")
+@patch("web.app.create_job")
+def test_mounts_update_credentials_starts_a_background_job(mock_create_job, mock_start_job, client):
+    """
+    Mirrors test_wizard_cloud_connect_starts_a_background_job's pattern --
+    the underlying update_remote_credentials() call blocks on a real
+    browser-based OAuth handshake, same as create_remote(), so this route
+    must never run it inline on the request thread.
+    """
+    mock_create_job.return_value = "job-456"
+
+    resp = client.post(
+        "/mounts/update-credentials",
+        data={"remote_name": "gdrive", "client_id": "123456-abc.apps.googleusercontent.com", "client_secret": "shh"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/item-result/job-456"
+    mock_create_job.assert_called_once_with(kind="update-remote-credentials", label="gdrive")
+    mock_start_job.assert_called_once()
+    job_args = mock_start_job.call_args[0]
+    assert job_args[0] == "job-456"
+    # the actual work function is backgrounded with the submitted remote/credentials, not run inline
+    assert job_args[2:] == ("job-456", "gdrive", "123456-abc.apps.googleusercontent.com", "shh")
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_update_credentials_requires_a_remote_name(mock_remotes, mock_mounts, mock_status, client):
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post(
+        "/mounts/update-credentials",
+        data={"client_id": "123456-abc.apps.googleusercontent.com", "client_secret": "shh"},
+    )
+
+    assert resp.status_code == 400
+    assert b"Missing remote name" in resp.data
+
+
+# --- POST /mounts/test (gmc-02) -----------------------------------------
+
+
+@patch("web.app.list_jobs")
+@patch("web.app.start_job")
+@patch("web.app.create_job")
+def test_mounts_test_starts_a_background_job(mock_create_job, mock_start_job, mock_list_jobs, client):
+    """
+    A real mount+read cycle can take up to test_mount()'s own timeout --
+    same as mounts_update_credentials(), this must never run inline on
+    the request thread.
+    """
+    mock_list_jobs.return_value = []
+    mock_create_job.return_value = "job-789"
+
+    resp = client.post("/mounts/test", data={"remote_name": "gdrive"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/item-result/job-789"
+    mock_create_job.assert_called_once_with(kind="test-mount", label="gdrive")
+    mock_start_job.assert_called_once()
+    job_args = mock_start_job.call_args[0]
+    assert job_args[0] == "job-789"
+    assert job_args[2:] == ("gdrive",)
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_test_requires_a_remote_name(mock_remotes, mock_mounts, mock_status, client):
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/test", data={})
+
+    assert resp.status_code == 400
+    assert b"Missing remote name" in resp.data
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.create_job")
+@patch("web.app.list_jobs")
+def test_mounts_test_refuses_a_second_concurrent_test_for_the_same_remote(
+    mock_list_jobs, mock_create_job, mock_remotes, mock_mounts, mock_status, client
+):
+    """
+    Mirrors mounts_bind()'s existing 409 refusal on an unhealthy mount --
+    a test-mount could itself trip the same rate limiting it exists to
+    detect if two ran concurrently against the same remote.
+    """
+    mock_list_jobs.return_value = [{"job_id": "job-1", "kind": "test-mount", "label": "gdrive", "status": "running"}]
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/test", data={"remote_name": "gdrive"}, follow_redirects=False)
+
+    assert resp.status_code == 409
+    mock_create_job.assert_not_called()
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.start_job")
+@patch("web.app.create_job")
+@patch("web.app.list_jobs")
+def test_mounts_test_allows_a_test_for_a_different_remote_while_one_is_running(
+    mock_list_jobs, mock_create_job, mock_start_job, mock_remotes, mock_mounts, mock_status, client
+):
+    mock_list_jobs.return_value = [{"job_id": "job-1", "kind": "test-mount", "label": "gdrive", "status": "running"}]
+    mock_create_job.return_value = "job-2"
+    mock_remotes.return_value = ["gdrive", "gcs-bucket"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/test", data={"remote_name": "gcs-bucket"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    mock_create_job.assert_called_once_with(kind="test-mount", label="gcs-bucket")
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.start_job")
+@patch("web.app.create_job")
+@patch("web.app.list_jobs")
+def test_mounts_test_allows_a_new_test_once_the_prior_one_finished(
+    mock_list_jobs, mock_create_job, mock_start_job, mock_remotes, mock_mounts, mock_status, client
+):
+    mock_list_jobs.return_value = [{"job_id": "job-1", "kind": "test-mount", "label": "gdrive", "status": "done"}]
+    mock_create_job.return_value = "job-2"
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/test", data={"remote_name": "gdrive"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    mock_create_job.assert_called_once_with(kind="test-mount", label="gdrive")
+
+
+# --- POST /mounts/settings (gmc-03) --------------------------------------
+
+
+@patch("web.app.save_mount_settings")
+def test_mounts_settings_saves_and_redirects(mock_save, client):
+    """
+    A fast, local JSON write -- unlike mounts_update_credentials()/
+    mounts_test(), this must run synchronously (no create_job()/
+    start_job() backgrounding) since there's no OAuth handshake or bounded
+    mount+read cycle to keep off the request thread.
+    """
+    resp = client.post("/mounts/settings", data={"remote_name": "gdrive", "checkers": "40", "tpslimit": "20"}, follow_redirects=False)
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/mounts"
+    mock_save.assert_called_once_with("gdrive", "40", "20")
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_settings_requires_a_remote_name(mock_remotes, mock_mounts, mock_status, client):
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/settings", data={"checkers": "40", "tpslimit": "20"})
+
+    assert resp.status_code == 400
+    assert b"Missing remote name" in resp.data
+
+
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+@patch("web.app.save_mount_settings")
+def test_mounts_settings_rejects_invalid_values_with_a_400_and_never_touches_rclone(mock_save, mock_remotes, mock_mounts, mock_status, client):
+    """save_mount_settings() itself raises ValueError for a bad value -- the route must surface that as a
+    real error, not a 500, and must never fall through to anything that could reach rclone."""
+    mock_save.side_effect = ValueError("checkers must be a positive number, got -1.")
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+
+    resp = client.post("/mounts/settings", data={"remote_name": "gdrive", "checkers": "-1", "tpslimit": "8"})
+
+    assert resp.status_code == 400
+    assert b"checkers must be a positive number" in resp.data
+
+
+@patch("web.app.get_mount_settings")
+@patch("web.app.remote_status")
+@patch("web.app.list_mounts")
+@patch("web.app.list_remotes")
+def test_mounts_page_prefills_settings_form_with_effective_values(mock_remotes, mock_mounts, mock_status, mock_get_settings, client):
+    """The settings form must show the current effective values (saved-or-default), never a blank field --
+    so raising checkers/tpslimit is a deliberate choice, not a blind guess."""
+    mock_remotes.return_value = ["gdrive"]
+    mock_mounts.return_value = []
+    mock_status.return_value = "connected"
+    mock_get_settings.return_value = {"checkers": 40, "tpslimit": 20}
+
+    resp = client.get("/mounts")
+
+    assert resp.status_code == 200
+    assert b'value="40"' in resp.data
+    assert b'value="20"' in resp.data
