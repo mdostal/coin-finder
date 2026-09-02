@@ -152,6 +152,7 @@ def check_balances(
     global_max_workers=None,
     per_coin_max_concurrency=None,
     mount_health_check=None,
+    finding_callback=None,
 ):
     """
     Stage 2 -- the slow part (real network calls, one per matched
@@ -172,6 +173,12 @@ def check_balances(
         None-omits-the-kwarg behavior as global_max_workers above -- an
         existing caller/mock with the narrower pre-sse-05 signature keeps
         working unchanged.
+    :param finding_callback: optional -- see
+        tools.check_wallet_balances.check_wallet_balances(). Passed
+        straight through (like progress_callback above, not
+        omitted-when-None like the worker_kwargs below) since
+        check_wallet_balances() already treats None as "no-op" on its
+        own -- ibc-01.
     """
     paths = _paths(output_dir)
 
@@ -189,6 +196,7 @@ def check_balances(
         paths["scan_output"],
         progress_callback=progress_callback,
         checkpoint_path=checkpoint_path,
+        finding_callback=finding_callback,
         **worker_kwargs,
     )
     inconclusive_output = os.path.join(paths["sub_dir"], "inconclusive_balances.json")

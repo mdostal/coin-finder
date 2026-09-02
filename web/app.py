@@ -2876,6 +2876,16 @@ def _run_check_balances_job(output_dir, job_id, target_path=None):
         checkpoint_path=_balance_checkpoint_path(output_dir),
         global_max_workers=global_max_workers,
         per_coin_max_concurrency=per_coin_max_concurrency,
+        # ibc-01: fires the moment each address's balance is confirmed,
+        # not just in the end-of-run pass below -- so a long run (100k+
+        # addresses) shows up in the findings dashboard as it happens
+        # instead of only after it fully completes. Additive/
+        # redundant-by-design: record_finding() is an upsert, so the
+        # end-of-run pass below calling it again for the same address is
+        # harmless, not something to special-case away.
+        finding_callback=lambda file_path, crypto_name, address, balance: record_finding(
+            crypto_name, address, balance, source_path=file_path, source_label="scan"
+        ),
         **check_balances_kwargs,
     )
 
@@ -2934,6 +2944,13 @@ def _run_check_balances_selected_job(output_dir, selected_files, job_id, target_
         progress_callback=lambda current, total, message="": report_progress(job_id, current, total, message),
         global_max_workers=global_max_workers,
         per_coin_max_concurrency=per_coin_max_concurrency,
+        # ibc-01: same additive/redundant-by-design early write as
+        # _run_check_balances_job's own finding_callback above -- see its
+        # comment for why calling record_finding() twice for the same
+        # address (once here, once in the end-of-run pass below) is safe.
+        finding_callback=lambda file_path, crypto_name, address, balance: record_finding(
+            crypto_name, address, balance, source_path=file_path, source_label="scan"
+        ),
         **check_kwargs,
     )
 

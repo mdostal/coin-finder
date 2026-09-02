@@ -718,6 +718,100 @@ def test_custom_per_coin_max_concurrency_parameter_is_honored(mock_load_service,
 
 @patch("tools.check_wallet_balances.time.sleep")
 @patch("tools.check_wallet_balances.load_service")
+def test_finding_callback_invoked_once_per_confirmed_balance(mock_load_service, mock_sleep, tmp_path):
+    """
+    ibc-01: finding_callback fires with (file_path, crypto_name, address,
+    balance) at the same point progress_callback already does, so a
+    caller can persist a confirmed finding immediately instead of waiting
+    for the whole run to finish.
+    """
+    # Keyed by address (not an order-dependent side_effect list) --
+    # concurrent execution means call order across addresses isn't
+    # deterministic, only which balance each specific address resolves to.
+    balances_by_address = {"1abc": 0.0, "1def": 1.5}
+    service = MagicMock()
+    service.check_balance = MagicMock(side_effect=lambda address: balances_by_address[address])
+    mock_load_service.return_value = service
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc", "1def"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    calls = []
+    check_wallet_balances(
+        str(input_file),
+        str(output_file),
+        coins_to_check=["Bitcoin"],
+        finding_callback=lambda file_path, crypto_name, address, balance: calls.append(
+            (file_path, crypto_name, address, balance)
+        ),
+    )
+
+    assert sorted(calls) == sorted(
+        [
+            ("walletA.dat", "Bitcoin", "1abc", 0.0),
+            ("walletA.dat", "Bitcoin", "1def", 1.5),
+        ]
+    )
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_finding_callback_not_invoked_for_inconclusive_balance(mock_load_service, mock_sleep, tmp_path):
+    """
+    An inconclusive (None) balance isn't a "finding" yet -- it's retried
+    on the next run exactly like a never-checked address (see
+    _checkpoint_unit_id) -- so finding_callback must never fire for it,
+    mirroring the checkpoint store's own confirmed-only rule.
+    """
+    mock_load_service.return_value = make_service([None, None, None])
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+
+    calls = []
+    check_wallet_balances(
+        str(input_file),
+        str(output_file),
+        coins_to_check=["Bitcoin"],
+        finding_callback=lambda file_path, crypto_name, address, balance: calls.append(
+            (file_path, crypto_name, address, balance)
+        ),
+    )
+
+    assert calls == []
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
+def test_no_finding_callback_is_unaffected(mock_load_service, mock_sleep, tmp_path):
+    """
+    Regression guard: finding_callback is additive-only -- every existing
+    caller (CLI, tests) that doesn't pass it must see byte-identical
+    behavior to before this parameter existed.
+    """
+    balances_by_address = {"1abc": 0.0, "1def": 1.5, "1ghi": None}
+    service = MagicMock()
+    service.check_balance = MagicMock(side_effect=lambda address: balances_by_address[address])
+    mock_load_service.return_value = service
+
+    input_file = tmp_path / "wallet_analysis.json"
+    input_file.write_text(json.dumps({"walletA.dat": {"Bitcoin": ["1abc", "1def", "1ghi"]}}))
+    output_file = tmp_path / "wallet_balances.json"
+    inconclusive_output = tmp_path / "inconclusive_balances.json"
+
+    result = check_wallet_balances(str(input_file), str(output_file), coins_to_check=["Bitcoin"])
+
+    assert result == {
+        "walletA.dat": {"Bitcoin": {"1abc": 0.0, "1def": 1.5, "1ghi": None}},
+    }
+    assert json.loads(output_file.read_text()) == result
+    assert json.loads(inconclusive_output.read_text()) == {"walletA.dat": {"Bitcoin": ["1ghi"]}}
+
+
+@patch("tools.check_wallet_balances.time.sleep")
+@patch("tools.check_wallet_balances.load_service")
 def test_custom_global_max_workers_parameter_is_passed_to_the_thread_pool(mock_load_service, mock_sleep, tmp_path):
     mock_load_service.return_value = make_service([1.0, 1.0, 1.0])
 
