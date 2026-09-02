@@ -289,6 +289,8 @@ cython_debug/
 !.pHive/epics/crawl-checkpoint-store-migration/**
 !.pHive/epics/staging-copy-with-original-path-index/
 !.pHive/epics/staging-copy-with-original-path-index/**
+!.pHive/epics/incremental-balance-check-writes/
+!.pHive/epics/incremental-balance-check-writes/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

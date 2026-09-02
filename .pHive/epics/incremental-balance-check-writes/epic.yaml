@@ -1,0 +1,41 @@
+name: incremental-balance-check-writes
+title: Write confirmed balances to findings.db as they're found, not only at job completion
+description: >
+  Confirmed live: a real check-balances job survived an app crash mid-run
+  (the checkpoint correctly resumed and fast-forwarded past
+  already-confirmed addresses), but findings.db showed zero new rows the
+  entire multi-hour run, because _run_check_balances_job
+  (web/app.py:2960-3009) only calls record_finding() once, after the
+  whole run finishes, reading a single wallet_balances.json file that
+  itself is only written in one json.dump() call at the very end of
+  check_wallet_balances() (tools/check_wallet_balances.py:354-355). Adds
+  an additive finding_callback fired the moment each balance is confirmed
+  (the same point the existing progress_callback already fires), so real
+  progress is visible in the findings dashboard during a long run and a
+  future crash mid-run costs nothing from the user-visible database, not
+  just the already-safe checkpoint.
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: patch
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Root cause found via direct code
+      research after observing live that a real, hours-long check-balances
+      run produced zero visible findings.db activity despite genuine
+      progress. Small, bounded, single-mechanism fix (one additive
+      callback parameter) -- design discussion folded into this epic
+      description rather than a separate doc, consistent with this
+      project's "ship without re-asking" standing preference and the
+      user's explicit "keep going and figure it out" for this specific
+      fix.
+stories:
+  - id: ibc-01-incremental-finding-writes
+    title: Write confirmed balances to findings.db as they're found, not only at job completion
+    complexity: medium
+    depends_on: []
