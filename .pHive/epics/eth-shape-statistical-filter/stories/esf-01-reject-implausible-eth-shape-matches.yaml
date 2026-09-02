@@ -1,0 +1,137 @@
+id: esf-01-reject-implausible-eth-shape-matches
+epic: eth-shape-statistical-filter
+title: Reject statistically-impossible "0x"+40-hex matches before they cost a balance-check API call
+status: pending
+complexity: low
+methodology: tdd
+depends_on: []
+
+description: |
+  config/analysis.py's CRYPTO_PATTERNS matches Ethereum/Ethereum
+  Classic/Shiba Inu/Tether's ERC-20 branch with pure shape ("0x" + 40 hex
+  chars, config/analysis.py:11-12) -- zero structural validation.
+  config/address_validators.py already documents exactly why: EIP-55
+  checksumming is optional for this address family, so a real checksum
+  requirement would reject genuine unchecksummed addresses (a
+  false-negative regression) -- these four coins all use `_pass_through`
+  (always True) today, by design.
+
+  Confirmed live during a real balance-check run: this shape-only match
+  lets through obvious non-addresses that cost a real API call each --
+  e.g. `0x0000000000000000000000000000000000000042` (a near-null
+  placeholder/genesis-fixture pattern, the same family as the 1,015 false
+  "Ethereum Classic" findings from a node_modules genesis-state file
+  found earlier this session) and
+  `0x606563686f2022553246736447566b58312b5a53`, which hex-decodes to the
+  literal ASCII text `` `echo "U2FsdGVkX1+ZS` `` -- a shell-command
+  fragment that happened to consist entirely of hex-digit characters, not
+  a cryptographic address.
+
+  This adds a NEW validator (not modifying `_pass_through`, which several
+  other coins still correctly use) that keeps the same "never require
+  EIP-55 checksumming" leniency but rejects two categories that are
+  statistically impossible for a genuine keccak-hash-derived address:
+  (1) addresses whose 20 raw bytes are almost entirely zero (near-null/
+  placeholder patterns), and (2) addresses whose 20 raw bytes decode
+  entirely to printable ASCII (real address bytes are uniformly random;
+  the odds of 20 random bytes all landing in the printable-ASCII range by
+  chance are astronomically small). Both thresholds are set deliberately
+  extreme/conservative -- this file's own stated principle is "false
+  negatives are strictly worse than the bug being fixed" and this story
+  does not change that.
+
+acceptance_criteria:
+  - "Given a real Ethereum-family address with normal statistical properties (any real, historically-used address, checksummed or not), when validated, then it is accepted -- zero false-negative risk is the hard constraint, not a nice-to-have."
+  - "Given `0x0000000000000000000000000000000000000042` (18+ zero bytes), when validated, then it is rejected."
+  - "Given `0x606563686f2022553246736447566b58312b5a53` (hex-decodes to fully printable ASCII), when validated, then it is rejected."
+  - "Given the canonical null address `0x0000000000000000000000000000000000000000`, when validated, then it is rejected."
+  - "Given `filter_valid_addresses('Ethereum', [...])` / `('Ethereum Classic', [...])` / `('Shiba Inu', [...])` / `('Tether', [...])` are called with a mix of real-shaped and implausible addresses, when filtered, then only the implausible ones are dropped -- Bitcoin/other coins' existing validators and Tether's non-'0x' base58 branch are completely untouched."
+
+steps:
+  - id: research
+    description: Confirm the exact dispatch path from filter_valid_addresses() (config/address_validators.py:270) through ADDRESS_VALIDATORS for Ethereum/Ethereum Classic/Shiba Inu/Tether, and confirm Tether's validator (_validate_tether, ~line 126) correctly routes its "0x"-shaped matches through whatever this story adds without touching its base58/Omni branch.
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests for: the new validator rejects the two documented real examples above plus the canonical null address; accepts a selection of known-real historical Ethereum addresses (checksummed and unchecksummed); accepts an address with a normal/random-looking byte distribution even if it has a couple of zero bytes (must not be overly aggressive); Tether's non-'0x' base58 branch is unaffected by this change.
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: |
+      Add a new validator function in config/address_validators.py (alongside the existing _validate_* functions, documented in the same style as the rest of the file) that decodes the 40 hex chars to 20 bytes and rejects when either: (a) fewer than 3 of the 20 bytes are non-zero, or (b) all 20 bytes are in the printable-ASCII range (0x20-0x7E). Wire it into ADDRESS_VALIDATORS for "Ethereum", "Ethereum Classic", "Shiba Inu", and Tether's existing "0x" dispatch path -- leave _pass_through itself untouched since other coins (IOTA, Binance Coin) still correctly use it for unrelated reasons.
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review implementation and tests for correctness and convention compliance, with particular scrutiny on false-negative risk given this file's explicit "false negatives are strictly worse" principle
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack: {}
+  key_files:
+    - path: config/address_validators.py
+      purpose: _pass_through (65-83) is the current always-true validator for the 4 affected coins; ADDRESS_VALIDATORS (241+) is the dispatch map; _validate_tether (~126) shows how a coin with two shape branches routes each to its own validator -- the pattern to follow for wiring the new statistical check in without touching Tether's base58 branch.
+    - path: config/analysis.py
+      purpose: "Lines 11-12: the exact CRYPTO_PATTERNS shape regex (0x[a-fA-F0-9]{40}) this story doesn't change -- this story only tightens what happens to a match after it's already matched, not the regex itself."
+    - path: tools/analyze_wallets.py
+      purpose: "Line 45: filter_valid_addresses(crypto, re.findall(pattern, text)) is the actual call site -- confirms this validator layer is universally applied to every CRYPTO_PATTERNS match, not just balance-checking."
+
+files_to_modify:
+  - file: config/address_validators.py
+    change: Add a new statistical-implausibility validator for the "0x"+40hex shape; wire it into ADDRESS_VALIDATORS for Ethereum/Ethereum Classic/Shiba Inu and into Tether's 0x-branch dispatch.
+
+code_examples:
+  - title: Existing pass_through this story adds a sibling for (not a modification of)
+    file: config/address_validators.py
+    snippet: |
+      def _pass_through(_address: str) -> bool:
+          """Always-true validator for coins with no offline-verifiable checksum..."""
+          return True
+  - title: Existing multi-branch dispatch pattern to follow for Tether's 0x branch
+    file: config/address_validators.py
+    snippet: |
+      def _validate_tether(address: str) -> bool:
+          # "0x" branch is exactly Ethereum's address shape...
+          # base58/Omni branch is a real Bitcoin-alphabet base58check...
+
+design_decisions:
+  - decision: A new validator function, not a modification of _pass_through.
+    rationale: _pass_through is still the correct, deliberate choice for IOTA and Binance Coin for entirely unrelated reasons (no installed decoder) -- changing its behavior would risk those coins too. A dedicated function keeps the blast radius to exactly the 4 coins that share the "0x" shape.
+  - decision: Extreme, conservative thresholds (≤2 non-zero bytes; 100% printable-ASCII), not lenient percentage cutoffs.
+    rationale: Matches this file's own explicit stated principle ("false negatives are strictly worse than the bug being fixed") -- the goal is catching only cases that are essentially impossible for a genuine address, not maximizing catch rate.
+
+cross_cutting:
+  - concern: documentation
+    action: "No user-facing behavior/workflow change -- this is an internal filtering improvement with no README-documented workflow to update."
+
+metric:
+  applies: true
+  name: check_balances.implausible_eth_shape_matches_filtered
+  direction: up
+  unit: count
+  baseline: "0 (no filtering existed before this)"
+  target: ">0 on the next real scan of a codebase/dotfiles directory"
+  window: next real find+check-balances run against a directory containing scripts/config files (the kind that produced the original false positives)
+  source:
+    kind: manual
+    ref: "compare findings.db's Ethereum/Ethereum Classic candidate count before/after a re-scan of a known-noisy directory"
+  verify_at: "next real scan run after this ships"
+  owner: developer
+
+risks:
+  - severity: high
+    description: Too-aggressive thresholds could reject a real, legitimate address, directly contradicting this project's core purpose.
+    mitigation: Deliberately extreme thresholds (documented above) plus a test asserting several known-real historical Ethereum addresses are still accepted -- this is the single most important test in this story, treat it as the actual acceptance bar, not a formality.
+
+references:
+  - path: config/address_validators.py
+    relevant_excerpt: |
+      False negatives (rejecting a real address) are strictly worse than
+      the bug being fixed here, since this tool's entire purpose is not
+      missing a real wallet -- see the false-negative risk notes on each
+      validator below.

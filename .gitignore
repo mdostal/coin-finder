@@ -294,6 +294,8 @@ cython_debug/
 !.pHive/epics/incremental-balance-check-writes/**
 !.pHive/epics/gdrive-mount-configuration/
 !.pHive/epics/gdrive-mount-configuration/**
+!.pHive/epics/eth-shape-statistical-filter/
+!.pHive/epics/eth-shape-statistical-filter/**
 
 # BTCRecover: external GPLv2 tool, fetched at setup time, not committed here
 /vendor/

@@ -1,0 +1,40 @@
+name: eth-shape-statistical-filter
+title: Reject statistically-impossible "0x"+40-hex matches without risking real addresses
+description: >
+  Confirmed live during a real balance-check run: config/analysis.py's
+  Ethereum-family regex (pure shape, "0x" + 40 hex chars, zero structural
+  validation by design -- see config/address_validators.py's own
+  documented reasoning) lets through obvious non-addresses that each cost
+  a real balance-check API call: near-null placeholder patterns (e.g.
+  0x0000...0042, same family as the earlier 1,015 false-positive
+  incident) and hex strings that decode to literal ASCII text (a shell
+  command fragment was one live example). Adds a new, narrowly-scoped
+  validator alongside the existing _pass_through -- kept deliberately
+  conservative per this file's own stated principle that a false negative
+  (rejecting a real address) is strictly worse than the noise this fixes.
+  Optional/best-effort scope per explicit user instruction: "if there is
+  a way to tighten reasonably, sure, if not, no worries... we also don't
+  want to avoid real files."
+target_codebase: /Users/mdostal/Documents/work/personal/coin-finder
+methodology: tdd
+version_bump: patch
+sidecar_retention: transient
+git_flow:
+  base_branch: main
+  branch_strategy: per-epic
+planning_team:
+  gate_decisions:
+    note: >
+      Self-authored planning adaptation for this session -- no live
+      multi-agent teammate spawn. Root cause found via direct live
+      observation during the check-balances run this same session already
+      fixed the incremental-writes gap on. Small, narrowly-scoped,
+      single-file fix with an existing, well-documented validator
+      framework already in place to extend -- design discussion folded
+      into this epic description, consistent with this project's "ship
+      without re-asking" standing preference.
+stories:
+  - id: esf-01-reject-implausible-eth-shape-matches
+    title: Reject statistically-impossible "0x"+40-hex matches before they cost a balance-check API call
+    complexity: low
+    depends_on: []

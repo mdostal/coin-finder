@@ -17,7 +17,7 @@ import re
 
 import pytest
 
-from config.address_validators import ADDRESS_VALIDATORS
+from config.address_validators import ADDRESS_VALIDATORS, filter_valid_addresses
 from config.analysis import CRYPTO_PATTERNS
 
 # Tonight's real garbage: Rust mangled-symbol strings from a prior scan's
@@ -65,7 +65,34 @@ REAL_ADDRESSES = {
     "Helium": "13QvnWtjpi3HYoBPpcEmqansMyCbJSkRpSthXAJFTaxwUraKKaP",
 }
 
-GROUP_3_PASS_THROUGH_COINS = ["Ethereum", "Ethereum Classic", "Shiba Inu", "IOTA"]
+# Real, historically-used Ethereum-family ("0x" + 40 hex) addresses, both
+# EIP-55-checksummed (mixed case) and all-lowercase/unchecksummed, to prove
+# _validate_eth_shape_statistical (config/address_validators.py) doesn't
+# over-reject real addresses -- the single most important guarantee in this
+# module per esf-01's own risk notes.
+REAL_ETH_ADDRESSES = {
+    # Vitalik Buterin's public, ENS-linked (vitalik.eth) address --
+    # widely published, e.g. on Etherscan.
+    "vitalik_checksummed": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    "vitalik_lowercase": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+    # The Ethereum Foundation's original (Frontier-era) donation address,
+    # documented across Ethereum Foundation blog posts and Etherscan.
+    "ethereum_foundation_checksummed": "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe",
+    "ethereum_foundation_lowercase": "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae",
+    # Tether's own USDT ERC-20 contract address on Ethereum mainnet --
+    # published by Tether/Etherscan, and itself a real "0x"+40-hex address
+    # (contract addresses are ordinary 20-byte addresses).
+    "usdt_contract_checksummed": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+}
+
+GROUP_2_PASS_THROUGH_COINS = ["IOTA"]
+ETH_SHAPE_STATISTICAL_COINS = ["Ethereum", "Ethereum Classic", "Shiba Inu"]
+
+# Real, live examples that cost an API call before this story existed --
+# see .pHive/epics/eth-shape-statistical-filter/stories/esf-01-*.yaml.
+NEAR_NULL_PLACEHOLDER = "0x0000000000000000000000000000000000000042"
+ASCII_ENCODED_TEXT = "0x606563686f2022553246736447566b58312b5a53"
+CANONICAL_NULL_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 
 def _corrupt(address: str) -> str:
@@ -113,11 +140,57 @@ def test_every_crypto_pattern_coin_has_a_validator_entry():
     assert missing == set()
 
 
-@pytest.mark.parametrize("coin", GROUP_3_PASS_THROUGH_COINS)
-def test_group3_coins_pass_through_even_garbage_shapes(coin):
+@pytest.mark.parametrize("coin", GROUP_2_PASS_THROUGH_COINS)
+def test_group2_coins_pass_through_even_garbage_shapes(coin):
     validate = ADDRESS_VALIDATORS[coin]
     assert validate("0x" + "a" * 40) is True
     assert validate("totally not a real address but shape matched") is True
+
+
+# --- esf-01: statistical filter for the "0x" + 40 hex shape -----------------
+#
+# Ethereum, Ethereum Classic, and Shiba Inu (plus Tether's ERC-20 branch,
+# tested separately below) are no longer bare pass-through: they still never
+# require EIP-55 checksumming (see the real-address tests below), but they do
+# reject the two categories of shape documented on
+# _validate_eth_shape_statistical -- near-null/placeholder byte patterns and
+# addresses whose bytes secretly decode to printable ASCII text.
+
+
+@pytest.mark.parametrize("coin", ETH_SHAPE_STATISTICAL_COINS)
+@pytest.mark.parametrize(
+    "implausible_address",
+    [NEAR_NULL_PLACEHOLDER, ASCII_ENCODED_TEXT, CANONICAL_NULL_ADDRESS],
+)
+def test_eth_shape_statistical_filter_rejects_implausible_matches(coin, implausible_address):
+    # Confirm the premise first: these really do match the shape regex
+    # today (that's the bug) before proving the validator catches them.
+    assert re.fullmatch(CRYPTO_PATTERNS[coin], implausible_address)
+    assert ADDRESS_VALIDATORS[coin](implausible_address) is False
+
+
+@pytest.mark.parametrize("coin", ETH_SHAPE_STATISTICAL_COINS + ["Tether"])
+@pytest.mark.parametrize("real_address", REAL_ETH_ADDRESSES.values(), ids=REAL_ETH_ADDRESSES.keys())
+def test_eth_shape_statistical_filter_accepts_real_addresses(coin, real_address):
+    # The single most important test in this module per esf-01's own risk
+    # notes: real, historically-used addresses -- checksummed AND
+    # all-lowercase/unchecksummed -- must never be rejected.
+    assert re.fullmatch(CRYPTO_PATTERNS[coin], real_address)
+    assert ADDRESS_VALIDATORS[coin](real_address) is True
+
+
+@pytest.mark.parametrize("coin", ETH_SHAPE_STATISTICAL_COINS + ["Tether"])
+def test_eth_shape_statistical_filter_does_not_overreject_a_couple_of_zero_bytes(coin):
+    # A normal/random-ish byte distribution that happens to contain a
+    # couple of zero bytes (well under the "fewer than 3 non-zero bytes"
+    # near-null threshold) must still be accepted -- the filter must not
+    # be more aggressive than its documented, deliberately extreme
+    # thresholds.
+    payload = bytes([0x00, 0x00] + list(range(1, 19)))  # 2 zero, 18 non-zero
+    assert len(payload) == 20
+    address = "0x" + payload.hex()
+    assert re.fullmatch(CRYPTO_PATTERNS[coin], address)
+    assert ADDRESS_VALIDATORS[coin](address) is True
 
 
 def test_binance_coin_pass_through_documented_gap():
@@ -126,17 +199,50 @@ def test_binance_coin_pass_through_documented_gap():
     assert ADDRESS_VALIDATORS["Binance Coin"]("bnb1anything") is True
 
 
-def test_tether_erc20_branch_passes_through_unchecksummed():
-    # Tether's regex also matches plain "0x" + 40 hex (ERC-20 branch).
-    # EIP-55 checksumming is optional, so a real unchecksummed address
-    # must not be rejected.
+def test_tether_erc20_branch_still_never_requires_eip55_checksumming():
+    # Tether's regex also matches plain "0x" + 40 hex (ERC-20 branch). This
+    # is a normal/random-ish (non-implausible) address, so the statistical
+    # filter it's now routed through (_validate_eth_shape_statistical) must
+    # still accept it unchecksummed -- EIP-55 is never required.
     assert ADDRESS_VALIDATORS["Tether"]("0x" + "a" * 40) is True
 
 
 def test_tether_omni_branch_uses_real_base58check():
+    # esf-01: Tether's base58/Omni branch must be completely unaffected by
+    # the new "0x" branch statistical filter -- these assertions predate
+    # esf-01 and are unmodified by it.
     validate = ADDRESS_VALIDATORS["Tether"]
     assert validate(REAL_ADDRESSES["Tether"]) is True
     assert validate(_corrupt(REAL_ADDRESSES["Tether"])) is False
+
+
+def test_tether_omni_branch_unaffected_by_eth_shape_implausible_matches():
+    # esf-01: the near-null/ASCII-text rejections added for the "0x" branch
+    # must never leak into the base58/Omni branch's own (unrelated)
+    # checksum logic -- a base58 string is never dispatched through
+    # _validate_eth_shape_statistical in the first place.
+    validate = ADDRESS_VALIDATORS["Tether"]
+    assert not REAL_ADDRESSES["Tether"].startswith(("0x", "0X"))
+    assert validate(REAL_ADDRESSES["Tether"]) is True
+
+
+def test_filter_valid_addresses_drops_only_implausible_eth_shape_matches():
+    # esf-01 acceptance criterion: filter_valid_addresses() end-to-end for
+    # Ethereum/Ethereum Classic/Shiba Inu/Tether, given a mix of real-shaped
+    # and implausible addresses, drops only the implausible ones.
+    real = REAL_ETH_ADDRESSES["vitalik_checksummed"]
+    real_lowercase = REAL_ETH_ADDRESSES["vitalik_lowercase"]
+    mixed = [real, NEAR_NULL_PLACEHOLDER, real_lowercase, ASCII_ENCODED_TEXT, CANONICAL_NULL_ADDRESS]
+    for coin in ETH_SHAPE_STATISTICAL_COINS + ["Tether"]:
+        assert filter_valid_addresses(coin, mixed) == [real, real_lowercase]
+
+
+def test_filter_valid_addresses_leaves_tether_omni_branch_untouched():
+    # Same end-to-end entry point, proving the base58/Omni branch mixed in
+    # alongside "0x"-shaped matches is filtered by its own real checksum
+    # logic, not swept up by the eth-shape statistical filter.
+    mixed = [REAL_ADDRESSES["Tether"], NEAR_NULL_PLACEHOLDER, _corrupt(REAL_ADDRESSES["Tether"])]
+    assert filter_valid_addresses("Tether", mixed) == [REAL_ADDRESSES["Tether"]]
 
 
 def test_okcash_regex_no_longer_accepts_non_base58_alphabet_chars():
