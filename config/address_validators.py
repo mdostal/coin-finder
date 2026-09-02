@@ -24,6 +24,11 @@ see requirements.txt). Every coin is honestly categorized:
   always returns True. These are NOT silently omitted -- every
   CRYPTO_PATTERNS key must resolve to an entry here so callers can apply
   the mapping uniformly without a coin-by-coin conditional.
+- Ethereum, Ethereum Classic, Shiba Inu, and Tether's ERC-20 branch ("0x"
+  + 40 hex): also no offline-verifiable checksum (EIP-55 is optional, not
+  required), but NOT bare pass-through either -- a statistical filter
+  (_validate_eth_shape_statistical) rejects the narrow set of byte
+  patterns that are essentially impossible for a genuine address.
 
 False negatives (rejecting a real address) are strictly worse than the
 bug being fixed here, since this tool's entire purpose is not missing a
@@ -67,11 +72,6 @@ def _pass_through(_address: str) -> bool:
     (or no already-installed decoder for the checksum that does exist).
 
     Used for:
-    - Ethereum, Ethereum Classic, Shiba Inu ("0x" + 40 hex): EIP-55 mixed-
-      case checksumming exists but is optional -- real addresses in the
-      wild are routinely all-lowercase/unchecksummed, so enforcing it
-      would reject genuine addresses (a false-negative regression, not a
-      fix).
     - IOTA ([A-Z9]{81}): the real IOTA checksum is a separate 9-tryte
       suffix the current regex doesn't even capture, and trytes aren't a
       bip_utils (or any other already-installed) alphabet.
@@ -79,7 +79,70 @@ def _pass_through(_address: str) -> bool:
       checksummed at the protocol level, but bip_utils has no BnbAddr*
       decoder. Closing this needs a new dependency -- out of scope here,
       flagged as a follow-up.
+
+    NOTE: Ethereum, Ethereum Classic, and Shiba Inu ("0x" + 40 hex) used to
+    be pass-through too, for the same real reason (EIP-55 mixed-case
+    checksumming exists but is optional -- real addresses in the wild are
+    routinely all-lowercase/unchecksummed, so enforcing it would reject
+    genuine addresses). They now go through
+    _validate_eth_shape_statistical below instead, which keeps that same
+    "never require EIP-55" leniency but rejects the narrow set of shapes
+    that are statistically impossible for a genuine address -- see that
+    function's docstring.
     """
+    return True
+
+
+def _validate_eth_shape_statistical(address: str) -> bool:
+    """Statistical-implausibility filter for the "0x" + 40 hex-char address
+    shape shared by Ethereum, Ethereum Classic, Shiba Inu, and Tether's
+    ERC-20 branch (see _validate_tether).
+
+    This is deliberately NOT an EIP-55 checksum check -- mixed-case
+    checksumming is optional for this address family and real addresses in
+    the wild are routinely all-lowercase/unchecksummed, so requiring it
+    would reject genuine addresses (the exact false-negative regression
+    this file's own stated principle forbids). Instead this decodes the 40
+    hex characters to the 20 raw address bytes and rejects only the two
+    categories below, both of which are essentially impossible for a real
+    keccak-hash-derived address (the hash function that produces a real
+    Ethereum-family address's bytes) to produce by chance:
+
+    - Near-null / placeholder patterns: fewer than 3 of the 20 bytes are
+      non-zero. Real address bytes come out of a cryptographic hash, so
+      seeing 18+ zero bytes is astronomically unlikely -- what actually
+      produces strings like this is genesis-state fixtures, "burn"/null
+      sentinel addresses, and other non-address placeholders that merely
+      happen to match the "0x" + 40 hex shape.
+    - Secretly-encoded text: all 20 bytes fall in the printable-ASCII range
+      (0x20-0x7E inclusive). A real address's bytes are uniformly
+      distributed over all 256 possible byte values, so the odds of all 20
+      independently landing in a range covering only ~37% of those values
+      is (0.37)^20 -- far below any threshold worth worrying about as a
+      false negative. What actually produces strings like this is
+      arbitrary text (e.g. a shell command or a config value) that happens
+      to consist entirely of hex-digit characters.
+
+    Anything that clears both checks -- including every real address this
+    story's own tests exercise -- is accepted, exactly like _pass_through
+    would have accepted it. Malformed input (not valid hex, or not exactly
+    40 hex characters/20 bytes once the optional "0x"/"0X" prefix is
+    stripped) is also rejected: a real match against CRYPTO_PATTERNS's
+    ``0x[a-fA-F0-9]{40}`` shape can never hit this path, so it only guards
+    against this function being called directly with something else.
+    """
+    hex_payload = address[2:] if address.startswith(("0x", "0X")) else address
+    try:
+        payload = bytes.fromhex(hex_payload)
+    except ValueError:
+        return False
+    if len(payload) != 20:
+        return False
+    non_zero_count = sum(1 for b in payload if b != 0)
+    if non_zero_count < 3:
+        return False
+    if all(0x20 <= b <= 0x7E for b in payload):
+        return False
     return True
 
 
@@ -130,15 +193,18 @@ def _validate_tether(address: str) -> bool:
     validators, not one:
 
     - The "0x" branch is exactly Ethereum's address shape, so it gets the
-      same documented pass-through as the rest of the ETH family (see
-      _pass_through) -- EIP-55 is optional, so enforcing it would reject
-      real unchecksummed Tether ERC-20 addresses.
+      same statistical-implausibility filter as the rest of the ETH family
+      (see _validate_eth_shape_statistical) -- EIP-55 is still never
+      required, so a real unchecksummed Tether ERC-20 address is never
+      rejected; only the near-null/placeholder and secretly-encoded-text
+      shapes that function documents are.
     - The base58/Omni branch is a real Bitcoin-alphabet base58check
       address (Omni Layer rides on ordinary Bitcoin addresses), so it
-      gets the real checksum filter.
+      gets the real checksum filter. This branch is completely untouched
+      by the "0x" branch's filter above.
     """
     if address.startswith(("0x", "0X")):
-        return True
+        return _validate_eth_shape_statistical(address)
     return _validate_base58check_bitcoin_alphabet(address)
 
 
@@ -258,10 +324,13 @@ ADDRESS_VALIDATORS = {
     # config/analysis.py's tightened OKCash regex) -- doesn't need
     # OKCash's exact version byte, only a valid base58check round-trip.
     "OKCash": _validate_base58check_bitcoin_alphabet,
+    # "0x" + 40 hex shape: no offline-verifiable checksum (EIP-55 is
+    # optional), but statistically-impossible shapes are filtered -- see
+    # _validate_eth_shape_statistical.
+    "Ethereum": _validate_eth_shape_statistical,
+    "Ethereum Classic": _validate_eth_shape_statistical,
+    "Shiba Inu": _validate_eth_shape_statistical,
     # Group 2/3: documented pass-through, not a silent omission.
-    "Ethereum": _pass_through,
-    "Ethereum Classic": _pass_through,
-    "Shiba Inu": _pass_through,
     "IOTA": _pass_through,
     "Binance Coin": _pass_through,
 }
