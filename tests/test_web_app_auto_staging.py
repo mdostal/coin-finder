@@ -143,6 +143,81 @@ def test_check_balances_selected_job_stages_each_distinct_file_once(mock_workers
     assert mock_stage.call_count == 1
 
 
+@patch("web.app.record_finding")
+@patch("web.app.stage_and_index")
+@patch("web.app.resolve_check_balances_workers", return_value=(1, 1))
+@patch("web.app.run_pipeline")
+def test_check_balances_job_wires_finding_callback_to_record_finding(
+    mock_run_pipeline, mock_workers, mock_stage, mock_record_finding, tmp_path
+):
+    """
+    ibc-01: _run_check_balances_job must pass run_pipeline.check_balances()
+    a finding_callback that actually persists to findings.db via
+    record_finding(), the same call the end-of-run pass below already
+    makes -- run_pipeline itself is fully mocked here, so the assertion is
+    on the callback web/app.py handed it, invoked exactly as
+    check_wallet_balances() would invoke it for a real confirmed balance.
+    """
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    # run_pipeline is fully mocked, so its check_balances() never actually
+    # runs check_wallet_balances() or writes wallet_balances.json -- write
+    # it directly so the (unrelated) end-of-run record_finding() pass has
+    # something to read, keeping this test's only assertion on the
+    # finding_callback kwarg itself.
+    _write_balances_json(output_dir, {})
+
+    app_module._run_check_balances_job(str(output_dir), "job-1")
+
+    finding_callback = mock_run_pipeline.check_balances.call_args.kwargs["finding_callback"]
+    mock_record_finding.reset_mock()  # drop any end-of-run calls from the empty balances write above
+
+    finding_callback("walletA.dat", "Bitcoin", "1aaa", 0.5)
+
+    mock_record_finding.assert_called_once_with(
+        "Bitcoin", "1aaa", 0.5, source_path="walletA.dat", source_label="scan"
+    )
+
+
+@patch("web.app.record_finding")
+@patch("web.app.stage_and_index")
+@patch("web.app.check_wallet_balances")
+@patch("web.app.resolve_check_balances_workers", return_value=(1, 1))
+def test_check_balances_selected_job_wires_finding_callback_to_record_finding(
+    mock_workers, mock_check, mock_stage, mock_record_finding, tmp_path
+):
+    """Same wiring as _run_check_balances_job's own test above, for the
+    selected-files variant, which calls check_wallet_balances() directly
+    rather than through run_pipeline.check_balances()."""
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    (output_dir / "checks").mkdir()
+
+    file_a = tmp_path / "a.dat"
+    file_a.write_bytes(b"file a")
+    analysis = {str(file_a): {"some": "analysis"}}
+    with open(output_dir / "checks" / "wallet_analysis.json", "w") as f:
+        json.dump(analysis, f)
+
+    def fake_check_wallet_balances(input_path, output_path, **kwargs):
+        with open(output_path, "w") as f:
+            json.dump({}, f)
+
+    mock_check.side_effect = fake_check_wallet_balances
+
+    app_module._run_check_balances_selected_job(str(output_dir), [str(file_a)], "job-1")
+
+    finding_callback = mock_check.call_args.kwargs["finding_callback"]
+    mock_record_finding.reset_mock()
+
+    finding_callback(str(file_a), "Bitcoin", "1aaa", 0.5)
+
+    mock_record_finding.assert_called_once_with(
+        "Bitcoin", "1aaa", 0.5, source_path=str(file_a), source_label="scan"
+    )
+
+
 @patch("web.app.stage_and_index")
 @patch("web.app.crawl_wallet_cluster")
 @patch("web.app.load_seed_addresses")

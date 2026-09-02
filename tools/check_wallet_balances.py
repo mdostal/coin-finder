@@ -152,6 +152,7 @@ def check_wallet_balances(
     global_max_workers=GLOBAL_MAX_WORKERS,
     per_coin_max_concurrency=PER_COIN_MAX_CONCURRENCY,
     mount_health_check=None,
+    finding_callback=None,
 ):
     """
     Check balances of wallet addresses for specified cryptocurrencies. Retries
@@ -197,9 +198,23 @@ def check_wallet_balances(
         skipped entirely. When it returns False, whatever progress exists
         is flushed and this raises a clear error instead of finishing
         looking indistinguishable from a clean run.
+    :param finding_callback: optional callable(file_path, crypto_name,
+        address, balance) invoked once per address the moment its balance
+        is CONFIRMED (balance is not None) -- never for an inconclusive
+        result, mirroring the checkpoint store's own confirmed-only rule
+        (see _checkpoint_unit_id: an inconclusive address is never marked
+        completed either). Fires from the same progress_lock-protected
+        block as progress_callback, right after it, so a caller can
+        persist a finding (e.g. to findings.db) the moment it's known
+        instead of waiting for the whole run -- potentially 100k+
+        addresses -- to finish (ibc-01). Defaults to a no-op -- every
+        existing call site (CLI, tests) is unaffected by this parameter's
+        presence.
     """
     if progress_callback is None:
         progress_callback = lambda current, total, message="": None
+    if finding_callback is None:
+        finding_callback = lambda file_path, crypto_name, address, balance: None
 
     # Use all configured coins if no specific list is provided
     if not coins_to_check:
@@ -302,6 +317,16 @@ def check_wallet_balances(
                 # the store at all, so it's retried on resume exactly
                 # like a never-checked address (see _checkpoint_unit_id).
                 store.mark_completed(_checkpoint_unit_id(crypto_name, file_path, address, balance))
+
+            if balance is not None:
+                # ibc-01: same confirmed-only rule as the checkpoint store
+                # just above (an inconclusive balance isn't a "finding"
+                # yet -- it's retried next run exactly like a
+                # never-checked address), but this fires regardless of
+                # whether a checkpoint store is even configured, so a
+                # caller gets real-time visibility into confirmed
+                # balances independent of resumability.
+                finding_callback(file_path, crypto_name, address, balance)
 
             if store and (
                 checked_count % CHECKPOINT_EVERY_ADDRESSES == 0 or time.time() - last_checkpoint_at >= CHECKPOINT_EVERY_SECONDS

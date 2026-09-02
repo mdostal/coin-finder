@@ -1,0 +1,137 @@
+id: ibc-01-incremental-finding-writes
+epic: incremental-balance-check-writes
+title: Write confirmed balances to findings.db as they're found, not only at job completion
+status: pending
+complexity: medium
+methodology: tdd
+depends_on: []
+
+description: |
+  _run_check_balances_job (web/app.py:2960-3009) only calls record_finding()
+  once, after run_pipeline.check_balances() fully returns -- which itself
+  only writes its single wallet_balances.json output file in one
+  json.dump() call at the very end of check_wallet_balances()
+  (tools/check_wallet_balances.py:354-355). Confirmed live: a real
+  check-balances job survived an app crash mid-run (checkpoint correctly
+  fast-forwarded past already-confirmed addresses on resume), but
+  findings.db showed zero new rows the entire time, for hours, because
+  nothing is written there until the whole 141k-address run finishes.
+
+  check_wallet_balances() already confirms each balance inside check_one()
+  under progress_lock (tools/check_wallet_balances.py:292-296), the exact
+  same point progress_callback already fires -- this story adds a sibling
+  finding_callback(file_path, crypto_name, address, balance) invoked from
+  that same block, so a caller can persist a confirmed balance the moment
+  it's known, not hours later. This makes real progress visible in the
+  findings dashboard during a long run, and means a future crash mid-run
+  loses zero already-confirmed results from the user-visible database (not
+  just from the checkpoint, which was already safe).
+
+acceptance_criteria:
+  - "Given a check-balances run in progress, when an address's balance is confirmed, then record_finding() is called for it immediately (same call as the eventual end-of-run write would have made), not deferred until the whole run finishes."
+  - "Given check_wallet_balances() is called with no finding_callback (every existing caller: CLI, tests), when it runs, then behavior is byte-identical to today -- this is an additive, optional parameter, not a required one."
+  - "Given a run is paused or the mount disconnects mid-run, when that happens, then every address confirmed before the interruption is already in findings.db (verifiable by checking the dashboard immediately after the interruption, not after a resume)."
+  - "Given the run completes normally, when it finishes, then the existing end-of-run wallet_balances.json write and its own record_finding() pass still happen too -- this is additive/redundant-by-design (record_finding() is an existing upsert, calling it twice for the same confirmed address is harmless), not a replacement for the final write."
+
+steps:
+  - id: research
+    description: Confirm the exact call site and locking semantics inside check_one() (progress_lock) that finding_callback should be invoked from, and confirm record_finding()'s upsert is safe to call from a background thread while a Flask job is running (existing progress_callback is already called from the same thread context, so likely already safe -- verify, don't assume).
+    agent: researcher
+  - id: test-spec
+    description: |
+      Write failing tests for: finding_callback is invoked once per confirmed balance with the correct (file_path, crypto_name, address, balance) args, at the same point progress_callback fires; an inconclusive (None) balance does NOT invoke finding_callback (matches the existing checkpoint behavior of only ever storing confirmed balances); no finding_callback passed = no behavior change (regression guard); _run_check_balances_job wires finding_callback to record_finding() and a finding shows up in findings.db before the job's overall status is "done".
+    agent: tester
+    depends_on: [research]
+  - id: implement
+    description: |
+      Add finding_callback=None parameter to check_wallet_balances() (tools/check_wallet_balances.py), invoked from check_one()'s existing progress_lock block right where results[...] is set (line ~293), only when balance is not None. Wire it in web/app.py's _run_check_balances_job (and the selected-files variant, _run_check_balances_selected_job, same pattern) via run_pipeline.check_balances(...)'s existing kwarg-forwarding path (mirrors how progress_callback/mount_health_check are already forwarded), calling record_finding(coin, address, balance, source_path=file_path, source_label="scan") from the callback -- the exact same call already made at the end-of-run pass, just moved earlier too (not instead of).
+    agent: developer
+    depends_on: [test-spec]
+  - id: review
+    description: Review implementation and tests for correctness and convention compliance
+    agent: reviewer
+    depends_on: [implement]
+  - id: integrate
+    description: Commit and push to feature branch
+    agent: developer
+    depends_on: [review]
+
+context:
+  codebase: /Users/mdostal/Documents/work/personal/coin-finder
+  tech_stack: {}
+  key_files:
+    - path: tools/check_wallet_balances.py
+      purpose: check_one() (282-317) is where a confirmed balance is known and progress_callback already fires (line 296) under progress_lock -- finding_callback needs to fire from the same protected block. The final batch write is at lines 354-355.
+    - path: web/app.py
+      purpose: _run_check_balances_job (2960-3009) and _run_check_balances_selected_job (3012+) are the two call sites that need finding_callback wired to record_finding() -- both already forward progress_callback/mount_health_check the same way.
+    - path: tools/run_pipeline.py
+      purpose: check_balances() here is the thin wrapper web/app.py actually calls -- confirm it forwards **kwargs (or needs an explicit finding_callback passthrough) down to tools/check_wallet_balances.py's check_wallet_balances().
+
+files_to_modify:
+  - file: tools/check_wallet_balances.py
+    change: Add finding_callback=None param to check_wallet_balances(); invoke it from check_one()'s progress_lock block when balance is confirmed (not None).
+  - file: tools/run_pipeline.py
+    change: Forward finding_callback through check_balances() to check_wallet_balances(), same pattern as progress_callback/mount_health_check.
+  - file: web/app.py
+    change: Wire finding_callback=lambda ...: record_finding(...) into both _run_check_balances_job and _run_check_balances_selected_job's run_pipeline.check_balances(...) calls.
+
+code_examples:
+  - title: Existing progress_callback firing point to mirror for finding_callback
+    file: tools/check_wallet_balances.py
+    snippet: |
+      with progress_lock:
+          results[file_path].setdefault(crypto_name, {})[address] = balance
+          print(f"    {address}: {balance}")
+          checked_count += 1
+          progress_callback(checked_count, total_addresses, f"{crypto_name}: {address}")
+          if balance is None:
+              inconclusive.setdefault(file_path, {}).setdefault(crypto_name, []).append(address)
+          elif store:
+              store.mark_completed(_checkpoint_unit_id(crypto_name, file_path, address, balance))
+  - title: Existing end-of-run record_finding() call this story adds an earlier, additive twin of
+    file: web/app.py
+    snippet: |
+      for file_path, crypto_wallets in balances.items():
+          for coin, addresses in crypto_wallets.items():
+              for address, balance in addresses.items():
+                  record_finding(coin, address, balance, source_path=file_path, source_label="scan")
+
+design_decisions:
+  - decision: finding_callback is additive, not a replacement for the end-of-run write.
+    rationale: Keeps a single, well-tested completion path unchanged (idempotent upsert makes calling record_finding() twice for the same address harmless) while adding real-time visibility and crash resilience -- lowest-risk way to close the gap.
+  - decision: Only fire finding_callback for a CONFIRMED (non-None) balance, mirroring the existing checkpoint's own confirmed-only rule.
+    rationale: An inconclusive balance isn't a "finding" yet -- it's retried on the next run exactly like a never-checked address; writing it to findings.db early would be premature and inconsistent with the checkpoint's own semantics.
+
+cross_cutting:
+  - concern: documentation
+    action: "No user-facing behavior/workflow change (findings just appear sooner) -- README's existing description of the findings dashboard doesn't need updating."
+
+metric:
+  applies: true
+  name: check_balances.findings_visible_before_completion
+  direction: up
+  unit: boolean (findings.db row count > 0 while job status == running)
+  baseline: "0 (findings.db never changes until the whole run completes, confirmed live)"
+  target: ">0 during an in-progress run"
+  window: next real check-balances run after this ships
+  source:
+    kind: manual
+    ref: "query findings.db's checked-count while a real check-balances job's /api/jobs/<id> status is still 'running'"
+  verify_at: "next real check-balances job run after this story ships"
+  owner: developer
+
+risks:
+  - severity: low
+    description: Calling record_finding() (a sqlite write) from inside check_one()'s progress_lock could add contention if findings.db is slow, slightly serializing what was previously a lock only used for in-memory dict updates.
+    mitigation: record_finding() is already called from a background job thread today (just later) with no reported contention issue -- moving it earlier doesn't change its concurrency characteristics, only its timing. Confirm during review that progress_lock isn't held for the network-call portion (it isn't -- only the result-recording portion, per the existing code).
+
+references:
+  - path: web/app.py
+    relevant_excerpt: |
+      balances_path = Path(output_dir) / "checks" / "wallet_balances.json"
+      balances = _read_json(balances_path)
+      if balances:
+          for file_path, crypto_wallets in balances.items():
+              for coin, addresses in crypto_wallets.items():
+                  for address, balance in addresses.items():
+                      record_finding(coin, address, balance, source_path=file_path, source_label="scan")
