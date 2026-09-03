@@ -1,7 +1,7 @@
 id: esf-01-reject-implausible-eth-shape-matches
 epic: eth-shape-statistical-filter
 title: Reject statistically-impossible "0x"+40-hex matches before they cost a balance-check API call
-status: pending
+status: shipped
 complexity: low
 methodology: tdd
 depends_on: []

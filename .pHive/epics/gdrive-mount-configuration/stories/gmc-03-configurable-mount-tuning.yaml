@@ -1,7 +1,7 @@
 id: gmc-03-configurable-mount-tuning
 epic: gdrive-mount-configuration
 title: Expose checkers/tpslimit as per-remote settings instead of hardcoded
-status: pending
+status: shipped
 complexity: low
 methodology: tdd
 depends_on: []

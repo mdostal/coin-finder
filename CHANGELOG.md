@@ -4,6 +4,38 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-09-03
+
+### Fixed
+
+- **The real root cause of the GDrive mount dying every 20-30 minutes under load.**
+  It authenticated through rclone's shared default Google API client, whose quota
+  is global across every rclone user and gets rate-limited under sustained
+  scanning. You can now attach your own dedicated Google Cloud OAuth client to an
+  existing remote (not just when first connecting one), run a real "Test
+  connection" check before committing a long scan to a mount, and tune each
+  remote's concurrency/rate settings instead of a one-size-fits-all hardcoded
+  value -- all from the Mounts page. (`gdrive-mount-configuration` epic)
+- **A long balance-check run could show zero progress in Findings for hours**,
+  even while genuinely working, because results only ever got written once, at
+  the very end of the whole run. Confirmed live: a real run survived an app
+  crash mid-way (its checkpoint correctly resumed), but nothing showed up in the
+  dashboard the entire time it ran. Confirmed balances now land in Findings the
+  moment they're found, so progress is visible in real time and a crash mid-run
+  no longer costs you visibility into hours of already-completed work.
+  (`incremental-balance-check-writes` epic)
+- **Obvious non-addresses no longer burn a real balance-check API call.** The
+  Ethereum-family address matcher (Ethereum, Ethereum Classic, Shiba Inu, and
+  Tether's ERC-20 form) previously accepted anything shaped like `0x` + 40 hex
+  characters with no further check, by design -- these coins don't require
+  address checksums. Confirmed live: this let through near-null placeholder
+  patterns and hex text that just happened to decode to a shell-command
+  fragment. A new, deliberately conservative filter rejects only cases that are
+  statistically impossible for a real address (verified against known real
+  addresses to make sure nothing genuine gets rejected -- a missed real wallet
+  would be far worse than a little extra noise). (`eth-shape-statistical-filter`
+  epic)
+
 ## [0.58.1] - 2026-08-26
 
 ### Fixed

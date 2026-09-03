@@ -1,7 +1,7 @@
 id: ibc-01-incremental-finding-writes
 epic: incremental-balance-check-writes
 title: Write confirmed balances to findings.db as they're found, not only at job completion
-status: pending
+status: shipped
 complexity: medium
 methodology: tdd
 depends_on: []

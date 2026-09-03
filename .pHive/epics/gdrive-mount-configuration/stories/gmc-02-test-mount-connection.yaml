@@ -1,7 +1,7 @@
 id: gmc-02-test-mount-connection
 epic: gdrive-mount-configuration
 title: "Test connection" action before committing a real scan
-status: pending
+status: shipped
 complexity: medium
 methodology: tdd
 depends_on: []
